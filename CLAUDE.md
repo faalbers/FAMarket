@@ -70,6 +70,11 @@ Three intentionally decoupled layers plus shared infrastructure:
 - **Schema grows dynamically**: every API field is its own column (no JSON
   blobs); unknown columns are added via `ALTER TABLE ADD COLUMN` automatically on
   write. `NULL` means "not applicable" for that symbol.
+- **Row-level provenance**: when a table draws from more than one source, every
+  row carries a `source` column naming its origin (e.g. `financials`: `yfinance`
+  primary, `edgar` deep-history backfill). Single-source tables (`quotes`,
+  `ohlcv`, `macro`) omit it. Add `source` to a table only when a second source
+  starts writing to it.
 - **Secrets vs settings**: API keys live only in `.env` (git-ignored; see
   `.env.template`), loaded via `config/secrets.py` (use `secrets.require("KEY")`
   for a clear error when missing). Everything else (paths, batch sizes, rate
