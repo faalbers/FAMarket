@@ -37,7 +37,8 @@ CLASSIFICATION (verified against live AAPL data):
 
 from __future__ import annotations
 
-from datetime import date
+import calendar
+from datetime import date, timedelta
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -57,13 +58,6 @@ COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.jso
 # periods) is intentionally dropped.
 _ANNUAL_DAYS = (330, 400)
 _QUARTER_DAYS = (80, 100)
-
-# A yfinance period within this many days of an incoming EDGAR period (same
-# symbol+freq) is the SAME fiscal period reported on a slightly different date
-# (yfinance month-end-normalizes; EDGAR keeps the true 52/53-week date). EDGAR
-# must not duplicate it. The window is far below the ~90-day quarter / ~365-day
-# year spacing, so it only ever collapses genuine drift, never distinct periods.
-_OWNED_DRIFT_DAYS = 20
 
 # Mirrors yfinance's completeness rule so both sources agree on the flag.
 _COMPLETENESS_FIELDS = ("total_revenue", "net_income")
@@ -139,6 +133,28 @@ def _to_date(s: str | None) -> date | None:
         return date.fromisoformat(s) if s else None
     except (TypeError, ValueError):
         return None
+
+
+def _month_end(d: date) -> date:
+    """Snap a date to the NEAREST calendar month-end.
+
+    yfinance reports period_end as a fiscal month-end (e.g. AAPL FY -> 09-30)
+    while EDGAR keeps the true 52/53-week date (09-24, or occasionally a day or
+    two into the next month). Snapping EDGAR to the nearest month-end puts both
+    sources on one uniform grid, so the same fiscal period keys and dedupes
+    exactly. "Nearest" (not just this month's end) sends a period that closes in
+    the first days of a month back to the prior month-end, matching yfinance.
+    """
+    last = calendar.monthrange(d.year, d.month)[1]
+    cur_end = date(d.year, d.month, last)
+    prev_end = date(d.year, d.month, 1) - timedelta(days=1)
+    return cur_end if (cur_end - d).days <= (d - prev_end).days else prev_end
+
+
+def _month_end_str(s: str | None) -> str | None:
+    """Month-end normalize an ISO date string; pass through if unparseable."""
+    d = _to_date(s)
+    return _month_end(d).isoformat() if d else s
 
 
 def _flow_freq(start: str | None, end: str | None) -> str | None:
@@ -256,12 +272,14 @@ def extract_financials(symbol: str, facts: dict) -> pd.DataFrame:
     if not cols:
         return pd.DataFrame()
 
-    # Pivot the per-column maps into one row per (period_end, freq).
+    # Pivot the per-column maps into one row per (period_end, freq). period_end is
+    # month-end-normalized here so EDGAR shares one date grid with yfinance.
     rows: dict[tuple[str, str], dict] = {}
     for col, valmap in cols.items():
         sign = -1 if col in _NEGATE_COLS else 1
         for (end, freq), val in valmap.items():
-            row = rows.setdefault((end, freq), {"period_end": end, "freq": freq})
+            me = _month_end_str(end)
+            row = rows.setdefault((me, freq), {"period_end": me, "freq": freq})
             row[col] = sign * val
 
     out = pd.DataFrame(list(rows.values()))
@@ -346,13 +364,13 @@ class EDGARFinancials(BaseFetcher):
         """Insert only periods yfinance doesn't already own.
 
         EDGAR is a fallback and must never overwrite — or duplicate — a period
-        yfinance already covers. Matching is by fiscal proximity, not exact date:
-        yfinance normalizes period_end to month-end (e.g. AAPL 09-30) while EDGAR
-        records the true 52/53-week fiscal date (09-24), so the same fiscal period
-        differs by a few days across sources. Any incoming EDGAR period within
-        `_OWNED_DRIFT_DAYS` of an existing non-edgar period (same symbol+freq) is
-        dropped, leaving EDGAR to fill only the genuinely older years. Rows EDGAR
-        itself previously wrote (source='edgar') don't block and may be refreshed.
+        yfinance already covers. Both sources sit on a month-end grid (EDGAR is
+        normalized at extraction; yfinance already month-ends), so a plain
+        (symbol, period_end, freq) match cleanly identifies the shared fiscal
+        period: any incoming EDGAR period already present from a non-edgar source
+        is dropped, leaving EDGAR to fill only the genuinely older years. Rows
+        EDGAR itself previously wrote (source='edgar') don't block and may be
+        refreshed.
         """
         if rows.empty:
             return
@@ -376,24 +394,19 @@ class EDGARFinancials(BaseFetcher):
             return rows
         if has_source:
             stored = stored[stored["source"].ne("edgar")]  # yfinance-owned only
-        stored = stored.assign(_d=pd.to_datetime(stored["period_end"], errors="coerce"))
-        stored = stored.dropna(subset=["_d"])
         if stored.empty:
             return rows
 
-        # (symbol, freq) -> the yfinance period dates that "own" that fiscal slot.
-        owned: dict[tuple[str, str], list] = {}
-        for (sym, freq), grp in stored.groupby(["symbol", "freq"]):
-            owned[(sym, freq)] = grp["_d"].tolist()
-
-        inc_d = pd.to_datetime(rows["period_end"], errors="coerce")
-        keep = []
-        for sym, freq, d in zip(rows["symbol"], rows["freq"], inc_d):
-            dates = owned.get((sym, freq))
-            keep.append(
-                bool(dates is None or pd.isna(d))
-                or all(abs((d - yd).days) > _OWNED_DRIFT_DAYS for yd in dates)
-            )
+        # Month-end normalize the stored side too, so a yfinance row that isn't
+        # already a clean month-end still lines up with EDGAR's normalized grid.
+        owned = {
+            (s, _month_end_str(pe), fr)
+            for s, pe, fr in zip(stored["symbol"], stored["period_end"], stored["freq"])
+        }
+        keep = [
+            (s, pe, fr) not in owned
+            for s, pe, fr in zip(rows["symbol"], rows["period_end"], rows["freq"])
+        ]
         kept = rows[keep]
         dropped = len(rows) - len(kept)
         if dropped:
