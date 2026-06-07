@@ -33,11 +33,15 @@ from __future__ import annotations
 
 import math
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
 from config import settings, type_map
 from data_layer.fetchers.base import BaseFetcher
+
+if TYPE_CHECKING:
+    from core.database import Database
 
 
 def _is_scalar(v) -> bool:
@@ -191,6 +195,15 @@ def _norm_col(name: str) -> str:
 # a period is "complete" when the core income figures are present. Tunable later.
 _COMPLETENESS_FIELDS = ("total_revenue", "net_income")
 
+# Period-end drift detector. Financials upsert on (symbol, period_end, freq), so a
+# period_end that yfinance shifts by a few days (a fiscal-calendar change or a
+# vendor revision) inserts a NEW row instead of updating the old one — leaving two
+# near-duplicate periods. There's no safe automatic answer to "which date is
+# canonical", so we surface it as a WARNING for manual review rather than merge.
+# A genuine adjacent period is ~90 days (quarterly) / ~365 (annual) away, so any
+# gap at/under this many days between two stored periods is almost certainly drift.
+_PERIOD_DRIFT_DAYS = 20
+
 
 def sanitize_financials(
     symbol: str,
@@ -266,3 +279,46 @@ class YFinanceFinancials(BaseFetcher):
         )
         rows = sanitize_financials(symbol, annual, quarterly)
         return rows if not rows.empty else None
+
+    def _write(self, db: Database, rows: pd.DataFrame) -> None:
+        self._warn_period_drift(db, rows)
+        super()._write(db, rows)
+
+    def _warn_period_drift(self, db: Database, rows: pd.DataFrame) -> None:
+        """WARN when two periods for the same (symbol, freq) fall within
+        `_PERIOD_DRIFT_DAYS` of each other — the upsert-duplicate situation that
+        arises when yfinance shifts a reported period_end. Checks the union of
+        what's already stored and what's incoming, so it keeps flagging the
+        duplicate on every run until it is resolved by hand.
+        """
+        if rows.empty:
+            return
+        syms = rows["symbol"].unique().tolist()
+        if db.table_exists(self.table):
+            placeholders = ", ".join("?" for _ in syms)
+            stored = db.query(
+                f'SELECT symbol, period_end, freq FROM "{self.table}" '
+                f"WHERE symbol IN ({placeholders})",
+                syms,
+            )
+        else:
+            stored = pd.DataFrame(columns=["symbol", "period_end", "freq"])
+
+        combined = pd.concat(
+            [stored, rows[["symbol", "period_end", "freq"]]], ignore_index=True
+        ).drop_duplicates(subset=["symbol", "period_end", "freq"])
+        combined["_pe"] = pd.to_datetime(combined["period_end"], errors="coerce")
+        combined = combined.dropna(subset=["_pe"])
+
+        for (sym, freq), grp in combined.groupby(["symbol", "freq"]):
+            grp = grp.sort_values("_pe")
+            dates = grp["_pe"].tolist()
+            labels = grp["period_end"].tolist()
+            for i in range(1, len(dates)):
+                gap = (dates[i] - dates[i - 1]).days
+                if 1 <= gap <= _PERIOD_DRIFT_DAYS:
+                    self.log.warning(
+                        "Period-end drift — %s %s has near-duplicate periods %s and "
+                        "%s (%d days apart); upsert keeps both, manual review needed",
+                        sym, freq, labels[i - 1], labels[i], gap,
+                    )
