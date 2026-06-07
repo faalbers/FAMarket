@@ -58,6 +58,13 @@ COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.jso
 _ANNUAL_DAYS = (330, 400)
 _QUARTER_DAYS = (80, 100)
 
+# A yfinance period within this many days of an incoming EDGAR period (same
+# symbol+freq) is the SAME fiscal period reported on a slightly different date
+# (yfinance month-end-normalizes; EDGAR keeps the true 52/53-week date). EDGAR
+# must not duplicate it. The window is far below the ~90-day quarter / ~365-day
+# year spacing, so it only ever collapses genuine drift, never distinct periods.
+_OWNED_DRIFT_DAYS = 20
+
 # Mirrors yfinance's completeness rule so both sources agree on the flag.
 _COMPLETENESS_FIELDS = ("total_revenue", "net_income")
 
@@ -338,9 +345,14 @@ class EDGARFinancials(BaseFetcher):
     def _write(self, db: "Database", rows: pd.DataFrame) -> None:
         """Insert only periods yfinance doesn't already own.
 
-        Drops any incoming (symbol, period_end, freq) that already exists with a
-        non-edgar source — EDGAR is a fallback and must never overwrite yfinance.
-        Rows EDGAR previously wrote (source='edgar') may be refreshed.
+        EDGAR is a fallback and must never overwrite — or duplicate — a period
+        yfinance already covers. Matching is by fiscal proximity, not exact date:
+        yfinance normalizes period_end to month-end (e.g. AAPL 09-30) while EDGAR
+        records the true 52/53-week fiscal date (09-24), so the same fiscal period
+        differs by a few days across sources. Any incoming EDGAR period within
+        `_OWNED_DRIFT_DAYS` of an existing non-edgar period (same symbol+freq) is
+        dropped, leaving EDGAR to fill only the genuinely older years. Rows EDGAR
+        itself previously wrote (source='edgar') don't block and may be refreshed.
         """
         if rows.empty:
             return
@@ -363,17 +375,26 @@ class EDGARFinancials(BaseFetcher):
         if stored.empty:
             return rows
         if has_source:
-            stored = stored[stored["source"].ne("edgar")]  # yfinance-owned keys
-        owned = set(
-            zip(stored["symbol"], stored["period_end"], stored["freq"])
-        )
-        if not owned:
+            stored = stored[stored["source"].ne("edgar")]  # yfinance-owned only
+        stored = stored.assign(_d=pd.to_datetime(stored["period_end"], errors="coerce"))
+        stored = stored.dropna(subset=["_d"])
+        if stored.empty:
             return rows
-        mask = [
-            (s, pe, fr) not in owned
-            for s, pe, fr in zip(rows["symbol"], rows["period_end"], rows["freq"])
-        ]
-        kept = rows[mask]
+
+        # (symbol, freq) -> the yfinance period dates that "own" that fiscal slot.
+        owned: dict[tuple[str, str], list] = {}
+        for (sym, freq), grp in stored.groupby(["symbol", "freq"]):
+            owned[(sym, freq)] = grp["_d"].tolist()
+
+        inc_d = pd.to_datetime(rows["period_end"], errors="coerce")
+        keep = []
+        for sym, freq, d in zip(rows["symbol"], rows["freq"], inc_d):
+            dates = owned.get((sym, freq))
+            keep.append(
+                bool(dates is None or pd.isna(d))
+                or all(abs((d - yd).days) > _OWNED_DRIFT_DAYS for yd in dates)
+            )
+        kept = rows[keep]
         dropped = len(rows) - len(kept)
         if dropped:
             self.log.info(
