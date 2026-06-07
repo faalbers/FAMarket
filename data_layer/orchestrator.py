@@ -9,7 +9,8 @@ Sequence:
        b. type write-back  (quotes.quoteType -> symbols.security_type)
        c. reload universe with resolved types
        d. yfinance OHLCV, yfinance financials  (filter by security_type)
-       e. FRED macro (standalone)
+       e. EDGAR financials  (additive-only deep-history backfill, after yfinance)
+       f. FRED macro (standalone)
   3. End-of-run reassessment of is_active / is_validated.
 
 The Streamlit Fetch Control panel calls these same functions; each Group 2 fetcher
@@ -29,6 +30,7 @@ from core.database import Database
 from core.logging_config import get_logger, roll_log, setup_logging
 from core.net import configure_tls
 from data_layer import fetch_status, symbols
+from data_layer.fetchers.edgar_fetcher import EDGARFinancials
 from data_layer.fetchers.fred_fetcher import fetch_fred
 from data_layer.fetchers.yfinance_fetcher import (
     YFinanceFinancials,
@@ -88,6 +90,9 @@ def run_full_fetch(
         universe = load_fetch_universe(sdb, subset)
         summary["ohlcv"] = YFinanceOHLCV().run(universe, sdb, respect_lock)
         summary["financials"] = YFinanceFinancials().run(universe, sdb, respect_lock)
+        # EDGAR runs AFTER yfinance so yfinance owns the recent window first; EDGAR
+        # only backfills the deep history yfinance can't reach (additive-only).
+        summary["edgar_financials"] = EDGARFinancials().run(universe, sdb, respect_lock)
 
         summary["fred"] = fetch_fred()
 

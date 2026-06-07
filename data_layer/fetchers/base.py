@@ -44,6 +44,11 @@ class BaseFetcher(ABC):
     table: str = ""                     # destination table
     write_mode: str = "upsert"          # "upsert" | "append" | "replace"
     upsert_key: str | list[str] = "symbol"
+    # Per-symbol skip window after a successful fetch. None = settings.FETCH_LOCK_DAYS
+    # (the weekly default — refetch every run). A large value makes a fetcher a
+    # one-time backfill: once a symbol succeeds it is skipped on all future runs
+    # (errors still retry, and respect_lock=False forces a refetch).
+    lock_days: int | None = None
 
     def __init__(self, batch_size: int | None = None):
         self.log = get_logger(self.name)
@@ -102,7 +107,7 @@ class BaseFetcher(ABC):
         """Fetch all due symbols for this fetcher. Returns a run summary dict."""
         candidates = self.select_symbols(symbols_df)
         symbols = (
-            fetch_status.due_symbols(status_db, candidates, self.name)
+            fetch_status.due_symbols(status_db, candidates, self.name, self.lock_days)
             if respect_lock
             else candidates
         )

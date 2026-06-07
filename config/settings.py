@@ -71,6 +71,7 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {
     "fmp": (250, 86400),   # free tier: ~250 req/day
     "fred": (120, 60),
     "etrade": (10, 1),
+    "edgar": (9, 1),       # SEC fair-access policy: max ~10 req/sec
 }
 
 # Retry policy for tenacity (auto-retry on transient API failure).
