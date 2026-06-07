@@ -147,9 +147,13 @@ def sanitize_ohlcv(symbol: str, hist: pd.DataFrame) -> pd.DataFrame:
 class YFinanceOHLCV(BaseFetcher):
     name = "yfinance_ohlcv"
     api = "yfinance"
-    # Price history applies to traded securities (not plain mutual funds-only set,
-    # but yfinance returns NAV history for funds too, so include broadly).
-    applies_to = ("stock", "etf", "reit", "adr", "closed_end_fund", "preferred", "index")
+    # Price history applies to traded securities plus mutual funds: yfinance
+    # returns a daily NAV-strike series for funds (Open=High=Low=Close, Volume=0),
+    # which is the fund's equivalent of a price history for returns/volatility.
+    applies_to = (
+        "stock", "etf", "reit", "adr", "closed_end_fund", "preferred", "index",
+        "mutual_fund",
+    )
     target_db = "OHLCV_DB"
     table = "ohlcv"
     write_mode = "upsert"          # idempotent by (symbol, date) — see module note
