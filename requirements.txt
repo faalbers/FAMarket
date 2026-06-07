@@ -1,0 +1,27 @@
+# FAMarket — Stock Screening System
+# Python 3.14. Pinned loosely; lock exact versions once the build stabilizes.
+
+# --- Data fetching ---
+yfinance            # primary: quotes, financials, OHLCV, dividends
+polygon-api-client  # symbol universe, OHLCV, reference data
+fredapi             # macro series -> macro.db
+requests            # SEC EDGAR + generic HTTP
+requests-oauthlib   # E*Trade OAuth1
+
+# --- Rate limiting / resilience ---
+ratelimit           # per-API request throttling
+tenacity            # automatic retry on transient failures
+
+# --- Data / analysis ---
+pandas              # interchange format across all layers
+numpy
+scipy               # signal.find_peaks for trend detection; polyfit residuals
+pandas-market-calendars  # last completed trading session
+
+# --- UI ---
+streamlit           # local web UI (streamlit run app.py)
+plotly              # interactive charts (normalized prices, heatmaps, radar)
+
+# --- Config ---
+python-dotenv       # load API keys from .env
+truststore          # trust the OS cert store (corporate TLS interception) — see core/net.py

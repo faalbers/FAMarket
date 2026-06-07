@@ -1,0 +1,540 @@
+# Stock Screening System — Brainstorm Roadmap
+
+## Progress Overview
+- Started: 2026-06-04
+- Current position: BRAINSTORM COMPLETE — ready to start coding in Claude Code
+- Last session ended: 2026-06-06
+- Convention: You will update this roadmap file at end of each topic with all the newly discussed results
+
+## Project Context
+- Frank has already built a working version of this system before
+- This brainstorm is a from-scratch redesign with Claude — goal is to catch gaps and improve on the original
+- Build approach: build each layer fully before moving to the next (Data → Analysis → UI), not thin end-to-end slices
+
+## Key Decisions Made
+- Topic 7 (Directory Structure & Module Design) intentionally skipped — folder layout and module naming will be decided during Claude Code implementation, not in brainstorm
+- Fetch pipeline is symbol-centric: symbol list is fixed before fetch run starts; all fetchers work from the same list
+- Type resolution happens first (Polygon ticker list provides type → normalized via type_map; yfinance quoteType as fallback for unknowns) → types stored in symbols.db before data fetch begins
+- Each fetch function inside a fetcher filters the symbol list internally by applicable security types — caller passes full list, function picks the right subset
+- is_active flag is an output of the OHLCV fetch (updated post-fetch), not a prerequisite gate
+- Fetch runs manually, Friday evening after market close
+- Full US-investable universe (all security types — stocks, ETFs, REITs, mutual funds, ADRs, preferred, closed-end funds, SPACs, warrants)
+- `security_type` + `sub_type` fields on every symbol (sourced from yfinance `quoteType`)
+- Type names normalized across all APIs via lookup table in config/
+- Multi-style flexible screening (value, growth, GARP — no single style locked in)
+- Output: Interactive Streamlit web UI (local, runs via `streamlit run app.py`)
+- `pandas_market_calendars` used to determine last completed trading session
+- Completeness definition for financial periods → deferred to coding phase
+- SQLite wrapper uses explicit, opinionated methods per operation: `db.append()`, `db.replace()`, `db.upsert(key=)` — no generic read/write (improvement over previous build)
+- Separate SQLite databases by data type — cross-database merging done in pandas
+- All API parameters stored as individual columns; schema grows dynamically via ALTER TABLE ADD COLUMN
+- Batch fetching with `ratelimit` + `tenacity` (rate limiting + auto retry)
+- Python `logging` module — writes to terminal + rotating log file
+- Multiprocessing across APIs → Phase 2 optimization (single-threaded first)
+- Write queue pattern for concurrent DB writes → revisit when building multiprocessing
+- Filter UI: single unified interface, dynamically adaptive per security type
+- Short parameter names in UI + hover tooltips from editable config/param_hints.py
+- Filter operators: >, <, <=, >=, = on raw numeric values stored in analysis.db
+- Store raw numeric values in analysis.db — let filter do comparisons, not pre-computed booleans
+- Fetch ALL data first → analysis runs automatically after, full recalculate every run (clean slate)
+- All prices use closing price of last completed trading session — never intraday
+- Trend detection: peak detection only (scipy.signal.find_peaks), no MA-based trend
+- Growth metrics: CAGR + polyfit residuals volatility % + R² + CV for all growth categories (1y/3y/5y + YoY quarterly)
+- Hover hints: structured 3-section format (What it is / How to use it / Compare with peers), shown on hover after ~0.5-1s delay, bullet points within sections where needed
+- Peak detection calibration tool built into Streamlit UI (not a separate script)
+- Filter rows: [ ⏸ ] [ + ] [ - ] [ Parameter ] [ Operator ] [ V/P ] [ Value ] — toggle/add OR/delete/param/op/value-or-param
+- Filter page layout: Security Type checklist (collapsible) + Filters section (collapsible) with Load/Add/Save/Clear buttons, scrollable drag-to-reorder block list, + Add Filter, Run Filter
+- Filter sets saved as .filt files; column selections saved as .prms files; paths set in Settings
+- Output page is separate from filter page — Run Filter navigates there
+- Output results table: Symbol (AAPL (stock)), Company Name, Sector/Industry, then selected parameter columns
+- Action menu opens new browser tab per action; actions grouped as: Normalized Charts / Fundamentals / Dividends / Analyze on external site
+- Dividend yield calculated from yfinance history() Dividends column — no separate API needed
+- Dividend growth line charts use annual and quarterly periods only (TTM excluded)
+- External site URLs: Finviz → screener?v=111&t=SYM1,SYM2; Yahoo Finance → /quotes/SYM1,SYM2/; TradingView → one tab per symbol; Koyfin → coding phase
+- All charts use color-blind safe palette (no red/green); blue-to-orange for heatmaps
+- Database file paths configured in config/settings.py — single DB_DIR variable + individual path vars per database (SYMBOLS_DB, OHLCV_DB, QUOTES_DB, FINANCIALS_DB, ANALYSIS_DB, MACRO_DB)
+- Backup system: rotating 5-version backup of all .db files before each fetch run — BACKUP_DIR in config/settings.py; versions shift up by 1 on each run, version 5 dropped, new backup becomes version 1; format: {db_name}_1.db (most recent) through {db_name}_5.db (oldest)
+- .env stores all API keys in UPPER_CASE — never committed to git (.env in .gitignore); .env.template committed with key names but empty values
+
+---
+
+## Topics
+
+✅ Topic 1 — Project Overview & Goals
+   - ✅ Subtopic 1.1 — Purpose and scope of the system
+   - ✅ Subtopic 1.2 — Stock universe size (all US-investable securities, all types)
+   - ✅ Subtopic 1.3 — Investing style approach (multi-style, flexible)
+   - ✅ Subtopic 1.4 — Output format choice (Interactive Streamlit web UI)
+
+✅ Topic 2 — Fetch Strategy
+   - ✅ Subtopic 2.1 — Fetch cadence
+     - Manual run, Friday evening after market close
+   - ✅ Subtopic 2.2 — Incremental fetch by data type
+     - OHLCV → append by date; initial fetch = 10 years minimum
+     - End date always capped to last completed trading session (pandas_market_calendars)
+     - yfinance history() call returns Dividends column alongside OHLCV — dividend history fetched for free in the same call, no separate API needed
+     - Financials (annual/quarterly) → append by date; re-check incomplete periods each run
+     - TTM → calculated from stored quarters, not fetched
+     - Completeness of financial periods → deferred to coding phase
+     - yfinance date indices used to detect new vs existing periods
+   - ✅ Subtopic 2.3 — fetch_status table & infrastructure
+     - Tracks last fetch date per symbol per data type
+     - fetch_errors counter — high-error symbols skipped, reported in end-of-run log file
+     - Makes fetch runs resumable
+     - Separate SQLite databases: symbols.db, ohlcv.db, financials.db, quotes.db, analysis.db
+     - Cross-database merging handled in pandas
+     - Batch fetching with configurable batch size
+     - ratelimit library for rate limiting per API
+     - tenacity library for automatic retries on failure
+     - Python logging module → writes to terminal + rotating log file
+     - Rate limit testing utility — standalone script that sends requests at increasing speeds per API, logs where errors appear, establishes safe ceiling to configure in settings
+     - Active symbol checking — during each weekly fetch, flag symbols with no new OHLCV for X consecutive weeks as inactive in symbols.db
+     - symbols.db gets is_active flag + last_active_date per symbol
+     - Inactive symbols skipped in future fetches and excluded from screening by default, but kept in DB for historical reference
+     - Multiprocessing across APIs (Phase 2) — write queue pattern to handle concurrent DB writes
+   - ✅ Subtopic 2.4 — Initial load vs weekly update modes
+     - Auto-detect: empty databases = initial load, otherwise weekly update
+
+✅ Topic 3 — Data Layer Design
+   - ✅ Subtopic 3.1 — API sources
+     - yfinance — primary source for quotes, financials, OHLCV
+     - Polygon (free account, key in .env) — symbol universe, historical OHLCV, reference data (splits, dividends)
+     - FMP / Financial Modeling Prep (free account, key in .env) — financial statements & ratios supplement; free tier ~250 req/day
+     - FMP usage strategy: Key Metrics endpoint, prioritize high market cap symbols, target yfinance gaps — deferred to coding phase
+     - SEC EDGAR — free, no rate limit, fallback for financial filings + secondary symbol source (`https://www.sec.gov/files/company_tickers.json`)
+       - EDGAR symbols added to symbols.db with `source=edgar` and `is_validated=False`
+       - Validation happens as a byproduct of the normal yfinance fetch — no extra API calls:
+         1. yfinance info returns real data → quote data written to quotes.db simultaneously
+         2. OHLCV has data within the last few weeks → confirms actively trading
+         3. Financials have at least some recent periods → confirms not a dead/shell company
+       - All three must pass for `is_validated=True` — partial passes stay False and get flagged
+       - Analysis layer only processes symbols where `is_active=True` and `is_validated=True`
+
+   - SYMBOL STATE MANAGEMENT:
+     - New symbols always enter symbols.db with `is_active=True` by default
+     - Fetch runs only process `is_active=True` symbols — inactive symbols skipped entirely
+     - Full symbol state reassessment runs at end of every fetch run (never assumed to carry forward)
+     - Symbols no longer present in latest Polygon fetch → flagged with `in_polygon=False` (not deleted)
+     - Newly listed symbols added by Polygon mid-week → picked up on next Polygon sync as `is_active=True`
+     - End-of-run validation flips `is_active=False` only when absence of data is confirmed NOT an API error:
+       - No data / symbol not found → legitimate dead/invalid symbol → flip `is_active=False`
+       - Rate limit / timeout / connection error → API problem, not symbol problem → keep `is_active=True`, log error, retry next run
+     - fetch_errors counter in fetch_status table distinguishes API errors from true missing data
+     - First fetch run: straight insert (empty DB auto-detected = initial load)
+     - Subsequent runs: upsert — update existing, add new, preserve flags
+     - E*Trade (OAuth1, key in .env) — secondary quote data source
+       - Auth uses webbrowser module + user enters code via input()
+       - Auth runs once per fetch session
+       - Token revocation via class destructor (__del__) automatically
+       - Revoke URL: https://api.etrade.com/oauth/revoke_access_token
+       - On API error: revoke immediately, log error, retry affected symbols next session
+       - Phase 2: auth in main process before workers start, token passed to workers
+     - FRED (free account, key in .env) — macro data (interest rates, inflation, GDP)
+     - Future potential: Alpha Vantage (25 req/day), OpenFIGI (free) — add after coding phase reveals gaps
+   - ✅ Subtopic 3.2 — Security types & classification
+     - All types: common stock, ETF, REIT, mutual fund, ADR, preferred, closed-end fund, SPAC, warrant
+     - security_type + sub_type columns on every symbol
+     - yfinance quoteType as primary classification source
+     - Type names normalized across APIs via lookup table in config/ (e.g. yfinance "EQUITY" → "stock/common")
+     - Symbol format normalization required after Polygon fetch — other APIs (yfinance, E*Trade) use different formats:
+       - Indices (`market=I:`): replace leading `I:` with `^` (e.g. `I:SPX` → `^SPX`)
+       - Class tickers (last 2 chars `.C`): replace all `.` with `-` (e.g. `BRK.B` → `BRK-B`)
+       - Warrants (`type=WARRANT`): replace trailing `.WS.A` or `.WS` with `-WT`
+       - Units (`type=UNIT`): replace trailing `.WS.A` or `.U` with `-UN`
+       - Polygon `type` and `market` fields used to detect which transformation to apply
+       - Normalized symbol stored as separate column (e.g. `symbol_normalized`) alongside original Polygon symbol
+     - Scope tiers:
+       - Common Stock, REIT, ADR → full: quotes, financials, OHLCV, metrics, dividend history
+       - ETF, Closed-end Fund → full ETF: quotes, holdings, OHLCV, ETF metrics, dividend history
+       - Preferred Stock → quotes + yield + dividend history
+       - Mutual Fund → limited: quotes + basic info only
+       - SPAC, Warrant → minimal: quotes only
+   - ✅ Subtopic 3.3 — What data to fetch per security type
+     - All types: basic info, quote data
+     - Stocks/REITs/ADRs: financials (annual+quarterly), OHLCV, dividends, key ratios
+     - ETFs/Closed-end: holdings, expense ratio, NAV, tracking error, OHLCV, dividends
+     - Income data for all applicable types: yield, dividend rate, payout ratio, ex-div date, dividend history
+     - Calculated in Analysis layer: dividend growth rate, consecutive growth years, dividend consistency, coverage ratio
+     - Analyst estimates fetched via yfinance: earnings_estimate, revenue_estimate, growth_estimates
+       - Multiple time horizons (current/next quarter, current/next year)
+       - Stored in financials.db; used in Analysis layer for forward-looking metrics
+       - Coverage sparse for small caps — NULL where unavailable
+     - Data completeness checked before appending — is_complete flag on all records
+     - yfinance values cross-checked against calculated values; fallback to calculated if info returns None/NaN
+     - data_source field per metric: "info", "calculated", or "fallback_calculated"
+   - ✅ Subtopic 3.4 — SQLite database structure
+     - Five separate databases: symbols.db, quotes.db, ohlcv.db, financials.db, analysis.db
+     - All API parameters stored as individual columns (no JSON blob)
+     - Schema grows dynamically — new parameters added via ALTER TABLE ADD COLUMN
+     - NULL for symbols where a parameter doesn't apply
+     - All keys in .env, .env in .gitignore
+     - Non-sensitive settings (batch sizes, rate limits, file paths, scoring weights, peak detection params, etc.) in config/settings.py
+     - Settings page in Streamlit UI provides interface to edit config/settings.py — both routes update the same file
+     - Settings page uses collapsible sections grouped by category — grouping to be designed during coding phase
+
+✅ Topic 4 — Analysis Layer
+   - ✅ Subtopic 4.1 — Metric categories defined
+     - Valuation: P/E, Forward P/E, PEG, P/B, P/S, P/FCF, EV/EBITDA, EV/Revenue
+     - Profitability: ROE, ROA, ROIC, gross/operating/net margins, FCF margin, EPS
+     - Growth: Revenue, EPS, FCF, book value growth (1y, 3y, 5y CAGR)
+     - Income: dividend yield (TTM, annual, quarterly), growth rate, payout ratio, consecutive growth years, consistency, coverage ratio
+     - Dividend yield calculation:
+       - Source: Dividends column from yfinance history() — included in OHLCV fetch, no separate API call needed
+       - TTM yield = sum of all dividends in last 365 days ÷ current closing price × 100
+       - Annual yield = sum of dividends in calendar year ÷ closing price at year end × 100
+       - Quarterly yield = sum of dividends in quarter ÷ closing price at quarter end × 100
+     - Financial Health: Debt/Equity, current ratio, quick ratio, interest coverage, Debt/EBITDA, cash ratio, Altman Z-Score
+     - Technical: MAs (50/150/200-day), price vs MA %, RS rank, RSI, MACD, Bollinger Bands, volume metrics, 52-week high/low %, ATR
+     - Intrinsic Value — go deep when we get here:
+       - Graham Number (EPS + book value)
+       - Peter Lynch Fair Value (EPS + growth rate)
+       - Simple DCF (FCF history + growth estimates + FRED risk-free rate + beta)
+       - Results: intrinsic_value_graham, intrinsic_value_lynch, intrinsic_value_dcf, margin_of_safety
+   - ✅ Subtopic 4.2 — Technical indicators
+     FETCH / ANALYSIS PHASE DESIGN:
+     - Fetch ALL data first (all APIs, all symbols) → analysis runs automatically after fetch completes
+     - Full recalculate of analysis.db every run (clean slate — fast, no complexity of tracking deltas)
+     - If an API fails after retries → log clear failure message, continue other fetchers, analysis still runs on available data
+     - UI shows: "Analysis calculated: [timestamp]" + "Prices as of: [last completed trading session date]"
+     - All price-based calculations use closing price of last completed trading session only (never intraday)
+
+     GROWTH METRICS (added to all growth categories — Revenue, EPS, FCF, Book Value):
+     - CAGR (1y, 3y, 5y) — compound annual growth rate
+     - Polyfit residuals volatility % — detrended noise measure (Frank's method)
+     - R² — how well trend line explains the data (0=chaotic, 1=perfectly consistent)
+     - CV — coefficient of variation (simple baseline for comparison)
+     - YoY quarterly growth (same quarter vs prior year, removes seasonality) + same volatility metrics
+     - NULL stored where insufficient history exists; gated: 1y immediate, 3y after 3 years, 5y after 5 years
+
+     TREND:
+     - Peak detection only — no MA-based trend stored
+     - Uses scipy.signal.find_peaks on closing prices (swing highs) and inverted prices (swing lows)
+     - Classifies: "strong_uptrend" (HH+HL confirmed), "weak_uptrend", "sideways", "weak_downtrend", "strong_downtrend" (LL+LH confirmed)
+     - Calibration tool built into Streamlit UI (not a separate script):
+       - Auto-selects representative stocks from full database (highest/lowest R², most/least volatile)
+       - Shows detected peaks overlaid on price charts, one by one, click-through at Frank's pace
+       - Save prominence/distance parameters directly to config from UI
+     - `trend` column stored as text in analysis.db
+
+     RSI:
+     - 14-day only (standard, appropriate for weekly screening)
+     - `rsi_14` stored as numeric value in analysis.db
+
+     MACD (12/26/9 standard settings):
+     - `macd_line` — 12-day EMA minus 26-day EMA (numeric)
+     - `macd_signal` — 9-day EMA of MACD line (numeric)
+     - `macd_hist` — MACD line minus signal line (numeric)
+     - `macd_crossover` — text: "bullish" / "bearish" / "none" — persists 5 trading days after crossover event
+     - `macd_hist_trend` — text: "growing" / "shrinking" / "flat"
+
+     BOLLINGER BANDS (20-day SMA, 2 standard deviations):
+     - `bb_upper`, `bb_middle`, `bb_lower` — the three band values (numeric)
+     - `bb_width` — upper minus lower, measures band tightness (numeric)
+     - `bb_pct` — where price sits within bands (0=lower band, 1=upper band, >1=above upper) (numeric)
+     - `bb_position` — text: "above_upper" / "near_upper" / "middle" / "near_lower" / "below_lower"
+     - `bb_squeeze` — boolean: bands unusually narrow, signals potential big move coming
+     - All are current state, recalculated weekly (no persistence logic needed)
+
+     VOLUME (in progress — combinations with other indicators discussed):
+     - `vol_20d_avg` — 20-day average daily volume (baseline)
+     - `vol_ratio` — last closing day volume ÷ 20-day average (is recent volume unusual?)
+     - `vol_trend` — text: "increasing" / "decreasing" / "flat"
+     - Volume combines with trend, MACD, BB, RSI in filter UI for conviction screening
+
+     HOVER HINTS (applies to all parameters across all categories):
+     - Shown as tooltip on hover, after ~0.5–1 second delay — no short description shown in dropdown
+     - Three structured sections per hint:
+       1. What it is — plain language definition
+       2. How to use it — what good/bad values look like and what action they imply
+       3. Compare with peers — yes/no and why (when to look at _vs_sector / _vs_industry)
+     - Section titles bold, info text indented below each title
+     - Bullet points used within a section when multiple points need explaining
+     - Plain language throughout — explain what the value MEANS for the stock, not just the math
+     - Stored in config/param_hints.py — editable without touching UI code
+
+     ATR:
+     - `atr_pct` only — ATR ÷ price × 100 (normalized, comparable across price levels)
+
+     52-WEEK HIGH/LOW:
+     - `pct_from_52w_high` — % below 52-week high
+     - `pct_from_52w_low` — % above 52-week low
+
+     RS RANK:
+     - `rs_rank` — 0–99 weighted percentile vs entire universe (IBD-style)
+     - Weighted: 40% last 3 months, 20% each prior 3-month period
+     - Calculated last in analysis phase after all other metrics
+     - NULL if less than 252 days of history
+
+     ALL PRICE CALCULATIONS USE adj_close (adjusted for splits and dividends)
+
+   - ✅ Subtopic 4.3 — Peer comparison logic (sector/industry medians)
+     - Metrics with peer comparison: P/E, Forward P/E, PEG, Profit margins, ROE, ROA, EV/EBITDA, Revenue growth, Debt/Equity
+     - Two columns per metric: `_vs_sector` and `_vs_industry` — stored as % above/below peer median
+     - No median values stored — just the relative % difference
+     - Two grouping levels: Sector (broad) and Industry (narrow)
+
+   - ✅ Subtopic 4.4 — Scoring & ranking approach
+     - Both raw metrics AND composite scores available
+     - Scores range: 0–100
+     - Category scores: Value, Quality, Growth, Momentum, Income
+     - Overall Score: weighted combination of all category scores
+     - Default Overall Score weights: Quality 25%, Growth 25%, Momentum 20%, Value 20%, Income 10%
+     - Metric weights within each category score: set by Claude as sensible defaults
+     - All weights adjustable via Settings page in Streamlit UI (sliders, saves to config automatically)
+     - Settings page also covers category weights within Overall Score
+
+✅ Topic 5 — Filter Interface
+   - KEY DESIGN DECISION: Single unified interface, dynamically adaptive
+     - Security type is the first filter
+     - Available metrics show/hide automatically based on selected type
+     - ETF selected → expense ratio, holdings, tracking error appear
+     - Stock selected → P/E, EPS growth, revenue growth appear
+     - Mixed types → only shared metrics shown
+     - Allows mixing types in one screen (e.g. stocks + REITs for income screening)
+     - One codebase, one interface to learn — no separate screens per type
+   - KEY DESIGN DECISION: Short parameter names in UI + hover tooltips
+     - Parameter names kept as short/abbreviated as possible
+     - Hover hints show full name, category, description, usage
+     - Hints stored in config/param_hints.py (or YAML) — easily editable without touching UI code
+     - Streamlit native tooltip support via help= parameter on widgets
+     - Editable by Frank manually or via Claude Code on request
+   - ✅ Subtopic 5.1 — Filter logic
+     BLOCK-BASED FILTER BUILDER:
+     - Filters are blocks stacked top to bottom: [ Parameter ] [ Operator ] [ Value or Parameter ]
+     - `between` operator adds fourth entry: [ Parameter ] [ between ] [ Value ] [ and ] [ Value ]
+     - Every block has a toggle (on/off), active by default
+     - Between is always inclusive
+
+     AND/OR STRUCTURE:
+     - All top-level blocks are ANDed together (stock must pass ALL to appear in results)
+     - OR child blocks can be added under any AND block (one level deep only)
+     - OR children cannot have their own children
+     - Logic: check parent first → if true, skip children → if false, check OR children → if any child true, parent passes
+     - OR children act as fallbacks when parent fails
+
+     OPERATORS:
+     - >, <, <=, >=, =, !=
+     - between (inclusive)
+     - is null, is not null
+     - starts_with, contains (text only, case-insensitive)
+
+     PARAMETER SELECTION (first and third entries):
+     - Searchable dropdown — type to filter, type beginning of name to jump to first match
+     - Parameters grouped by category with non-selectable section headers
+     - Alphabetically sorted within each category
+     - No short description in dropdown — full structured hover hint shown on hover (0.5–1s delay)
+     - Third entry accepts fixed value OR another parameter name
+     - between uses fixed values or parameter names for both bounds
+
+     NULL HANDLING:
+     - Any symbol with NULL for a filtered parameter automatically fails and is excluded
+     - Exception: is null / is not null operators work correctly regardless
+
+     SECURITY TYPE SELECTOR:
+     - Dedicated selector at top of filter page (separate from filter blocks)
+     - Controls which parameters appear in the filter block dropdown
+     - Multiple types selectable at once — only shared parameters shown when multiple selected
+     - Hover hints on every type and sub-type (2-4 sentences, plain language)
+     - Common Stock sub-types: Standard, Bank/Financial, Insurance
+     - ADR inherits same sub-types as Common Stock
+     - Sub-type auto-detected from sector/industry data, manual override available in UI
+
+   - ✅ Subtopic 5.2 — Saving & importing filter sets
+     - Filter sets saved as .filt files (plain JSON, human-readable/editable) in filters/ folder
+     - Save, Load, Add (append to current filters), Clear (wipe current screen)
+     - Load → file selector popup, replaces current filters entirely
+     - Add → file selector popup, appends saved set's blocks to bottom of current filters
+     - Save → file selector popup, saves current filters as .filt file
+     - Clear → wipes all current blocks (no file selector)
+     - Filters folder path configured once in Settings
+
+   - ✅ Subtopic 5.3 — Filter UI design in Streamlit
+     FILTER ROW LAYOUT:
+     - [ ⏸ ] [ + ] [ - ] [ Parameter ▾ ] [ Operator ▾ ] [ V/P ] [ Value ]
+     - ⏸ = toggle on/off (front), + = add OR child, - = delete block (end of controls)
+     - V button = value mode (click to switch to parameter mode → becomes P)
+     - P button = parameter mode (click to switch back to value mode → becomes V)
+     - V/P button disappears when text operators (starts_with, contains) are selected
+     - For `between` operator: two value entries each with their own V/P button
+     - OR child rows: same layout but no + button; only - button
+
+     AND/OR VISUAL STRUCTURE:
+     - OR children indented with a left border line (no collapsing — always visible)
+     - Entire block list has no collapsible parts
+     - AND blocks draggable to any position in main list (OR children move with parent)
+     - OR children draggable within their parent's OR group only
+
+     PAGE LAYOUT (top to bottom):
+     - ▶ Security Type (collapsible, open by default)
+       - Checklist of all security types (Common Stock checked by default)
+       - Supports multiple selections — only shared parameters shown when multiple selected
+     - ▶ Filters (collapsible, open by default)
+       - [ Load ] [ Add ] [ Save ] [ Clear ] button row
+       - Scrollable block list (drag-to-reorder)
+       - [ + Add Filter ] (adds new AND block at bottom)
+       - [ Run Filter ] (navigates to Output page with results)
+
+     RUN FILTER:
+     - Navigates to a separate Output page
+     - Results displayed there (Topic 6)
+
+✅ Topic 6 — Output Interface (Streamlit)
+   - ✅ Subtopic 6.1 — Results table & sorting
+     - Table columns: Symbol (AAPL (stock)), Company Name, Sector/Industry, then filter parameters
+     - Add/remove parameter columns via same searchable dropdown as filter
+     - Column selection saveable as .prms file; load with Swap or Add option
+     - .prms folder path configured in Settings
+     - Multi-column sort: click header = primary sort, Shift+click = secondary sort etc.
+     - Sort direction indicator + priority number on each sorted column header
+     - Standard table multi-select: click = select row, Shift+click = range, Ctrl/Cmd+click = add to selection
+     - Click anywhere on row to select it
+
+   - ✅ Subtopic 6.2 — Action menu
+     - [ Action ] button opens grouped dropdown, one action at a time, each opens a new browser tab
+     - Action menu structure:
+       - Normalized Charts
+       - Fundamentals
+           - Parameter bar charts (grouped by metric, per share/ratio, time period selector)
+           - Parameter heat map charts (blue-to-orange scale, color-blind safe)
+           - Radar chart (5 category scores: Value, Quality, Growth, Momentum, Income)
+           - Parameter growth line charts (annual/quarterly selector, all periods, gaps shown as breaks)
+       - Dividends
+           - Yield bar chart
+           - Yield heat map chart
+           - Yield growth line charts (annual and quarterly only — TTM excluded from growth chart)
+       - Analyze on external site
+           - Finviz → https://finviz.com/screener?v=111&t=SYM1,SYM2,...
+           - Yahoo Finance → https://finance.yahoo.com/quotes/SYM1,SYM2,.../
+           - TradingView → one tab per symbol (no multi-symbol URL support)
+           - Koyfin → URL format to be confirmed during coding phase
+     - All chart actions include: scrollable symbol checklist (all checked by default), color-blind safe palette (no red/green)
+     - All Fundamentals/Dividends period selectors: TTM (default), latest quarter, latest annual, 3Y average, 5Y average
+     - Dividend growth line charts: annual and quarterly periods only (TTM excluded)
+
+   - ✅ Subtopic 6.3 — Normalized price chart details
+     - All symbols start at 100% (normalized), one line per symbol
+     - Inline symbol labels at end of each line (no legend), offset to avoid overlap
+     - Time period buttons at bottom: 1Y, 3Y, 5Y, custom date range (calendar input)
+     - Plotly used: zoom/pan, crosshair tooltip with values per symbol per date
+     - Block-select a date range on chart → auto-populates custom date range inputs
+     - Line breaks for data gaps (no interpolation)
+
+⏭ Topic 7 — Directory Structure & Module Design (SKIPPED — handled in Claude Code)
+   - Directory layout, module naming, and config file structure will be decided during implementation
+   - Key architectural decisions captured in Key Decisions Made above
+
+## Future Ideas (post-MVP, no timeline)
+- News sentiment analysis — fetch news via Finviz and Polygon news APIs, derive sentiment scoring per symbol from article content. Never designed in detail — start fresh when the time comes.
+
+✅ Topic 8 — Build Phases
+   - ✅ Subtopic 8.1 — What to build first (MVP scope)
+     - Build each layer fully before moving to the next (Data → Analysis → UI)
+     - No thin end-to-end slices — complete each phase fully
+   - ✅ Subtopic 8.2 — Phase breakdown & sequencing
+     - Phase 1: Data Layer
+       - Symbol discovery: Polygon (primary) + SEC EDGAR (gap fill)
+       - Symbol normalization (Polygon → yfinance/E*Trade format)
+       - Symbol state management (is_active, is_validated flags)
+       - SQLite wrapper with explicit methods (append, replace, upsert)
+       - All API fetchers: yfinance, FMP, E*Trade, FRED, Polygon
+       - Fetch control panel in Streamlit (Group 1: symbol APIs, Group 2: data APIs)
+       - Rate limiting + retry logic (ratelimit + tenacity)
+       - Logging (terminal + rotating log file)
+       - config/settings.py for all non-sensitive settings
+       - Single-threaded (multiprocessing deferred to Phase 2 optimization)
+     - Phase 2: Analysis Layer
+       - All metrics calculated from Phase 1 databases
+       - Peer comparisons (sector/industry medians)
+       - Scoring & ranking
+       - Intrinsic value calculations (Graham, Lynch, DCF using FRED Treasury yield)
+       - Full recalculate every run (clean slate)
+       - Only processes is_active=True + is_validated=True symbols
+     - Phase 3: UI Layer
+       - Streamlit filter interface (block-based, AND/OR logic)
+       - Output interface (results table, action menu, charts)
+       - Settings page (edits config/settings.py)
+       - Fetch control panel (integrated into UI)
+   - ✅ Subtopic 8.3 — What each phase should produce (runnable milestone)
+     - Phase 1 done when: all APIs fetched, data stored correctly in symbols.db, quotes.db, ohlcv.db, financials.db, macro.db — verified via VSCode SQLite extension + test scripts
+     - Phase 2 done when: analysis.db fully populated with all metrics, scores, peer comparisons — verified via SQLite + test scripts
+     - Phase 3 done when: full Streamlit UI running locally end-to-end
+   - ✅ Subtopic 8.3b — Development testing strategy
+     - Full symbol universe fetch is fast (Polygon) — no special handling needed
+     - During fetcher development: manually select a small subset (~20-50 symbols across different security types) for testing
+     - Delete .db files to reset to a clean slate and retest from scratch — system auto-detects empty databases as initial load
+     - Full universe fetch (40,000+ symbols) runs once everything is working — Frank is comfortable waiting hours for the final run
+
+   - ✅ Subtopic 8.4 — Phase 0 — Project Setup (runs before Phase 1)
+     - Set up repo + git
+     - Standard Python project folder structure (done properly, with explanations for learning)
+     - Virtual environment setup
+     - requirements.txt or pyproject.toml
+     - .env template + .gitignore
+     - SQLite wrapper skeleton (with append/replace/upsert methods)
+     - config/settings.py skeleton
+     - Topic 7 (directory structure) effectively handled here in practice
+     - IDE: VSCode confirmed; Claude Code via terminal inside VSCode or VSCode extension — to be decided at start of Phase 0
+   - ✅ Subtopic 8.5 — Phase 2 optimization (multiprocessing)
+     - Wrap Group 2 API fetchers in multiprocessing (Group 1 stays sequential)
+     - Write queue pattern for concurrent DB writes
+     - Auth for E*Trade runs in main process before workers start, token passed to workers
+
+   - FETCH CONTROL PANEL (Streamlit UI):
+     - Group 1 — Symbol Discovery (always runs first, sequential):
+       - ☑ Polygon
+       - ☑ SEC EDGAR
+     - Group 2 — Data Fetch (runs after Group 1, single-threaded Phase 1 / parallel Phase 2):
+       - ☑ yfinance
+       - ☑ FMP
+       - ☑ E*Trade
+       - ☑ FRED
+     - Group 2 locked until Group 1 completes
+     - Live log output shown in UI during fetch run
+     - Each API can be run independently (e.g. re-run just yfinance after a failure)
+
+   - FRED DATA:
+     - Fetched via FRED API (free, fast, minimal overhead)
+     - Data stored in macro.db (not per-symbol — macro context only)
+     - Used in Analysis layer for DCF calculations (Treasury yield = ^TNX cross-check available via yfinance)
+     - Macro series: 10-year Treasury yield, Federal Funds Rate, CPI, GDP growth rate
+
+✅ Topic 9 — Testing Strategy, Error Handling & Data Quality Validation
+   - ✅ Subtopic 9.1 — Testing approach
+     - No pytest — manual verification only (Frank already knows this approach)
+     - Ad-hoc testing scripts written as needed during build
+     - VSCode SQLite viewer for visual database inspection
+     - No pre-built verification scripts — Frank builds his own as he goes
+
+   - ✅ Subtopic 9.2 — Error handling
+     - API fails repeatedly → that fetcher stops, other fetchers continue unaffected
+     - Failure logged clearly in the run log
+     - Analysis still runs after all fetchers finish or stop — uses whatever data is available
+     - fetch_status table tracks last successful fetch per (symbol, fetcher_name) — composite primary key
+     - On restart → fetch_status determines which symbols are already done → skips them, resumes from where it left off
+     - 5-day lock per (symbol, fetcher_name) after successful fetch — symbol not re-fetched until lock expires
+     - Lock is per fetcher function (e.g. yfinance_quotes and etrade_quotes have independent locks)
+     - Weekly cadence naturally falls outside 5-day window → normal weekly runs always fetch fresh data
+     - fetch_status table columns: symbol, fetcher_name, last_fetched, fetch_errors
+       - Composite primary key: (symbol, fetcher_name)
+       - fetcher_name stored as plain string e.g. "yfinance_quotes", "etrade_quotes"
+
+   - ✅ Subtopic 9.3 — Logging
+     - Summary-level only — no symbol names, no per-value noise
+     - Timestamp prefix on every log entry (via Python logging %(asctime)s formatter)
+     - Log format per batch: 2026-06-06 19:42:11 [fetcher_name] Batch X/Y — Fetched: N | Success: N | Failed: N | Remaining: N
+     - Sanitize fixes are silent — not logged individually
+
+   - ✅ Subtopic 9.4 — Data quality / sanitize functions
+     - Each fetcher has its own paired sanitize function (e.g. sanitize_yfinance_quotes())
+     - Flow per fetcher: fetch raw data → sanitize → conditional enrichment → sanitize enrichment → write to database
+     - Sanitize operates on raw API response before anything touches the database
+     - Two levels of response:
+       - Field-level fix: bad individual value → replace with NaN, keep the rest (e.g. inf → NaN, "N/A" → None)
+       - Record-level reject: data fundamentally broken → return empty, skip entire record (e.g. price = 0 or None)
+     - Conditional enrichment based on security type detected in base fetch data:
+       - e.g. if type == MUTUALFUND → run ticker.funds_data.fund_overview → add columns to same row
+       - ETF → fetch holdings, expense ratio, NAV, tracking error
+       - Each enrichment call also goes through its own sanitize pass
+     - Enrichment data written to same table as base fetch, as additional columns
+     - NULL for security types where enrichment doesn't apply
+     - Schema grows dynamically via ALTER TABLE ADD COLUMN (consistent with existing design)

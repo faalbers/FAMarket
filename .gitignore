@@ -1,0 +1,38 @@
+# --- Secrets ---
+.env
+
+# --- Generated CA bundle (rebuilt at startup from the OS trust store) ---
+.ca_bundle.pem
+
+# --- Virtual environment ---
+.venv/
+venv/
+
+# --- Generated data (never commit) ---
+databases/*.db
+databases/*.db-wal
+databases/*.db-shm
+backups/*.db
+logs/*.log
+logs/*.log.*
+
+# --- User-saved collections (keep the folders, ignore contents) ---
+filters/*.filt
+column_sets/*.prms
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- OS / IDE ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- Claude Code (machine-local) ---
+.claude/settings.local.json
