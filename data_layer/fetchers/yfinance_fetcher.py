@@ -255,6 +255,11 @@ def sanitize_financials(
         out["is_complete"] = out[present].notna().all(axis=1).astype(int)
     else:
         out["is_complete"] = 0
+    # Explicit provenance. yfinance is the primary financials source; EDGAR backfill
+    # rows carry source="edgar". Set after the numeric sanitize loop so this text
+    # column isn't coerced to NaN. (Added here, not in the loop above, for that
+    # reason.)
+    out["source"] = "yfinance"
     return out
 
 
