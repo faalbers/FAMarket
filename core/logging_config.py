@@ -94,7 +94,21 @@ def setup_logging() -> None:
     root.handlers.clear()
     root.addHandler(console)
     root.addHandler(_make_file_handler())
+
+    _quiet_noisy_libraries()
     _configured = True
+
+
+# Third-party loggers that emit per-symbol noise which violates our summary-level
+# policy (Topic 9.3) — most notably yfinance's "HTTP Error 404: quote not found"
+# ERROR for delisted/unknown tickers. These symbols are accounted for in the
+# fetcher's batch "No-data" count, so the raw library errors are pure noise here.
+_NOISY_LIBRARIES = ("yfinance", "peewee", "urllib3", "curl_cffi")
+
+
+def _quiet_noisy_libraries() -> None:
+    for name in _NOISY_LIBRARIES:
+        logging.getLogger(name).setLevel(logging.CRITICAL)
 
 
 def get_logger(name: str) -> logging.Logger:

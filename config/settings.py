@@ -54,11 +54,36 @@ COLUMN_SETS_DIR: Path = BASE_DIR / "column_sets"  # .prms files (output column s
 # Friday cadence naturally falls outside the window so normal runs refetch.
 FETCH_LOCK_DAYS: int = 5
 
+# --------------------------------------------------------------------------- #
+# Fetch viability / abandonment (data_layer/fetch_status.py + staleness.py)
+# --------------------------------------------------------------------------- #
+# Policy: a (symbol, fetcher) pair is ABANDONED — skipped on normal runs — when it
+# stops producing fresh data. Two probes implement that one idea:
+#   * strike probe    — for symbols that return NOTHING (no date to age).
+#   * staleness probe — for symbols that return only OLD data (a frontier to age).
+# A forced run (respect_lock=False) bypasses both; data returning resets them. The
+# master switch turns the whole policy off (e.g. to make one run touch everything).
+FETCH_ABANDONMENT_ENABLED: bool = True
+
+# Strike probe: after this many actual fetches that return no data, the pair is
+# abandoned. The counter resets the moment data is returned (a relisted symbol
+# recovers).
+MAX_NO_DATA_FETCHES: int = 4
+
+# Staleness probe: skip a symbol whose newest STORED value is older than the
+# window. Self-perpetuating — the stored date can't advance while skipped.
+OHLCV_STALE_WEEKS: int = 4                     # newest OHLCV date older than this
+FINANCIALS_QUARTERLY_STALE_QUARTERS: int = 2   # newest quarterly period_end older than this
+FINANCIALS_YEARLY_STALE_QUARTERS: int = 6      # newest annual period_end older than this
+
 # Minimum history pulled on an initial OHLCV load.
 OHLCV_INITIAL_YEARS: int = 10
 
-# Symbols with no new OHLCV for this many consecutive weeks are flagged inactive.
-INACTIVE_AFTER_WEEKS: int = 8
+# OHLCV recency window for validation: a symbol whose newest OHLCV bar is older
+# than this fails the "recent data" check in reassess_state (is_validated=False)
+# and so drops out of the analysis universe. (Distinct from the staleness probe
+# above, which stops *fetching* a stale symbol.)
+OHLCV_INACTIVE_AFTER_WEEKS: int = 8
 
 # Default batch size for batched API fetches (per-API overrides below).
 DEFAULT_BATCH_SIZE: int = 100

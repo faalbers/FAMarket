@@ -432,7 +432,7 @@ def reassess_state(db: Database, assess_symbols: list[str] | None = None) -> dic
       * stock / reit / adr      -> quote + recent OHLCV + recent financials
       * etf / closed-end / pref -> quote + recent OHLCV
       * everything else         -> quote
-    "Recent" = OHLCV within INACTIVE_AFTER_WEEKS, financials within ~15 months.
+    "Recent" = OHLCV within OHLCV_INACTIVE_AFTER_WEEKS, financials within ~15 months.
 
     is_active is only flipped to False when a symbol returned NO data AND had no
     fetch errors — i.e. genuinely missing, not an API hiccup. Symbols with errors
@@ -483,7 +483,7 @@ def reassess_state(db: Database, assess_symbols: list[str] | None = None) -> dic
     err_syms = {sym for (sym, _f), n in errs.items() if n > 0}
 
     today = datetime.now(timezone.utc).date()
-    ohlcv_cutoff = today - timedelta(weeks=settings.INACTIVE_AFTER_WEEKS)
+    ohlcv_cutoff = today - timedelta(weeks=settings.OHLCV_INACTIVE_AFTER_WEEKS)
     fin_cutoff = today - timedelta(days=460)  # ~15 months
 
     def _on_or_after(d: str | None, cutoff) -> bool:

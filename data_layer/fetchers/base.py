@@ -32,7 +32,7 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 from config import settings
 from core.database import Database
 from core.logging_config import get_logger
-from data_layer import fetch_status
+from data_layer import fetch_status, staleness
 
 
 class BaseFetcher(ABC):
@@ -49,6 +49,12 @@ class BaseFetcher(ABC):
     # one-time backfill: once a symbol succeeds it is skipped on all future runs
     # (errors still retry, and respect_lock=False forces a refetch).
     lock_days: int | None = None
+    # Staleness probe (data_layer/staleness.py): abandon a symbol whose newest
+    # stored `stale_date_column` in `table` is older than `stale_after_days`. None
+    # disables it. Fetchers with a multi-stream rule (financials: per-freq) override
+    # stale_symbols() instead. The master switch is settings.FETCH_ABANDONMENT_ENABLED.
+    stale_after_days: int | None = None
+    stale_date_column: str = "date"
 
     def __init__(self, batch_size: int | None = None):
         self.log = get_logger(self.name)
@@ -88,6 +94,22 @@ class BaseFetcher(ABC):
         mask = symbols_df["security_type"].isin(self.applies_to)
         return symbols_df.loc[mask, "symbol"].tolist()
 
+    def stale_symbols(self, candidates: list[str]) -> set[str]:
+        """Symbols whose stored data is too stale to keep fetching (skipped forever).
+
+        Default reads the declarative `stale_after_days`/`stale_date_column`
+        attributes (the single-stream case, e.g. OHLCV); financials overrides for
+        its per-freq rule. Recomputed from the data each run, so once skipped a
+        symbol's stored date never advances and it stays skipped — a forced run
+        (respect_lock=False) is the recovery path. See data_layer/staleness.py.
+        """
+        if self.stale_after_days is None:
+            return set()
+        return staleness.stale_by_max_date(
+            getattr(settings, self.target_db), self.table,
+            self.stale_date_column, self.stale_after_days, candidates,
+        )
+
     def _write(self, db: Database, rows: pd.DataFrame) -> None:
         if rows.empty:
             return
@@ -106,32 +128,46 @@ class BaseFetcher(ABC):
     ) -> dict:
         """Fetch all due symbols for this fetcher. Returns a run summary dict."""
         candidates = self.select_symbols(symbols_df)
-        symbols = (
-            fetch_status.due_symbols(status_db, candidates, self.name, self.lock_days)
-            if respect_lock
-            else candidates
-        )
+        n_stale = 0
+        if respect_lock:
+            due = fetch_status.due_symbols(status_db, candidates, self.name, self.lock_days)
+            stale = self.stale_symbols(candidates) if settings.FETCH_ABANDONMENT_ENABLED else set()
+            symbols = [s for s in due if s not in stale]
+            n_stale = len(due) - len(symbols)
+        else:  # forced run: ignore locks, abandonment, and staleness
+            symbols = candidates
         total = len(symbols)
         n_batches = (total + self.batch_size - 1) // self.batch_size if total else 0
         self.log.info(
-            "Start — %d/%d symbols due (%d batches of %d)",
-            total, len(candidates), n_batches, self.batch_size,
+            "Start — %d/%d symbols due (%d skipped stale; %d batches of %d)",
+            total, len(candidates), n_stale, n_batches, self.batch_size,
         )
 
-        success = failed = 0
+        # A call can end three ways: returned rows (data), returned empty/None
+        # (a successful check that found no data, e.g. a delisted ticker 404), or
+        # raised after retries (failed). Counting "no-data" separately keeps the
+        # summary honest — otherwise empties masquerade as successes. A no-data
+        # result that pushes the pair to settings.MAX_NO_DATA_FETCHES abandons it
+        # (skipped on all future normal runs); we report how many crossed that line.
+        data = empty = failed = abandoned = 0
         out_db = Database(getattr(settings, self.target_db))
         try:
             for bi in range(n_batches):
                 chunk = symbols[bi * self.batch_size : (bi + 1) * self.batch_size]
                 frames: list[pd.DataFrame] = []
-                b_ok = b_fail = 0
+                b_data = b_empty = b_fail = b_abandoned = 0
                 for sym in chunk:
                     try:
                         rows = self._call(sym)
                         if rows is not None and not rows.empty:
                             frames.append(rows)
-                        fetch_status.mark_success(status_db, sym, self.name)
-                        b_ok += 1
+                            b_data += 1
+                            fetch_status.mark_success(status_db, sym, self.name)
+                        else:  # checked OK, but the symbol has no data
+                            b_empty += 1
+                            count = fetch_status.mark_no_data(status_db, sym, self.name)
+                            if count >= settings.MAX_NO_DATA_FETCHES:
+                                b_abandoned += 1
                     except Exception as exc:  # final failure after retries
                         fetch_status.mark_error(status_db, sym, self.name)
                         b_fail += 1
@@ -140,15 +176,21 @@ class BaseFetcher(ABC):
                 if frames:
                     self._write(out_db, pd.concat(frames, ignore_index=True))
 
-                success += b_ok
+                data += b_data
+                empty += b_empty
                 failed += b_fail
+                abandoned += b_abandoned
                 remaining = total - (bi + 1) * self.batch_size
                 self.log.info(
-                    "Batch %d/%d — Fetched: %d | Success: %d | Failed: %d | Remaining: %d",
-                    bi + 1, n_batches, len(chunk), b_ok, b_fail, max(remaining, 0),
+                    "Batch %d/%d — Attempted: %d | Data: %d | No-data: %d | Failed: %d | Remaining: %d",
+                    bi + 1, n_batches, len(chunk), b_data, b_empty, b_fail, max(remaining, 0),
                 )
         finally:
             out_db.close()
 
-        self.log.info("Done — Success: %d | Failed: %d", success, failed)
-        return {"fetcher": self.name, "due": total, "success": success, "failed": failed}
+        self.log.info(
+            "Done — Data: %d | No-data: %d | Failed: %d | Abandoned: %d",
+            data, empty, failed, abandoned,
+        )
+        return {"fetcher": self.name, "due": total, "data": data,
+                "no_data": empty, "failed": failed, "abandoned": abandoned}

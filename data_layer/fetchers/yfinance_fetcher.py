@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from config import settings, type_map
+from data_layer import staleness
 from data_layer.fetchers.base import BaseFetcher
 
 if TYPE_CHECKING:
@@ -162,6 +163,7 @@ class YFinanceOHLCV(BaseFetcher):
     table = "ohlcv"
     write_mode = "upsert"          # idempotent by (symbol, date) — see module note
     upsert_key = ["symbol", "date"]
+    stale_after_days = settings.OHLCV_STALE_WEEKS * 7  # base.stale_symbols by `date`
 
     def fetch_one(self, symbol: str) -> pd.DataFrame | None:
         import yfinance as yf
@@ -271,6 +273,9 @@ class YFinanceFinancials(BaseFetcher):
     table = "financials"
     write_mode = "upsert"
     upsert_key = ["symbol", "period_end", "freq"]
+
+    def stale_symbols(self, candidates: list[str]) -> set[str]:
+        return staleness.financials_stale(candidates)
 
     def fetch_one(self, symbol: str) -> pd.DataFrame | None:
         import yfinance as yf

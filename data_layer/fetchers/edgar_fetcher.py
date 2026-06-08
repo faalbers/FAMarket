@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from config import secrets, settings
+from data_layer import staleness
 from data_layer.fetchers.base import BaseFetcher
 
 if TYPE_CHECKING:
@@ -312,6 +313,9 @@ class EDGARFinancials(BaseFetcher):
     def __init__(self, batch_size: int | None = None):
         super().__init__(batch_size)
         self._cik: dict[str, int] | None = None  # symbol -> CIK, lazy-loaded
+
+    def stale_symbols(self, candidates: list[str]) -> set[str]:
+        return staleness.financials_stale(candidates)
 
     # -- CIK resolution ----------------------------------------------------- #
     def _cik_map(self) -> dict[str, int]:
