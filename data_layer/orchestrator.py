@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import pandas as pd
 
+from analysis_layer.pipeline import run_analysis
 from config import settings
 from core.backup import backup_all
 from core.database import Database
@@ -100,6 +101,11 @@ def run_full_fetch(
         summary["reassessment"] = symbols.reassess_state(
             sdb, assess_symbols=universe["symbol"].tolist()
         )
+
+    # -- Group 3: analysis (clean-slate rebuild of analysis.db) ------------- #
+    # Runs after the symbols DB is closed; the analysis layer opens its own DBs
+    # and only processes is_active+is_validated symbols set by the reassessment.
+    summary["analysis"] = run_analysis(subset=subset)
 
     log.info("Full fetch complete — %s", {k: summary.get(k) for k in summary})
     return summary

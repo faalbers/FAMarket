@@ -12,14 +12,14 @@ sequencing. `Stock_Screening_Analysis.md` is the original blueprint. Treat both
 as read-only design docs (the user maintains them manually).
 
 Build status: the **data layer** (`core/`, `config/`, symbol discovery, and the
-yfinance/EDGAR/FRED fetchers) is functional. The **analysis layer** is mostly
-built — `_periods`, `metrics`, `technical`, `intrinsic_value`, `_stats`, `peers`,
-and the `pipeline` assembly all work and populate `analysis.db`; `scoring`
-(category scores + Overall) and universe-wide `rs_rank` remain, after which
-`run_analysis()` gets wired into the orchestrator. The **UI** pages are still
-documented skeletons that raise `NotImplementedError`. Build order is strictly
-**Data → Analysis → UI**, each layer completed fully before starting the next (no
-thin end-to-end slices).
+yfinance/EDGAR/FRED fetchers) is functional. The **analysis layer** is now
+complete — `_periods`, `metrics`, `technical`, `intrinsic_value`, `_stats`,
+`peers`, `scoring` (category scores + Overall, percentile-rank) and universe-wide
+`rs_rank` all work; `pipeline.run_analysis()` assembles and writes `analysis.db`
+(124 cols) and is wired into the orchestrator as Group 3 after each fetch. The
+**UI** pages are still documented skeletons that raise `NotImplementedError` —
+this is the next layer to build. Build order is strictly **Data → Analysis → UI**,
+each layer completed fully before starting the next (no thin end-to-end slices).
 
 ## Commands
 

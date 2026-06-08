@@ -26,7 +26,7 @@ import pandas as pd
 from config import settings
 from core.database import Database
 from core.logging_config import get_logger
-from analysis_layer import _periods, metrics, technical, intrinsic_value, peers
+from analysis_layer import _periods, metrics, technical, intrinsic_value, peers, scoring
 
 log = get_logger("analysis")
 
@@ -102,6 +102,8 @@ def run_analysis(subset: list[str] | None = None) -> dict:
             "sector": quote.get("sector") if quote is not None else None,
             "industry": quote.get("industry") if quote is not None else None,
             "price": price,
+            # raw weighted return -> universe-ranked into rs_rank in scoring (dropped after)
+            "_rs_raw": technical.relative_strength_raw(osym),
             **m, **t, **iv,
         })
 
@@ -110,7 +112,7 @@ def run_analysis(subset: list[str] | None = None) -> dict:
 
     # -- cross-symbol stages --------------------------------------------------- #
     df = peers.compute(df)
-    # scoring + rs_rank slot in here next.
+    df = scoring.compute(df)  # rs_rank, category scores, overall_score
 
     _write(df, prices_as_of)
     _log_reconcile(reconcile, len(df))

@@ -227,6 +227,29 @@ def _week52(close: pd.Series, price: float) -> dict:
     }
 
 
+def relative_strength_raw(ohlcv: pd.DataFrame) -> float:
+    """IBD-style weighted trailing return — the raw input to universe rs_rank.
+
+    Weighted ratio of adj_close across four ~3-month windows, most recent window
+    weighted heaviest (settings.RS_RANK_WEIGHTS, default 40/20/20/20). NaN below
+    RS_RANK_MIN_HISTORY_DAYS of history, so a thin symbol stays unranked. The
+    pipeline percentile-ranks these across the universe into the stored rs_rank;
+    this is deliberately NOT part of compute() (it's cross-symbol, not per-symbol).
+    """
+    if ohlcv is None or ohlcv.empty:
+        return float("nan")
+    close = pd.to_numeric(ohlcv.sort_values("date")["adj_close"], errors="coerce").dropna()
+    q, weights = settings.RS_RANK_QUARTER_DAYS, settings.RS_RANK_WEIGHTS
+    if len(close) < settings.RS_RANK_MIN_HISTORY_DAYS:
+        return float("nan")
+    # offsets 0,q,2q,3q,4q back from the latest close -> four quarter-over-quarter
+    # ratios, newest first; each window's return weighted per RS_RANK_WEIGHTS.
+    marks = [float(close.iloc[-1 - k * q]) for k in range(len(weights) + 1)]
+    if any(m <= 0 for m in marks):
+        return float("nan")
+    return float(sum(w * (marks[i] / marks[i + 1]) for i, w in enumerate(weights)))
+
+
 def _trend(close: pd.Series) -> str:
     """Peak-detection trend over the last year (HH/HL vs LL/LH on swing points)."""
     win = close.tail(_TREND_WINDOW).to_numpy()

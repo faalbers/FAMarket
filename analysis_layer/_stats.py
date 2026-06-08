@@ -46,3 +46,24 @@ def percentile_rank(values: pd.Series, ascending: bool = True) -> pd.Series:
     """
     s = pd.to_numeric(values, errors="coerce")
     return s.rank(pct=True, ascending=ascending, na_option="keep") * 100
+
+
+def percentile_rank_tiered(
+    values: pd.Series, tiers: list[pd.Series], ascending: bool = True, min_n: int = 5
+) -> pd.Series:
+    """Percentile rank within the narrowest peer tier that has >= min_n members.
+
+    `tiers` is an ordered list of group Series from NARROWEST to BROADEST (e.g.
+    [industry, sector]): each row is ranked within the narrowest tier whose group
+    clears `min_n` non-null members, falling back through the wider tiers and
+    finally to the whole universe (Topic 4.4: per-metric peer baseline). Rows with
+    a missing group key at every tier keep the universe percentile. NaN preserved.
+    """
+    s = pd.to_numeric(values, errors="coerce")
+    out = percentile_rank(s, ascending)  # universe baseline (also the final fallback)
+    for groups in reversed(tiers):       # broadest first so the narrowest tier wins
+        frame = pd.DataFrame({"v": s, "g": groups})
+        for _, idx in frame.dropna(subset=["v", "g"]).groupby("g").groups.items():
+            if len(idx) >= min_n:
+                out.loc[idx] = percentile_rank(s.loc[idx], ascending)
+    return out

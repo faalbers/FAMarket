@@ -142,6 +142,51 @@ OVERALL_SCORE_WEIGHTS: dict[str, float] = {
     "income": 0.10,
 }
 
+# Metric weights WITHIN each category score (Topic 4.4) — Claude's sensible
+# defaults, all adjustable from the Settings page. Each category's score is the
+# weight-averaged 0-100 percentile rank of whichever of these metrics the symbol
+# actually has (NaN metrics drop out, so funds/ETFs gate themselves naturally).
+# Weights are positive magnitudes; metric DIRECTION (lower-is-better for the
+# valuation multiples / leverage / payout) is intrinsic and lives in scoring.py.
+CATEGORY_METRIC_WEIGHTS: dict[str, dict[str, float]] = {
+    "value": {
+        "pe": 1.0, "forward_pe": 0.5, "peg": 1.0, "ps": 0.75, "pb": 0.75,
+        "p_fcf": 1.0, "ev_ebitda": 1.0, "ev_revenue": 0.5, "margin_of_safety": 1.0,
+    },
+    "quality": {
+        "roe": 1.0, "roa": 0.75, "roic": 1.0, "gross_margin": 0.5,
+        "operating_margin": 0.75, "net_margin": 0.75, "fcf_margin": 0.75,
+        "debt_to_equity": 0.75, "debt_to_ebitda": 0.5, "current_ratio": 0.5,
+        "interest_coverage": 0.5, "altman_z": 0.75,
+    },
+    "growth": {
+        "revenue_cagr_3y": 1.0, "revenue_cagr_5y": 0.75, "eps_cagr_3y": 1.0,
+        "eps_cagr_5y": 0.75, "fcf_cagr_3y": 0.5, "revenue_yoy_q": 0.75,
+        "eps_yoy_q": 0.75, "eps_growth_r2": 0.5,
+    },
+    "momentum": {
+        "rs_rank": 1.0, "price_vs_ma_50": 0.75, "price_vs_ma_150": 0.5,
+        "price_vs_ma_200": 1.0, "pct_from_52w_high": 0.75,
+    },
+    "income": {
+        "div_yield_ttm": 1.0, "div_growth_5y": 0.75, "div_consecutive_years": 0.5,
+        "div_coverage": 0.75, "div_consistency": 0.5, "div_payout_ratio": 0.5,
+    },
+}
+
+# Peer baseline for the percentile scoring (Topic 4.3/4.4): value & quality are
+# ranked within the symbol's peer group, narrowest-first — INDUSTRY, then SECTOR,
+# then the whole universe (fundamentals are only comparable among peers), stepping
+# out a tier whenever a group is smaller than MIN_PEERS_FOR_PERCENTILE. Growth,
+# momentum and income rank universe-wide.
+SCORE_PEER_RELATIVE_CATEGORIES: tuple[str, ...] = ("value", "quality")
+
+# rs_rank (Topic 4.2): IBD-style weighted percentile vs the whole universe.
+# Weighted return over four ~3-month windows (most recent weighted heaviest);
+# NULL below RS_RANK_MIN_HISTORY_DAYS of price history.
+RS_RANK_QUARTER_DAYS: int = 63                          # ~3 trading months
+RS_RANK_WEIGHTS: tuple[float, ...] = (0.4, 0.2, 0.2, 0.2)  # newest -> oldest quarter
+
 # --------------------------------------------------------------------------- #
 # Output / charts
 # --------------------------------------------------------------------------- #
