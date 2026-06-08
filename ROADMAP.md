@@ -69,6 +69,12 @@
 ✅ Topic 2 — Fetch Strategy
    - ✅ Subtopic 2.1 — Fetch cadence
      - Manual run, Friday evening after market close
+     - ✅ IMPLEMENTED — market-closed gate: while the regular NYSE session is open,
+       everything EXCEPT symbol discovery is skipped (no intraday prices). Honors
+       weekends, US holidays, and early closes via `core/market_calendar.is_market_open`
+       (pandas-market-calendars, XNYS). On by default; `run_full_fetch(block_when_market_open=…)`,
+       a Fetch Control toggle, and `scripts.run_fetch --allow-market-open` turn it off
+       for testing. This is shipped — do NOT re-assess as future work.
    - ✅ Subtopic 2.2 — Incremental fetch by data type
      - OHLCV → append by date; initial fetch = 10 years minimum
      - End date always capped to last completed trading session (pandas_market_calendars)
@@ -532,9 +538,15 @@
        - Field-level fix: bad individual value → replace with NaN, keep the rest (e.g. inf → NaN, "N/A" → None)
        - Record-level reject: data fundamentally broken → return empty, skip entire record (e.g. price = 0 or None)
      - Conditional enrichment based on security type detected in base fetch data:
-       - e.g. if type == MUTUALFUND → run ticker.funds_data.fund_overview → add columns to same row
-       - ETF → fetch holdings, expense ratio, NAV, tracking error
-       - Each enrichment call also goes through its own sanitize pass
+       - ✅ IMPLEMENTED — ETF + MUTUALFUND → run `ticker.funds_data.fund_overview`,
+         flatten each key to a `fund_<key>` column on the same quote row
+         (`fund_categoryName`, `fund_family`, `fund_legalType`), plus the `info`
+         scalars `totalAssets/navPrice/fundFamily/category`. Best-effort: a
+         funds_data failure never rejects the valid quote. See
+         `data_layer/fetchers/yfinance_fetcher.py::_enrich_quote` / `_fund_overview`.
+         This is shipped — do NOT re-assess it as future work.
+       - (Future) ETF deep enrichment → holdings, expense ratio, tracking error
+       - Each enrichment call also goes through its own sanitize pass (`_clean_value`)
      - Enrichment data written to same table as base fetch, as additional columns
      - NULL for security types where enrichment doesn't apply
      - Schema grows dynamically via ALTER TABLE ADD COLUMN (consistent with existing design)

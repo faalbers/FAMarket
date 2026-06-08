@@ -96,26 +96,60 @@ class YFinanceQuotes(BaseFetcher):
     def fetch_one(self, symbol: str) -> pd.DataFrame | None:
         import yfinance as yf
 
-        info = yf.Ticker(symbol).info or {}
+        ticker = yf.Ticker(symbol)
+        info = ticker.info or {}
         row = sanitize_quote(symbol, info)
         if row is None:
             return None
         df = pd.DataFrame([row])
-        return _enrich_quote(symbol, df, info)
+        return _enrich_quote(symbol, df, info, ticker)
 
 
-def _enrich_quote(symbol: str, df: pd.DataFrame, info: dict) -> pd.DataFrame:
-    """Conditional enrichment by security type (Topic 9.4).
+# yfinance quoteTypes that expose a `funds_data` block (ETFs and mutual funds).
+_FUND_QUOTE_TYPES = {"ETF", "MUTUALFUND"}
 
-    Kept minimal for now: ETF/fund overview fields. Extended per scope tier as the
-    fetcher matures (holdings, NAV, tracking error, fund_overview, etc.).
+
+def _enrich_quote(symbol: str, df: pd.DataFrame, info: dict, ticker) -> pd.DataFrame:
+    """Conditional enrichment by security type (Topic 9.4, ROADMAP 9.4).
+
+    Funds (ETF + mutual fund) carry metadata beyond the plain `info` dict:
+      * scalar overview fields that already live on `info` (totalAssets, navPrice…)
+      * `funds_data.fund_overview` — category / family / legal type — flattened to
+        one `fund_<key>` column each (no JSON blobs, per the one-field-one-column
+        convention). NULL for every non-fund symbol.
+
+    Best-effort by design: a funds_data failure never rejects the already-valid
+    quote — it's retried on the next weekly run.
     """
     qtype = (info.get("quoteType") or "").upper()
-    if qtype == "ETF":
-        for col in ("totalAssets", "navPrice", "fundFamily", "category"):
-            if col in info:
-                df.loc[:, col] = _clean_value(info.get(col))
+    if qtype not in _FUND_QUOTE_TYPES:
+        return df
+
+    # Overview scalars carried on `info` (now applied to mutual funds too, not just ETFs).
+    for col in ("totalAssets", "navPrice", "fundFamily", "category"):
+        if col in info:
+            df.loc[:, col] = _clean_value(info.get(col))
+
+    # funds_data.fund_overview — a small flat dict; one sanitized column per key.
+    for key, value in _fund_overview(ticker).items():
+        df.loc[:, f"fund_{key}"] = _clean_value(value)
     return df
+
+
+def _fund_overview(ticker) -> dict:
+    """`ticker.funds_data.fund_overview` as a flat scalar dict, or {} on any failure.
+
+    A second Yahoo request beyond `.info`, so it's issued only for fund quote types.
+    Swallows all exceptions (missing funds_data attr, no data, or a transient Yahoo
+    error) so enrichment degrades gracefully without failing the whole quote.
+    """
+    try:
+        overview = ticker.funds_data.fund_overview
+    except Exception:
+        return {}
+    if not isinstance(overview, dict):
+        return {}
+    return {k: v for k, v in overview.items() if _is_scalar(v)}
 
 
 # --------------------------------------------------------------------------- #

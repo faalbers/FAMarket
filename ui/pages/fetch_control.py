@@ -30,6 +30,8 @@ import streamlit as st
 
 from config import settings
 from core.database import Database
+from core.market_calendar import is_market_open
+from data_layer import cancel
 from data_layer.orchestrator import run_full_fetch
 
 ANALYSIS_META = "analysis_meta"
@@ -167,10 +169,32 @@ run_backup = col_b.checkbox(
     "Back up databases first", value=True,
     help="Rotating 5-version backup of every .db before the run.",
 )
+block_market = st.checkbox(
+    "Only fetch when the US market is closed", value=True,
+    help="Blocks all data fetching AND analysis while the regular NYSE session is "
+    "open, so prices are never captured intraday — symbol discovery still runs. "
+    "Honors weekends, US holidays, and early-close half-days. Uncheck to fetch "
+    "during market hours for testing.",
+)
+if block_market and is_market_open():
+    st.warning(
+        "US market is **open right now** — a run will do symbol discovery only and "
+        "skip data fetch + analysis. Uncheck the box above to fetch anyway (testing)."
+    )
 
-submitted = st.button("▶ Run Fetch", type="primary")
+running = st.session_state.get("fetch_running", False)
+run_col, stop_col = st.columns(2)
+submitted = run_col.button("▶ Run Fetch", type="primary", disabled=running)
+# Stop is a cooperative request: the worker keeps running until it reaches the
+# next safe boundary (between fetchers / between batches), where every completed
+# batch is already committed, then unwinds. So it's enabled only while a run is live.
+stop_clicked = stop_col.button("■ Stop Fetch", disabled=not running)
 
-# -- run (background thread + live log tail) -------------------------------- #
+# -- start a run ------------------------------------------------------------ #
+# The worker runs on a daemon thread and the page does NOT block waiting for it:
+# each script run renders the log tail, then schedules a rerun a couple of seconds
+# later. That keeps the script free to process the Stop button between polls — a
+# blocking wait loop would freeze the page and the Stop click would never land.
 if submitted:
     if scope == "Full universe":
         subset = None
@@ -180,42 +204,140 @@ if submitted:
             st.warning("Dev subset selected but no symbols entered. Add symbols or switch to Full universe.")
             st.stop()
     label = f"{len(subset)} symbols" if subset else "full universe"
+    cancel.clear()  # drop any leftover stop before the worker checks it
     result: dict = {}
     worker = threading.Thread(
         target=_run_worker,
         kwargs={
             "result": result, "discover": discover, "subset": subset,
             "respect_lock": respect_lock, "run_backup": run_backup,
+            "block_when_market_open": block_market,
         },
         daemon=True,
     )
     worker.start()
+    st.session_state["fetch_running"] = True
+    st.session_state["fetch_stopping"] = False
+    st.session_state["fetch_result"] = result
+    st.session_state["fetch_label"] = label
+    st.session_state["fetch_summary"] = None
+    st.session_state["fetch_error"] = None
+    st.rerun()
 
-    status = st.status(f"Running pipeline ({label})…", expanded=True)
-    log_box = status.empty()
-    while not result.get("done"):  # main thread is free to repaint while it runs
-        log_box.code(_log_tail() or "(starting…)", language="log")
-        time.sleep(_POLL_SECONDS)
-    log_box.code(_log_tail() or "(no log output)", language="log")
+# -- request a stop (honoured at the next safe boundary) -------------------- #
+if stop_clicked and running:
+    cancel.request_cancel()
+    st.session_state["fetch_stopping"] = True
 
-    if result.get("error"):
-        status.update(label="Fetch failed", state="error")
-        st.session_state["fetch_summary"] = None
-        st.session_state["fetch_error"] = result["error"]
+# -- poll a live run (non-blocking: render, then schedule the next rerun) --- #
+if st.session_state.get("fetch_running"):
+    result = st.session_state.get("fetch_result", {})
+    label = st.session_state.get("fetch_label", "")
+    stopping = st.session_state.get("fetch_stopping", False)
+    verb = "Stopping" if stopping else "Running"
+    status = st.status(f"{verb} pipeline ({label})…", expanded=True)
+    if stopping:
+        status.write("Stop requested — finishing the current batch (already committed), then unwinding.")
+    status.empty().code(_log_tail() or "(starting…)", language="log")
+
+    if result.get("done"):
+        st.session_state["fetch_running"] = False
+        st.session_state["fetch_stopping"] = False
+        summary = result.get("summary")
+        if result.get("error"):
+            status.update(label="Fetch failed", state="error")
+            st.session_state["fetch_summary"] = None
+            st.session_state["fetch_error"] = result["error"]
+        elif isinstance(summary, dict) and summary.get("cancelled"):
+            status.update(label="Fetch stopped", state="error")
+            st.session_state["fetch_summary"] = summary
+            st.session_state["fetch_error"] = None
+        elif isinstance(summary, dict) and summary.get("market_open"):
+            status.update(label="Market open — data fetch skipped", state="error")
+            st.session_state["fetch_summary"] = summary
+            st.session_state["fetch_error"] = None
+        else:
+            status.update(label="Fetch complete", state="complete")
+            st.session_state["fetch_summary"] = summary
+            st.session_state["fetch_error"] = None
+        st.rerun()  # repaint with the fresh analysis snapshot + persisted summary
     else:
-        status.update(label="Fetch complete", state="complete")
-        st.session_state["fetch_summary"] = result.get("summary")
-        st.session_state["fetch_error"] = None
-    st.rerun()  # repaint with the fresh analysis snapshot + persisted summary
+        time.sleep(_POLL_SECONDS)
+        st.rerun()
 
 # -- results of the most recent run (persist across reruns) ----------------- #
+_last_summary = st.session_state.get("fetch_summary")
 if st.session_state.get("fetch_error"):
     st.error(f"Fetch failed — {st.session_state['fetch_error']}")
-elif st.session_state.get("fetch_summary") is not None:
+elif isinstance(_last_summary, dict) and _last_summary.get("cancelled"):
+    st.warning(
+        "Fetch stopped before completing. All fetched batches are committed and the "
+        "run is resumable — re-run to continue. Analysis was not rebuilt."
+    )
+    st.json(_last_summary)
+elif isinstance(_last_summary, dict) and _last_summary.get("market_open"):
+    st.warning(
+        "US market was open — only symbol discovery ran; data fetch and analysis were "
+        "skipped so prices aren't captured intraday. Re-run after market close, or "
+        "uncheck **Only fetch when the US market is closed** to fetch during market hours."
+    )
+    st.json(_last_summary)
+elif _last_summary is not None:
     st.success("Fetch complete.")
-    st.json(st.session_state["fetch_summary"])
+    st.json(_last_summary)
 
 tail = _log_tail()
 if tail:
     with st.expander("Run log (tail)", expanded=bool(submitted)):
         st.code(tail, language="log")
+
+# -- danger zone: reset to a clean slate ------------------------------------ #
+# Kept at the very bottom, collapsed, behind a two-step confirm (checkbox + button)
+# so it's never triggered by accident. Versioned-backs-up the current DBs and log
+# first, then deletes the live databases; backups + logs are preserved (recoverable).
+st.divider()
+with st.expander("⚠️ Danger zone — reset all data"):
+    st.warning(
+        "Takes a versioned backup of the current databases **and** the log (rotating, "
+        "same as a normal run), then **deletes the live databases**. Backups and logs "
+        "are kept, so this is recoverable — but the working dataset is gone and the "
+        "next run becomes a full initial load."
+    )
+    # A fresh checkbox key after each reset (nonce) so it returns to unchecked.
+    _nonce = st.session_state.get("reset_nonce", 0)
+    confirm_reset = st.checkbox(
+        "I understand — back up databases + log, then delete all databases.",
+        key=f"reset_confirm_{_nonce}",
+    )
+    reset_clicked = st.button(
+        "🗑 Reset all data",
+        type="secondary",
+        disabled=running or not confirm_reset,
+        help="Disabled while a fetch is running. Close the VSCode SQLite viewer first, "
+        "or locked .db files can't be deleted.",
+    )
+    if reset_clicked and confirm_reset and not running:
+        from core.reset import reset_all_data
+
+        res = reset_all_data()
+        # Clear persisted run state so the page reflects the clean slate.
+        for k in ("fetch_summary", "fetch_error", "fetch_result", "fetch_label"):
+            st.session_state.pop(k, None)
+        st.session_state["reset_nonce"] = _nonce + 1  # reset the confirm checkbox
+        st.session_state["reset_result"] = res
+        st.rerun()
+
+# Reset outcome (shown once, after the rerun).
+_reset = st.session_state.pop("reset_result", None)
+if _reset is not None:
+    if _reset["failed"]:
+        st.error(
+            f"Reset incomplete — deleted {len(_reset['deleted'])} database file(s), but these "
+            "were locked (close the SQLite viewer and retry):\n\n- "
+            + "\n- ".join(_reset["errors"])
+        )
+    else:
+        st.success(
+            f"Reset complete — versioned-backed-up the databases and log, then deleted "
+            f"{len(_reset['deleted'])} database file(s). Backups and logs are preserved."
+        )

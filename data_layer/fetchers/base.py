@@ -32,7 +32,7 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 from config import settings
 from core.database import Database
 from core.logging_config import get_logger
-from data_layer import fetch_status, staleness
+from data_layer import cancel, fetch_status, staleness
 
 
 class BaseFetcher(ABC):
@@ -150,9 +150,18 @@ class BaseFetcher(ABC):
         # result that pushes the pair to settings.MAX_NO_DATA_FETCHES abandons it
         # (skipped on all future normal runs); we report how many crossed that line.
         data = empty = failed = abandoned = 0
+        cancelled = False
         out_db = Database(getattr(settings, self.target_db))
         try:
             for bi in range(n_batches):
+                # Stop at the batch boundary (fetch_status is written per batch, so
+                # progress so far is persisted and the run resumes cleanly later).
+                if cancel.is_cancelled():
+                    cancelled = True
+                    self.log.warning(
+                        "Cancelled — stopping after %d/%d batches", bi, n_batches
+                    )
+                    break
                 chunk = symbols[bi * self.batch_size : (bi + 1) * self.batch_size]
                 frames: list[pd.DataFrame] = []
                 b_data = b_empty = b_fail = b_abandoned = 0
@@ -193,4 +202,5 @@ class BaseFetcher(ABC):
             data, empty, failed, abandoned,
         )
         return {"fetcher": self.name, "due": total, "data": data,
-                "no_data": empty, "failed": failed, "abandoned": abandoned}
+                "no_data": empty, "failed": failed, "abandoned": abandoned,
+                "cancelled": cancelled}

@@ -28,6 +28,7 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 from config import secrets, settings, type_map
 from core.database import Database
 from core.logging_config import get_logger
+from data_layer import cancel
 
 log = get_logger("symbols")
 
@@ -138,6 +139,12 @@ def discover_polygon() -> pd.DataFrame:
         }
         page = 0
         while url:
+            # Honour a Stop between pages — discovery is the slowest stage (~6 min
+            # on Polygon's free tier). The partial result is discarded by
+            # run_discovery's cancel check, so symbols.db is never left half-written.
+            if cancel.is_cancelled():
+                log.warning("Polygon discovery cancelled — %s page %d", market, page)
+                return pd.DataFrame()
             data = get_page(url, params)
             for t in data.get("results", []):
                 raw = t.get("ticker")
@@ -554,10 +561,19 @@ def run_discovery(
         df_poly = discover_polygon()
     elif use_polygon:
         log.warning("Polygon skipped — POLYGON_API_KEY not set")
+    # A Stop during any source aborts the whole run BEFORE the write, so symbols.db
+    # is never updated from a partial (e.g. half-paged Polygon) universe — that
+    # would wrongly flip in_polygon flags for the symbols not yet seen.
+    if cancel.is_cancelled():
+        log.warning("Discovery cancelled — symbols.db not modified")
+        return 0
     if use_edgar:
         df_edgar = discover_edgar()
     if use_edgar_funds:
         df_funds = discover_edgar_funds()
+    if cancel.is_cancelled():
+        log.warning("Discovery cancelled — symbols.db not modified")
+        return 0
 
     merged = _merge_sources(df_poly, df_edgar, df_funds)
     if merged.empty:

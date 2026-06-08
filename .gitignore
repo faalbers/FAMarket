@@ -13,6 +13,7 @@ databases/*.db
 databases/*.db-wal
 databases/*.db-shm
 backups/*.db
+backups/*.log
 logs/*.log
 logs/*.log.*
 

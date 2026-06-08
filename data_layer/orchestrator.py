@@ -29,8 +29,9 @@ from config import settings
 from core.backup import backup_all
 from core.database import Database
 from core.logging_config import get_logger, roll_log, setup_logging
+from core.market_calendar import is_market_open
 from core.net import configure_tls
-from data_layer import fetch_status, symbols
+from data_layer import cancel, fetch_status, symbols
 from data_layer.fetchers.edgar_fetcher import EDGARFinancials
 from data_layer.fetchers.fred_fetcher import fetch_fred
 from data_layer.fetchers.yfinance_fetcher import (
@@ -63,12 +64,33 @@ def run_full_fetch(
     subset: list[str] | None = None,
     respect_lock: bool = True,
     run_backup: bool = True,
+    block_when_market_open: bool = True,
 ) -> dict:
-    """Run the complete fetch pipeline. Returns a per-stage summary."""
+    """Run the complete fetch pipeline. Returns a per-stage summary.
+
+    `block_when_market_open` (default on) is the market-closed gate: while the US
+    regular session is open, everything EXCEPT symbol discovery is skipped, so
+    prices are never captured intraday. Turn it off to fetch during market hours
+    (testing). The weekly production run is Friday after close, where it's a no-op.
+    """
     configure_tls()
-    roll_log()        # one log per run: prior run kept as famarket.prev.log
+    roll_log()        # one log per run: prior run archived as a versioned backup
     setup_logging()
+    cancel.clear()    # drop any stop left over from a previous run
     summary: dict = {}
+
+    def _cancelled() -> bool:
+        """True if a stop was requested; records it on the summary and logs once.
+
+        Polled at stage boundaries — a cancelled run stops cleanly here rather than
+        being killed mid-fetch, and skips the remaining stages (including the
+        analysis rebuild, so analysis.db is never rebuilt from partial data).
+        """
+        if cancel.is_cancelled():
+            summary["cancelled"] = True
+            log.warning("Fetch cancelled — stopping after the current stage")
+            return True
+        return False
 
     if run_backup:
         backup_all()
@@ -76,6 +98,20 @@ def run_full_fetch(
     # -- Group 1: discovery ------------------------------------------------- #
     if discover:
         summary["discovery"] = symbols.run_discovery()
+    if _cancelled():
+        return summary
+
+    # -- Market-closed gate ------------------------------------------------- #
+    # Discovery (above) is symbol metadata, safe any time. Everything below
+    # touches prices, so block it while the regular session is open — otherwise
+    # we'd store an intraday, non-final bar. Symbol discovery already ran.
+    if block_when_market_open and is_market_open():
+        summary["market_open"] = True
+        log.warning(
+            "US market is open — data fetch + analysis skipped (symbol discovery "
+            "only). Disable the market-closed gate to fetch during market hours."
+        )
+        return summary
 
     # -- Group 2: data fetch ------------------------------------------------ #
     with Database(settings.SYMBOLS_DB) as sdb:
@@ -85,15 +121,23 @@ def run_full_fetch(
         log.info("Group 2 — %d symbols in fetch universe", len(universe))
 
         summary["quotes"] = YFinanceQuotes().run(universe, sdb, respect_lock)
+        if _cancelled():
+            return summary
         summary["type_writeback"] = symbols.resolve_types_from_quotes()
 
         # Reload so OHLCV/financials see the freshly resolved security_type.
         universe = load_fetch_universe(sdb, subset)
         summary["ohlcv"] = YFinanceOHLCV().run(universe, sdb, respect_lock)
+        if _cancelled():
+            return summary
         summary["financials"] = YFinanceFinancials().run(universe, sdb, respect_lock)
+        if _cancelled():
+            return summary
         # EDGAR runs AFTER yfinance so yfinance owns the recent window first; EDGAR
         # only backfills the deep history yfinance can't reach (additive-only).
         summary["edgar_financials"] = EDGARFinancials().run(universe, sdb, respect_lock)
+        if _cancelled():
+            return summary
 
         summary["fred"] = fetch_fred()
 
@@ -101,6 +145,8 @@ def run_full_fetch(
         summary["reassessment"] = symbols.reassess_state(
             sdb, assess_symbols=universe["symbol"].tolist()
         )
+    if _cancelled():
+        return summary
 
     # -- Group 3: analysis (clean-slate rebuild of analysis.db) ------------- #
     # Runs after the symbols DB is closed; the analysis layer opens its own DBs

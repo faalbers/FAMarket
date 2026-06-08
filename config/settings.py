@@ -35,7 +35,9 @@ BACKUP_DIR: Path = BASE_DIR / "backups"
 BACKUP_VERSIONS: int = 5  # keep _1 (newest) .. _5 (oldest); _5 is dropped each run
 
 # Logs (terminal + file). The log is rolled once per fetch run: the prior run is
-# kept as famarket.prev.log (one copy, overwritten each run) — see roll_log().
+# archived into BACKUP_DIR as a rotating versioned backup (famarket_1.log ..
+# famarket_5.log, same scheme as the databases) — see roll_log(). Empty logs aren't
+# backed up.
 LOG_DIR: Path = BASE_DIR / "logs"
 LOG_FILE: Path = LOG_DIR / "famarket.log"
 LOG_LEVEL: str = "INFO"
