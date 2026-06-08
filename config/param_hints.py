@@ -5,14 +5,28 @@ UI shows SHORT parameter names; the full meaning lives here and is shown as a
 tooltip on hover (~0.5-1s delay) via Streamlit's `help=` argument. Editable by
 hand or via Claude Code without touching any UI code.
 
-Each hint is a structured 3-section dict:
+Each hint is a structured dict:
+  - name         : short label shown in the UI
+  - category     : group it belongs to (Valuation/Technical/Income/...)
+  - unit         : unit of the value AS STORED in analysis.db (see below)
   - what_it_is   : plain-language definition
   - how_to_use   : what good/bad values look like and the action they imply
   - vs_peers     : whether/why to compare against sector/industry median
 
+`unit` convention — every param declares one so the UI can render and compare
+correctly (append "%", align columns, format axes). Controlled vocabulary:
+  - "%"  percentage. Stored AS A PERCENT NUMBER, not a fraction: 12.5 means
+         12.5%, not 0.125. metrics.py multiplies yfinance's decimal margins/
+         ratios (ROE, margins, yields, growth) by 100 on write, matching
+         ROADMAP's "... x 100" yield formulas.
+  - "x"  a multiple / ratio (P/E, P/S, EV/EBITDA, D/E) — unitless count of times.
+  - "$"  currency per share or absolute (price, intrinsic value, EPS).
+  - "yr" a count of years (consecutive dividend-growth years).
+  - ""   unitless index or text classification (RSI 0-100, trend, crossover).
+
 The UI renders titles bold with indented body text; use a list for body when
 multiple points need explaining. This file starts with a few representative
-entries — fill in the rest as each metric is implemented in the Analysis layer.
+entries — fill in the rest (with `unit`) as each metric is implemented.
 """
 
 from __future__ import annotations
@@ -22,6 +36,7 @@ PARAM_HINTS: dict[str, dict] = {
     "pe": {
         "name": "P/E",
         "category": "Valuation",
+        "unit": "x",
         "what_it_is": "Price divided by trailing 12-month earnings per share.",
         "how_to_use": [
             "Lower can mean cheaper, but very low may signal trouble.",
@@ -32,6 +47,7 @@ PARAM_HINTS: dict[str, dict] = {
     "rsi_14": {
         "name": "RSI(14)",
         "category": "Technical",
+        "unit": "",
         "what_it_is": "14-day Relative Strength Index, momentum on a 0-100 scale.",
         "how_to_use": [
             ">70 often overbought, <30 often oversold.",
@@ -42,6 +58,7 @@ PARAM_HINTS: dict[str, dict] = {
     "div_yield_ttm": {
         "name": "Yield TTM",
         "category": "Income",
+        "unit": "%",
         "what_it_is": "Sum of dividends paid in the last 365 days / current price.",
         "how_to_use": [
             "Higher pays more income; unusually high can signal a falling price.",

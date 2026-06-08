@@ -97,6 +97,38 @@ PEAK_DISTANCE: int = 20        # min trading days between detected peaks
 
 # Growth metric windows (years); gated until enough history exists.
 GROWTH_WINDOWS_YEARS: tuple[int, ...] = (1, 3, 5)
+# Annual points used for the polyfit trend stats (residual vol %, R², CV); the
+# series is truncated to its last N years so the consistency measure reflects
+# recent behaviour rather than deep EDGAR history.
+GROWTH_TREND_YEARS: int = 5
+
+# Compute-and-reconcile (Analysis): every fundamental ratio is computed from
+# financials.db; where yfinance (quotes.db) has the same ratio we cross-check and
+# log a summary WARNING when they diverge by more than this fraction.
+RECONCILE_TOLERANCE_PCT: float = 0.10
+
+# --------------------------------------------------------------------------- #
+# Intrinsic value (Topic 4.1)
+# --------------------------------------------------------------------------- #
+GRAHAM_MULTIPLIER: float = 22.5        # Graham's 15 (P/E) × 1.5 (P/B)
+LYNCH_GROWTH_CAP: float = 25.0         # cap on growth% used as Lynch fair P/E
+DCF_PROJECTION_YEARS: int = 10         # explicit FCF projection horizon
+DCF_TERMINAL_GROWTH: float = 0.025     # perpetual growth after the horizon
+DCF_EQUITY_RISK_PREMIUM: float = 0.05  # added to risk-free via beta (CAPM)
+DCF_DEFAULT_BETA: float = 1.0          # used when a symbol has no beta
+DCF_GROWTH_CAP: float = 0.15           # cap on historical FCF growth in projection
+DCF_MIN_DISCOUNT_SPREAD: float = 0.02  # floor on (discount − terminal growth)
+
+# --------------------------------------------------------------------------- #
+# Peer comparison (Topic 4.3)
+# --------------------------------------------------------------------------- #
+# Metrics that get _vs_sector / _vs_industry columns (% above/below peer median).
+PEER_COMPARABLE_METRICS: tuple[str, ...] = (
+    "pe", "forward_pe", "peg", "gross_margin", "operating_margin", "net_margin",
+    "roe", "roa", "ev_ebitda", "revenue_cagr_3y", "debt_to_equity",
+)
+MIN_PEERS_FOR_MEDIAN: int = 3       # below this a sector/industry median is too noisy
+MIN_PEERS_FOR_PERCENTILE: int = 5   # below this fall back to the universe for scoring
 
 # --------------------------------------------------------------------------- #
 # Scoring & ranking (Topic 4.4) — all adjustable from the Settings page
