@@ -17,9 +17,10 @@ complete — `_periods`, `metrics`, `technical`, `intrinsic_value`, `_stats`,
 `peers`, `scoring` (category scores + Overall, percentile-rank) and universe-wide
 `rs_rank` all work; `pipeline.run_analysis()` assembles and writes `analysis.db`
 (124 cols) and is wired into the orchestrator as Group 3 after each fetch. The
-**UI** pages are still documented skeletons that raise `NotImplementedError` —
-this is the next layer to build. Build order is strictly **Data → Analysis → UI**,
-each layer completed fully before starting the next (no thin end-to-end slices).
+**UI** is being built page by page: Fetch Control and Settings are functional;
+Filter, Output, and Calibration remain `st.info` skeletons. Build order is strictly
+**Data → Analysis → UI**, each layer completed fully before starting the next (no
+thin end-to-end slices).
 
 ## Commands
 
@@ -107,6 +108,9 @@ Three intentionally decoupled layers plus shared infrastructure:
   and failures, no per-symbol/per-value noise; sanitize fixes are silent.
 - **Prices**: all price-based calculations use `adj_close` of the **last
   completed trading session** (via `pandas-market-calendars`) — never intraday.
+  OHLCV writes are gated the same way: `sanitize_ohlcv` drops any bar past the last
+  fully-settled session (close + 15 min, via `last_completed_session()`), so the
+  store never holds an intraday / non-final close.
 - **Analysis ratios are compute-and-reconcile**: fundamental ratios are computed
   from `financials.db` on one convention (canonical `adj_close`, TTM = last 4
   quarters), cross-checked against yfinance's equivalent in `quotes.db` with a
