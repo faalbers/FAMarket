@@ -3,6 +3,10 @@ FAMarket — Stock Screening System.
 Streamlit entry point. Launch with:
 
     streamlit run app.py
+    streamlit run app.py -- --subset AAPL,MSFT   # prefill the Fetch Control subset
+
+Anything after `--` is handed to the script's argv (Streamlit convention); the
+Fetch Control page reads --subset to prefill its dev-subset field.
 
 Wires up runtime directories and logging, then registers the multipage nav.
 Page bodies are Phase 3 skeletons under ui/pages/.
