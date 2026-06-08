@@ -25,7 +25,9 @@ from __future__ import annotations
 import argparse
 import threading
 import time
+from datetime import datetime, timezone
 
+import pandas as pd
 import streamlit as st
 
 from config import settings
@@ -106,6 +108,65 @@ def _analysis_meta() -> dict | None:
     return meta.iloc[-1].to_dict() if not meta.empty else None
 
 
+def _fmt_local(value) -> str:
+    """A stored UTC ISO timestamp shown in the machine's local time.
+
+    `analyzed_at` is recorded as UTC (offset-aware ISO); convert it to local time
+    for display only — storage stays UTC. Returns the raw value unchanged if it
+    isn't a parseable timestamp, and "—" when missing.
+    """
+    if not value:
+        return "—"
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return str(value)
+    if dt.tzinfo is None:  # legacy/naive value — treat as the UTC it was stored in
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _stat(col, label: str, value: object) -> None:
+    """A compact label/value stat — much smaller value text than st.metric."""
+    col.markdown(
+        "<div style='line-height:1.3'>"
+        "<div style='font-size:0.72rem;color:rgba(128,128,128,0.95);"
+        "text-transform:uppercase;letter-spacing:0.03em'>"
+        f"{label}</div>"
+        f"<div style='font-size:0.95rem;font-weight:600'>{value}</div>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _flatten(d: dict, prefix: str = "") -> list[tuple[str, object]]:
+    """Flatten a nested run-summary into (dotted-key, value) rows.
+
+    The orchestrator returns a dict-of-dicts (one inner dict per fetcher/stage,
+    plus scalar flags like `cancelled`). Flatten it so the page can show a plain
+    parameter -> value list instead of a raw nested-dict widget.
+    """
+    rows: list[tuple[str, object]] = []
+    for k, v in d.items():
+        key = f"{prefix}{k}"
+        if isinstance(v, dict):
+            rows.extend(_flatten(v, f"{key}."))
+        else:
+            rows.append((key, v))
+    return rows
+
+
+def _show_summary(summary: dict) -> None:
+    """Render a run summary as a flat Parameter/Value table (not a nested dict)."""
+    rows = _flatten(summary)
+    if not rows:
+        st.caption("No run details reported.")
+        return
+    df = pd.DataFrame(rows, columns=["Parameter", "Value"])
+    df["Value"] = df["Value"].map(lambda v: "" if v is None else str(v))
+    st.dataframe(df, hide_index=True, use_container_width=True)
+
+
 # --------------------------------------------------------------------------- #
 # page
 # --------------------------------------------------------------------------- #
@@ -119,9 +180,9 @@ st.caption(
 meta = _analysis_meta()
 if meta:
     c1, c2, c3 = st.columns(3)
-    c1.metric("Symbols analyzed", int(meta.get("n_symbols", 0)))
-    c2.metric("Prices as of", str(meta.get("prices_as_of", "—")))
-    c3.metric("Last analyzed", str(meta.get("analyzed_at", "—")))
+    _stat(c1, "Symbols analyzed", int(meta.get("n_symbols", 0)))
+    _stat(c2, "Prices as of", str(meta.get("prices_as_of", "—")))
+    _stat(c3, "Last analyzed", _fmt_local(meta.get("analyzed_at")))
 else:
     st.info("No analysis run yet — run a fetch below (or `python -m scripts.run_fetch`).")
 
@@ -229,7 +290,15 @@ if stop_clicked and running:
     cancel.request_cancel()
     st.session_state["fetch_stopping"] = True
 
-# -- poll a live run (non-blocking: render, then schedule the next rerun) --- #
+# -- poll a live run (non-blocking) ----------------------------------------- #
+# The poll sleep is deferred to the very END of the script (see _poll_again
+# below), NOT taken here. Streamlit streams element deltas as the script runs and
+# only prunes a previous frame's elements once the run advances past their slot
+# (or finishes). A blocking sleep *here* — above the results section — froze the
+# script with the PREVIOUS run's summary still painted below, so a stopped run's
+# dict lingered on screen for the whole next run. Rendering the (now-empty)
+# results slot before sleeping prunes it immediately.
+_poll_again = False
 if st.session_state.get("fetch_running"):
     result = st.session_state.get("fetch_result", {})
     label = st.session_state.get("fetch_label", "")
@@ -262,10 +331,12 @@ if st.session_state.get("fetch_running"):
             st.session_state["fetch_error"] = None
         st.rerun()  # repaint with the fresh analysis snapshot + persisted summary
     else:
-        time.sleep(_POLL_SECONDS)
-        st.rerun()
+        _poll_again = True  # render the whole page first, then sleep at the end
 
 # -- results of the most recent run (persist across reruns) ----------------- #
+# While a run is live, fetch_summary is None (cleared at submit), so this slot
+# renders nothing — which prunes any prior run's summary instead of leaving it on
+# screen under the new run. Shown as a flat Parameter/Value list, not a raw dict.
 _last_summary = st.session_state.get("fetch_summary")
 if st.session_state.get("fetch_error"):
     st.error(f"Fetch failed — {st.session_state['fetch_error']}")
@@ -274,17 +345,17 @@ elif isinstance(_last_summary, dict) and _last_summary.get("cancelled"):
         "Fetch stopped before completing. All fetched batches are committed and the "
         "run is resumable — re-run to continue. Analysis was not rebuilt."
     )
-    st.json(_last_summary)
+    _show_summary(_last_summary)
 elif isinstance(_last_summary, dict) and _last_summary.get("market_open"):
     st.warning(
         "US market was open — only symbol discovery ran; data fetch and analysis were "
         "skipped so prices aren't captured intraday. Re-run after market close, or "
         "uncheck **Only fetch when the US market is closed** to fetch during market hours."
     )
-    st.json(_last_summary)
+    _show_summary(_last_summary)
 elif _last_summary is not None:
     st.success("Fetch complete.")
-    st.json(_last_summary)
+    _show_summary(_last_summary)
 
 tail = _log_tail()
 if tail:
@@ -341,3 +412,12 @@ if _reset is not None:
             f"Reset complete — versioned-backed-up the databases and log, then deleted "
             f"{len(_reset['deleted'])} database file(s). Backups and logs are preserved."
         )
+
+# -- deferred poll tick (must be the LAST thing in the script) -------------- #
+# The whole page — including the now-empty results slot above — has rendered, so
+# the previous run's summary is already pruned from the frame. Only now is it safe
+# to block on the poll interval and rerun; sleeping any earlier would freeze the
+# script with stale content still on screen.
+if _poll_again:
+    time.sleep(_POLL_SECONDS)
+    st.rerun()

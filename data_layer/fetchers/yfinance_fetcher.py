@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from config import settings, type_map
+from core.market_calendar import last_completed_session
 from data_layer import staleness
 from data_layer.fetchers.base import BaseFetcher
 
@@ -175,6 +176,15 @@ def sanitize_ohlcv(symbol: str, hist: pd.DataFrame) -> pd.DataFrame:
     df["date"] = pd.to_datetime(df["date"], utc=True).dt.strftime("%Y-%m-%d")
     df = df.dropna(subset=["close"])          # record-level: rows without a close
     df = df[df["close"] > 0]
+    # Completed-session gate: yfinance only stamps a day-date, so a bar fetched
+    # mid-session (or before Yahoo finalizes the close) would be stored as that
+    # day's *closing* price and never corrected until the symbol is re-fetched
+    # after close — poisoning the analysis run in between. Drop any bar dated past
+    # the last fully-settled session so the OHLCV store only ever holds final
+    # closes (defense-in-depth behind the orchestrator's market-closed gate).
+    cutoff = last_completed_session()
+    if cutoff is not None:
+        df = df[df["date"] <= cutoff.strftime("%Y-%m-%d")]
     df.insert(0, "symbol", symbol)
     keep = [
         "symbol", "date", "open", "high", "low", "close",

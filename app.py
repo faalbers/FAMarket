@@ -17,12 +17,16 @@ from __future__ import annotations
 import streamlit as st
 
 from config import settings
+from core.autoshutdown import enable_autoshutdown
 from core.logging_config import setup_logging
 from core.net import configure_tls
 
 settings.ensure_runtime_dirs()
 configure_tls()
 setup_logging()
+# Stop the server when the browser tab is closed (local single-user app); the
+# sidebar Quit button remains for an explicit shutdown. Idempotent across reruns.
+enable_autoshutdown()
 
 st.set_page_config(page_title="FAMarket — Stock Screener", layout="wide")
 
@@ -36,4 +40,5 @@ nav = st.navigation(
         st.Page("ui/pages/settings_page.py", title="Settings", icon="⚙️"),
     ]
 )
+
 nav.run()
