@@ -26,7 +26,7 @@ import pandas as pd
 from config import settings
 from core.database import Database
 from core.logging_config import get_logger
-from analysis_layer import _periods, metrics, technical, intrinsic_value, peers, scoring
+from analysis_layer import metrics, technical, intrinsic_value, peers, scoring
 from analysis_layer.screen_type import classify as classify_screen_type
 
 log = get_logger("analysis")
@@ -90,13 +90,23 @@ def run_analysis(subset: list[str] | None = None) -> dict:
     log.info("Analysis — %d symbols, prices as of %s, risk-free %.3f",
              len(universe), prices_as_of, risk_free)
 
+    # Index the big frames ONCE by symbol — the per-symbol loop otherwise
+    # re-scans the whole OHLCV table (millions of rows) on every iteration. One
+    # groupby turns 38k full-frame boolean masks into O(1) pre-sorted slices.
+    empty_ohlcv = ohlcv.iloc[0:0]
+    ohlcv_by = ({s: g.sort_values("date") for s, g in ohlcv.groupby("symbol", sort=False)}
+                if not ohlcv.empty else {})
+    empty_fin = financials.iloc[0:0]
+    fin_by = ({s: g for s, g in financials.groupby("symbol", sort=False)}
+              if not financials.empty and "symbol" in financials.columns else {})
+
     reconcile: list = []
     rows: list[dict] = []
     n_universe = len(universe)
     for i, rec in enumerate(universe.itertuples(index=False), start=1):
         sym = rec.symbol
-        fsym = _periods.by_symbol(financials, sym)
-        osym = ohlcv[ohlcv["symbol"] == sym].sort_values("date") if not ohlcv.empty else ohlcv
+        fsym = fin_by.get(sym, empty_fin)
+        osym = ohlcv_by.get(sym, empty_ohlcv)
         price = float(osym["adj_close"].iloc[-1]) if len(osym) else float("nan")
         quote = quotes.loc[sym] if sym in quotes.index else None
 
