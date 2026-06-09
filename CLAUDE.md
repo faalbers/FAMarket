@@ -126,6 +126,11 @@ Three intentionally decoupled layers plus shared infrastructure:
   (`12.5`, not `0.125`), and every `config/param_hints.py` entry declares a `unit`.
 - **Charts** use the color-blind-safe palette in `settings.CHART_COLORWAY` (no
   red/green; blue-to-orange for heatmaps).
+- **Streamlit live updates** use `st.fragment(run_every=…)`, never a
+  `time.sleep() + st.rerun()` poll loop — the blocking sleep freezes the script
+  between ticks and silently drops widget input (e.g. a Stop click). A button that
+  must register during an auto-refreshing view uses an `on_click` callback, not its
+  return value. `st.expander` cannot be nested (use `st.popover` inside an expander).
 - **Backups**: `core/backup.py` keeps the newest 5 dated copies of every `.db`
   (`{stem}_{YYYY-MM-DD_HH-MM-SS}{suffix}`), taken before each fetch run; one run stamps
   all DBs with a single timestamp, so each stamp is one consistent snapshot.
