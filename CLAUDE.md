@@ -16,11 +16,14 @@ yfinance/EDGAR/FRED fetchers) is functional. The **analysis layer** is now
 complete — `_periods`, `metrics`, `technical`, `intrinsic_value`, `_stats`,
 `peers`, `scoring` (category scores + Overall, percentile-rank) and universe-wide
 `rs_rank` all work; `pipeline.run_analysis()` assembles and writes `analysis.db`
-(124 cols) and is wired into the orchestrator as Group 3 after each fetch. The
-**UI** is being built page by page: Fetch Control and Settings are functional;
-Filter, Output, and Calibration remain `st.info` skeletons. Build order is strictly
-**Data → Analysis → UI**, each layer completed fully before starting the next (no
-thin end-to-end slices).
+(125 cols — now includes a sector/industry-derived `screen_type` column via
+`analysis_layer/screen_type.py`) and is wired into the orchestrator as Group 3
+after each fetch. The **UI** is being built page by page: Fetch Control, Settings,
+and Filter are functional; Output and Calibration remain `st.info` skeletons. The
+Filter page (Topic 5) is backed by `ui/filter_registry.py` (per-`screen_type` metric
+applicability) + `ui/filter_engine.py` (block model + `.filt` JSON). Build order is
+strictly **Data → Analysis → UI**, each layer completed fully before starting the
+next (no thin end-to-end slices).
 
 ## Commands
 

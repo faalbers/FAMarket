@@ -30,6 +30,34 @@ enable_autoshutdown()
 
 st.set_page_config(page_title="FAMarket — Stock Screener", layout="wide")
 
+# Shared compact look — smaller widget fonts and tighter spacing across every page
+# (tuned on the Filter page, then promoted here). app.py reruns on each navigation,
+# so injecting once here styles all pages.
+st.markdown(
+    """
+    <style>
+    [data-testid="stMain"] .stSelectbox div[data-baseweb="select"] > div,
+    [data-testid="stMain"] .stTextInput input,
+    [data-testid="stMain"] .stNumberInput input {
+        font-size: 0.82rem; min-height: 1.9rem;
+    }
+    [data-testid="stMain"] .stSelectbox div[data-baseweb="select"] { min-height: 1.9rem; }
+    [data-testid="stMain"] .stButton > button {
+        font-size: 0.82rem; padding: 0.1rem 0.3rem; min-height: 1.9rem; min-width: 0;
+    }
+    [data-testid="stMain"] label p,
+    [data-testid="stMain"] .stCheckbox label p,
+    [data-testid="stMain"] .stRadio label p { font-size: 0.84rem; }
+    [data-testid="stMain"] [data-testid="stHorizontalBlock"] { gap: 0.3rem; }
+    [data-testid="stMain"] [data-testid="stHorizontalBlock"] [data-testid="column"] {
+        padding: 0 0.1rem;
+    }
+    [data-testid="stMain"] [data-testid="stCaptionContainer"] p { font-size: 0.72rem; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # st.navigation lets pages live under ui/pages/ rather than a top-level pages/ dir.
 nav = st.navigation(
     [
