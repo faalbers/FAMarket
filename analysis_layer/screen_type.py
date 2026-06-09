@@ -16,6 +16,8 @@ an older analysis.db predates the column.
 
 from __future__ import annotations
 
+import pandas as pd
+
 # Canonical screen-type keys.
 STANDARD = "standard"
 BANK = "bank"
@@ -40,6 +42,18 @@ _DIRECT: dict[str, str] = {
 }
 
 
+def _norm(value: object) -> str:
+    """Lower-cased, stripped string — treating None and NaN (a float) as empty.
+
+    Inputs come straight from pandas, so a missing cell is `float('nan')`, which is
+    truthy: `nan or ""` returns the nan, and `nan.strip()` then raises. Guard on
+    `pd.isna` so partial/unenriched rows classify as MINIMAL instead of crashing.
+    """
+    if value is None or pd.isna(value):
+        return ""
+    return str(value).strip().lower()
+
+
 def classify(security_type: str | None, sector: str | None, industry: str | None) -> str:
     """Resolve (security_type, sector, industry) to a screen type.
 
@@ -47,12 +61,12 @@ def classify(security_type: str | None, sector: str | None, industry: str | None
     other security types map directly. Unknown/None -> MINIMAL so a row is never
     silently dropped.
     """
-    st = (security_type or "").strip().lower()
+    st = _norm(security_type)
     if st in _DIRECT:
         return _DIRECT[st]
     if st in ("stock", "adr"):
-        sec = (sector or "").strip().lower()
-        ind = (industry or "").strip().lower()
+        sec = _norm(sector)
+        ind = _norm(industry)
         if sec == "real estate" or "reit" in ind:
             return REIT
         if "bank" in ind or "mortgage finance" in ind or "capital markets" in ind:

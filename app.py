@@ -20,13 +20,16 @@ from config import settings
 from core.autoshutdown import enable_autoshutdown
 from core.logging_config import setup_logging
 from core.net import configure_tls
+from data_layer import cancel
 
 settings.ensure_runtime_dirs()
 configure_tls()
 setup_logging()
-# Stop the server when the browser tab is closed (local single-user app); the
-# sidebar Quit button remains for an explicit shutdown. Idempotent across reruns.
-enable_autoshutdown()
+# Stop the server when the browser tab is closed (local single-user app). Idempotent
+# across reruns. Before exiting, gracefully unwind any in-flight fetch (finish the
+# current batch, skip analysis) so the databases aren't left mid-write — with CLI
+# notices about what it's doing (cancel.stop_for_shutdown prints to stdout).
+enable_autoshutdown(on_shutdown=cancel.stop_for_shutdown)
 
 st.set_page_config(page_title="FAMarket — Stock Screener", layout="wide")
 

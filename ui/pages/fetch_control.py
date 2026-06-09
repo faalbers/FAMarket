@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import argparse
 import threading
-import time
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -89,12 +88,54 @@ def _run_worker(result: dict, **kwargs) -> None:
     Pure backend (no st.* calls), so it needs no Streamlit ScriptRunContext. The
     main thread watches `result["done"]` and renders the log + summary/error.
     """
+    # Register this thread so app shutdown (tab close) can stop it gracefully.
+    cancel.set_worker(threading.current_thread())
     try:
         result["summary"] = run_full_fetch(**kwargs)
     except Exception as exc:  # carried back to the page instead of a blank screen
         result["error"] = f"{type(exc).__name__}: {exc}"
     finally:
         result["done"] = True
+
+
+@st.fragment(run_every=_POLL_SECONDS)
+def _live_status() -> None:
+    """Live status + log tail for an in-flight run, on its own refresh timer.
+
+    A fragment — NOT a `time.sleep + st.rerun` loop on the main script. Only THIS
+    block reruns every _POLL_SECONDS; the rest of the page stays idle and fully
+    responsive, so Stop and the "Analyze after stop" checkbox are never dropped
+    (the old blocking sleep froze the script between ticks and ate those clicks).
+    On completion it triggers a full-app rerun to repaint the results + snapshot.
+    """
+    result = st.session_state.get("fetch_result", {})
+    label = st.session_state.get("fetch_label", "")
+    stopping = st.session_state.get("fetch_stopping", False)
+    verb = "Stopping" if stopping else "Running"
+    status = st.status(f"{verb} pipeline ({label})…", expanded=True)
+    if stopping:
+        _tail = (
+            " then rebuilding analysis from the data fetched so far."
+            if st.session_state.get("analyze_after_stop", True)
+            else " then unwinding (analysis skipped)."
+        )
+        status.write(
+            "Stop requested — finishing the current batch (already committed)," + _tail
+        )
+    status.empty().code(_log_tail(10) or "(starting…)", language="log")
+
+    if not result.get("done"):
+        return
+    # Finished — persist the outcome, then repaint the whole page.
+    st.session_state["fetch_running"] = False
+    st.session_state["fetch_stopping"] = False
+    if result.get("error"):
+        st.session_state["fetch_summary"] = None
+        st.session_state["fetch_error"] = result["error"]
+    else:
+        st.session_state["fetch_summary"] = result.get("summary")
+        st.session_state["fetch_error"] = None
+    st.rerun(scope="app")  # repaint the whole page: results section + fresh snapshot
 
 
 def _analysis_meta() -> dict | None:
@@ -236,12 +277,38 @@ run_backup = col_b.checkbox(
 )
 
 running = st.session_state.get("fetch_running", False)
-run_col, stop_col = st.columns(2)
+run_col, stop_col, opt_col = st.columns([1, 1, 1.4], vertical_alignment="center")
 submitted = run_col.button("▶ Run Fetch", type="primary", disabled=running)
+
+# Decided at Stop time, not run-start: the on_click callback reads this checkbox's
+# live value, so toggling it during a run is honoured. On by default so a stopped
+# run still yields fresh analysis over the data fetched so far.
+opt_col.checkbox(
+    "Analyze after stop",
+    value=True,
+    key="analyze_after_stop",
+    help="When you Stop a run, still rebuild analysis.db from the data fetched so "
+    "far. Off leaves the existing analysis untouched.",
+)
+
+
+def _request_stop() -> None:
+    """Set the cancel flag the instant the click is processed (on_click callback).
+
+    A callback (not a `stop_clicked = st.button(...)` return-value check) so the stop
+    is registered the moment Streamlit handles the click, before any rerun. Pairs with
+    the self-refreshing status fragment: because the main script no longer blocks in a
+    sleep loop, this click is processed promptly even mid-run. It also carries the
+    live "Analyze after stop" choice into the stop request.
+    """
+    cancel.request_cancel(analyze_after=st.session_state.get("analyze_after_stop", True))
+    st.session_state["fetch_stopping"] = True
+
+
 # Stop is a cooperative request: the worker keeps running until it reaches the
 # next safe boundary (between fetchers / between batches), where every completed
 # batch is already committed, then unwinds. So it's enabled only while a run is live.
-stop_clicked = stop_col.button("■ Stop Fetch", disabled=not running)
+stop_col.button("■ Stop Fetch", disabled=not running, on_click=_request_stop)
 
 # -- start a run ------------------------------------------------------------ #
 # The worker runs on a daemon thread and the page does NOT block waiting for it:
@@ -276,49 +343,14 @@ if submitted:
     st.session_state["fetch_error"] = None
     st.rerun()
 
-# -- request a stop (honoured at the next safe boundary) -------------------- #
-if stop_clicked and running:
-    cancel.request_cancel()
-    st.session_state["fetch_stopping"] = True
+# Stop requests are handled in the _request_stop on_click callback (above). With the
+# main script no longer blocking in a sleep loop, that click is processed promptly.
 
-# -- poll a live run (non-blocking) ----------------------------------------- #
-# The poll sleep is deferred to the very END of the script (see _poll_again
-# below), NOT taken here. Streamlit streams element deltas as the script runs and
-# only prunes a previous frame's elements once the run advances past their slot
-# (or finishes). A blocking sleep *here* — above the results section — froze the
-# script with the PREVIOUS run's summary still painted below, so a stopped run's
-# dict lingered on screen for the whole next run. Rendering the (now-empty)
-# results slot before sleeping prunes it immediately.
-_poll_again = False
+# -- live status for an in-flight run (self-refreshing fragment) ------------ #
+# Only the fragment reruns on its timer; the main page stays idle between ticks, so
+# Stop / "Analyze after stop" are never dropped. The fragment finalizes the run.
 if st.session_state.get("fetch_running"):
-    result = st.session_state.get("fetch_result", {})
-    label = st.session_state.get("fetch_label", "")
-    stopping = st.session_state.get("fetch_stopping", False)
-    verb = "Stopping" if stopping else "Running"
-    status = st.status(f"{verb} pipeline ({label})…", expanded=True)
-    if stopping:
-        status.write("Stop requested — finishing the current batch (already committed), then unwinding.")
-    status.empty().code(_log_tail(10) or "(starting…)", language="log")
-
-    if result.get("done"):
-        st.session_state["fetch_running"] = False
-        st.session_state["fetch_stopping"] = False
-        summary = result.get("summary")
-        if result.get("error"):
-            status.update(label="Fetch failed", state="error")
-            st.session_state["fetch_summary"] = None
-            st.session_state["fetch_error"] = result["error"]
-        elif isinstance(summary, dict) and summary.get("cancelled"):
-            status.update(label="Fetch stopped", state="error")
-            st.session_state["fetch_summary"] = summary
-            st.session_state["fetch_error"] = None
-        else:
-            status.update(label="Fetch complete", state="complete")
-            st.session_state["fetch_summary"] = summary
-            st.session_state["fetch_error"] = None
-        st.rerun()  # repaint with the fresh analysis snapshot + persisted summary
-    else:
-        _poll_again = True  # render the whole page first, then sleep at the end
+    _live_status()
 
 # -- results of the most recent run (persist across reruns) ----------------- #
 # While a run is live, fetch_summary is None (cleared at submit), so this slot
@@ -328,50 +360,115 @@ _last_summary = st.session_state.get("fetch_summary")
 if st.session_state.get("fetch_error"):
     st.error(f"Fetch failed — {st.session_state['fetch_error']}")
 elif isinstance(_last_summary, dict) and _last_summary.get("cancelled"):
+    _analysed = _last_summary.get("analysis") is not None
     st.warning(
         "Fetch stopped before completing. All fetched batches are committed and the "
-        "run is resumable — re-run to continue. Analysis was not rebuilt."
+        "run is resumable — re-run to continue. "
+        + (
+            "Analysis was rebuilt from the data fetched so far."
+            if _analysed
+            else "Analysis was not rebuilt."
+        )
     )
     _show_summary(_last_summary)
 elif _last_summary is not None:
     st.success("Fetch complete.")
     _show_summary(_last_summary)
 
-# -- danger zone: reset to a clean slate ------------------------------------ #
-# Kept at the very bottom, collapsed, behind a two-step confirm (checkbox + button)
-# so it's never triggered by accident. Versioned-backs-up the current DBs and log
-# first, then deletes the live databases; backups + logs are preserved (recoverable).
+# -- danger zone (one collapsible holding every destructive action) --------- #
+# Kept at the very bottom, collapsed, with each action behind its own two-step
+# confirm (checkbox + button) so nothing fires by accident. The action outcomes
+# render BELOW the expander so they stay visible after the action collapses it.
 st.divider()
-with st.expander("⚠️ Danger zone — reset all data"):
-    st.warning(
-        "Takes a versioned backup of the current databases **and** the log (rotating, "
-        "same as a normal run), then **deletes the live databases**. Backups and logs "
-        "are kept, so this is recoverable — but the working dataset is gone and the "
-        "next run becomes a full initial load."
-    )
-    # A fresh checkbox key after each reset (nonce) so it returns to unchecked.
-    _nonce = st.session_state.get("reset_nonce", 0)
-    confirm_reset = st.checkbox(
-        "I understand — back up databases + log, then delete all databases.",
-        key=f"reset_confirm_{_nonce}",
-    )
-    reset_clicked = st.button(
-        "🗑 Reset all data",
-        type="secondary",
-        disabled=running or not confirm_reset,
-        help="Disabled while a fetch is running. Close the VSCode SQLite viewer first, "
-        "or locked .db files can't be deleted.",
-    )
-    if reset_clicked and confirm_reset and not running:
-        from core.reset import reset_all_data
+with st.expander("⚠️ Danger zone"):
+    # Each action lives in its OWN popover, so the whole thing — the info, the
+    # "I understand" confirm, and the button — stays collapsed until you open it.
+    # (Popover, not a second expander: Streamlit forbids expander-in-expander.)
+    # Both popovers are disabled outright while a fetch is running, so neither
+    # destructive action can even be opened mid-run (the inner buttons + handlers
+    # also re-check `running` as defense in depth).
+    if running:
+        st.caption("Disabled while a fetch is running.")
 
-        res = reset_all_data()
-        # Clear persisted run state so the page reflects the clean slate.
-        for k in ("fetch_summary", "fetch_error", "fetch_result", "fetch_label"):
-            st.session_state.pop(k, None)
-        st.session_state["reset_nonce"] = _nonce + 1  # reset the confirm checkbox
-        st.session_state["reset_result"] = res
-        st.rerun()
+    # --- Reset all data --------------------------------------------------- #
+    with st.popover("🗑 Reset all data", disabled=running):
+        st.warning(
+            "Takes a versioned backup of the current databases **and** the log (rotating, "
+            "same as a normal run), then **deletes the live databases**. Backups and logs "
+            "are kept, so this is recoverable — but the working dataset is gone and the "
+            "next run becomes a full initial load."
+        )
+        # A fresh checkbox key after each reset (nonce) so it returns to unchecked.
+        _nonce = st.session_state.get("reset_nonce", 0)
+        confirm_reset = st.checkbox(
+            "I understand — back up databases + log, then delete all databases.",
+            key=f"reset_confirm_{_nonce}",
+        )
+        reset_clicked = st.button(
+            "Delete the databases now",
+            type="secondary",
+            disabled=running or not confirm_reset,
+            help="Disabled while a fetch is running. Close the VSCode SQLite viewer first, "
+            "or locked .db files can't be deleted.",
+        )
+        if reset_clicked and confirm_reset and not running:
+            from core.reset import reset_all_data
+
+            res = reset_all_data()
+            # Clear persisted run state so the page reflects the clean slate.
+            for k in ("fetch_summary", "fetch_error", "fetch_result", "fetch_label"):
+                st.session_state.pop(k, None)
+            st.session_state["reset_nonce"] = _nonce + 1  # reset the confirm checkbox
+            st.session_state["reset_result"] = res
+            st.rerun()
+
+    # --- Revert databases to a backup snapshot ---------------------------- #
+    # Overwrites the live .db files (databases only — never the log) with a chosen
+    # dated backup snapshot; the current DBs are copied to backups/pre_restore first.
+    with st.popover("↩ Revert databases to a backup snapshot", disabled=running):
+        from core.restore import list_snapshots
+
+        _snaps = list_snapshots()
+        st.warning(
+            "Overwrites the live **databases** (not the log) with a previous dated "
+            "backup — one is taken before every fetch run. The current databases are "
+            "copied to `backups/pre_restore` first, so a wrong choice is undoable. Close "
+            "the VSCode SQLite viewer first, or locked .db files can't be overwritten."
+        )
+        if not _snaps:
+            st.info("No backups yet — a backup is taken before each fetch run.")
+        else:
+            _labels = {
+                f"{s['saved_at']} ({s['count']} databases)": s["stamp"] for s in _snaps
+            }
+            _choice = st.selectbox(
+                "Backup snapshot to restore (newest first)", list(_labels.keys())
+            )
+            _sel_stamp = _labels[_choice]
+            _sel_saved_at = next(s["saved_at"] for s in _snaps if s["stamp"] == _sel_stamp)
+            # Fresh checkbox key after each revert (nonce) so it returns to unchecked.
+            _rnonce = st.session_state.get("revert_nonce", 0)
+            confirm_revert = st.checkbox(
+                "I understand — overwrite the live databases with this backup snapshot.",
+                key=f"revert_confirm_{_rnonce}",
+            )
+            revert_clicked = st.button(
+                "Revert to selected snapshot",
+                type="secondary",
+                disabled=running or not confirm_revert,
+                help="Disabled while a fetch is running. Databases only — the log is left "
+                "untouched.",
+            )
+            if revert_clicked and confirm_revert and not running:
+                from core.restore import restore_snapshot
+
+                res = restore_snapshot(_sel_stamp)
+                # Clear persisted run state so the page reflects the reverted databases.
+                for k in ("fetch_summary", "fetch_error", "fetch_result", "fetch_label"):
+                    st.session_state.pop(k, None)
+                st.session_state["revert_nonce"] = _rnonce + 1  # reset the confirm checkbox
+                st.session_state["revert_result"] = (_sel_saved_at, res)
+                st.rerun()
 
 # Reset outcome (shown once, after the rerun).
 _reset = st.session_state.pop("reset_result", None)
@@ -388,11 +485,23 @@ if _reset is not None:
             f"{len(_reset['deleted'])} database file(s). Backups and logs are preserved."
         )
 
-# -- deferred poll tick (must be the LAST thing in the script) -------------- #
-# The whole page — including the now-empty results slot above — has rendered, so
-# the previous run's summary is already pruned from the frame. Only now is it safe
-# to block on the poll interval and rerun; sleeping any earlier would freeze the
-# script with stale content still on screen.
-if _poll_again:
-    time.sleep(_POLL_SECONDS)
-    st.rerun()
+# Revert outcome (shown once, after the rerun).
+_revert = st.session_state.pop("revert_result", None)
+if _revert is not None:
+    _when, _res = _revert
+    _restored = ", ".join(_res["restored"]) or "none"
+    if _res["failed"]:
+        st.error(
+            f"Revert to {_when} incomplete — restored {len(_res['restored'])} "
+            "database(s), but these were locked (close the SQLite viewer and retry):\n\n- "
+            + "\n- ".join(_res["errors"])
+        )
+    else:
+        _msg = (
+            f"Reverted to backup {_when} — restored {len(_res['restored'])} "
+            f"database(s): {_restored}. The previous databases were saved to "
+            "`backups/pre_restore` (undo point)."
+        )
+        if _res["missing"]:
+            _msg += f" No backup in this snapshot for: {', '.join(_res['missing'])} (left as-is)."
+        st.success(_msg)

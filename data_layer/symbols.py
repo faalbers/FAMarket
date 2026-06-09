@@ -425,7 +425,11 @@ def reassess_in_polygon(db: Database, current_symbols: set[str]) -> None:
 # --------------------------------------------------------------------------- #
 # Orchestrator
 # --------------------------------------------------------------------------- #
-def reassess_state(db: Database, assess_symbols: list[str] | None = None) -> dict:
+def reassess_state(
+    db: Database,
+    assess_symbols: list[str] | None = None,
+    allow_deactivate: bool = True,
+) -> dict:
     """End-of-run reassessment of is_validated / is_active (Topics 3.1 & 9.2).
 
     Only the symbols actually fetched this run are judged: pass `assess_symbols`
@@ -433,6 +437,12 @@ def reassess_state(db: Database, assess_symbols: list[str] | None = None) -> dic
     this scoping, a partial/subset run would wrongly deactivate everything it
     didn't touch. `assess_symbols=None` falls back to all active symbols (a full
     run, where the universe IS every active symbol).
+
+    `allow_deactivate=False` re-derives is_validated but never flips is_active off
+    — used on a *stopped* run, where a symbol the stop never reached looks data-less
+    but is simply un-fetched, so deactivating it (and dropping it from future fetch
+    universes) would be wrong. Validation still only rises for symbols that do have
+    recent data, so this safely lets the symbols fetched-so-far enter analysis.
 
     Validation (is_validated) is a byproduct of the normal fetch — no extra API
     calls. Requirements are type-aware:
@@ -516,8 +526,11 @@ def reassess_state(db: Database, assess_symbols: list[str] | None = None) -> dic
         else:
             validated = has_quote
 
-        got_any = has_quote or bool(last_ohlcv)
-        new_active = 0 if (not got_any and sym not in err_syms) else 1
+        if allow_deactivate:
+            got_any = has_quote or bool(last_ohlcv)
+            new_active = 0 if (not got_any and sym not in err_syms) else 1
+        else:  # stopped run: never deactivate an un-reached symbol
+            new_active = int(getattr(row, "is_active", 1) or 0)
         if validated:
             n_validated += 1
         if new_active == 0:

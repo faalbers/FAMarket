@@ -37,12 +37,12 @@ def roll_log() -> None:
     """Versioned-backup the current log into BACKUP_DIR, then start fresh.
 
     Each fetch run (and the reset action) begins with an empty famarket.log while
-    the previous run's log is archived as a rotating versioned backup —
-    famarket_1.log (newest) .. famarket_5.log (oldest) — exactly the scheme
-    databases use (core.backup.rotate_file). An empty log is NOT backed up. Safe
-    whether or not logging is already configured: any handler holding LOG_FILE open
-    is closed first (so the file can be swapped on Windows) and re-created against
-    the fresh file.
+    the previous run's log is archived as a dated backup —
+    famarket_{YYYY-MM-DD_HH-MM-SS}.log, newest BACKUP_VERSIONS kept — exactly the
+    scheme databases use (core.backup.backup_file). An empty log is NOT backed up.
+    Safe whether or not logging is already configured: any handler holding LOG_FILE
+    open is closed first (so the file can be swapped on Windows) and re-created
+    against the fresh file.
     """
     global _configured
     log_file = settings.LOG_FILE
@@ -58,9 +58,9 @@ def roll_log() -> None:
 
     # Only back up a non-empty log (skip when missing or empty), then start fresh.
     if log_file.exists() and log_file.stat().st_size > 0:
-        from core.backup import rotate_file  # lazy: avoid backup<->logging import cycle
+        from core.backup import backup_file  # lazy: avoid backup<->logging import cycle
 
-        rotate_file(log_file)  # versioned copy into BACKUP_DIR (famarket_1.log ..)
+        backup_file(log_file)  # dated copy into BACKUP_DIR (famarket_<stamp>.log)
         log_file.unlink()      # fresh start; recreated below / by setup_logging
 
     # If logging was already running, re-attach a handler on the fresh file so

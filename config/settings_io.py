@@ -24,7 +24,7 @@ import ast
 from pathlib import Path
 
 from config import settings
-from core.backup import rotate_file
+from core.backup import backup_file
 
 SETTINGS_PATH = Path(settings.__file__)
 
@@ -156,6 +156,6 @@ def update_settings(updates: dict[str, object]) -> None:
     _verify(new_source, updates)
 
     if SETTINGS_PATH.exists():
-        rotate_file(SETTINGS_PATH)  # versioned backup, same scheme as the databases
+        backup_file(SETTINGS_PATH)  # dated backup, same scheme as the databases
     SETTINGS_PATH.write_text(new_source, encoding="utf-8")
     _apply_live(updates)

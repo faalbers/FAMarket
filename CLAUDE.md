@@ -126,8 +126,12 @@ Three intentionally decoupled layers plus shared infrastructure:
   (`12.5`, not `0.125`), and every `config/param_hints.py` entry declares a `unit`.
 - **Charts** use the color-blind-safe palette in `settings.CHART_COLORWAY` (no
   red/green; blue-to-orange for heatmaps).
-- **Backups**: `core/backup.py` keeps a rotating 5-version copy of every `.db`,
-  taken before each fetch run.
+- **Backups**: `core/backup.py` keeps the newest 5 dated copies of every `.db`
+  (`{stem}_{YYYY-MM-DD_HH-MM-SS}{suffix}`), taken before each fetch run; one run stamps
+  all DBs with a single timestamp, so each stamp is one consistent snapshot.
+  Count-capped, not day-based. Same scheme backs up the run log and `config/settings.py`.
+  `core/restore.py` reverts the live DBs to a chosen snapshot (Fetch Control danger
+  zone), copying the current DBs to `backups/pre_restore/` first as a one-level undo.
 
 ### Things deliberately deferred (don't "fix" them)
 

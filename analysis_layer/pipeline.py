@@ -34,6 +34,10 @@ log = get_logger("analysis")
 TABLE = "analysis"
 META_TABLE = "analysis_meta"
 
+# Heartbeat cadence for the per-symbol loop — a "still alive" pulse on long full-
+# universe runs without per-symbol noise. Small dev subsets never reach it.
+_PROGRESS_EVERY = 500
+
 # Identity columns carried alongside the computed metrics (symbol is the key).
 # `screen_type` is the sector/industry-derived filtering group (standard / bank /
 # insurance / reit / etf / …) — computed here so Filter/Output read one canonical value.
@@ -88,7 +92,8 @@ def run_analysis(subset: list[str] | None = None) -> dict:
 
     reconcile: list = []
     rows: list[dict] = []
-    for rec in universe.itertuples(index=False):
+    n_universe = len(universe)
+    for i, rec in enumerate(universe.itertuples(index=False), start=1):
         sym = rec.symbol
         fsym = _periods.by_symbol(financials, sym)
         osym = ohlcv[ohlcv["symbol"] == sym].sort_values("date") if not ohlcv.empty else ohlcv
@@ -113,14 +118,20 @@ def run_analysis(subset: list[str] | None = None) -> dict:
             "_rs_raw": technical.relative_strength_raw(osym),
             **m, **t, **iv,
         })
+        if i % _PROGRESS_EVERY == 0:
+            log.info("Analysis — per-symbol metrics %d/%d (%d to go)…",
+                     i, n_universe, n_universe - i)
 
     df = pd.DataFrame(rows)
     df = _order_columns(df)
 
     # -- cross-symbol stages --------------------------------------------------- #
+    log.info("Analysis — peer comparisons across %d symbols…", len(df))
     df = peers.compute(df)
+    log.info("Analysis — scoring (ranks + category scores)…")
     df = scoring.compute(df)  # rs_rank, category scores, overall_score
 
+    log.info("Analysis — writing analysis.db…")
     _write(df, prices_as_of)
     _log_reconcile(reconcile, len(df))
     log.info("analysis.db — %d symbols, %d columns written", len(df), df.shape[1])
