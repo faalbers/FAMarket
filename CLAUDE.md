@@ -137,6 +137,10 @@ Three intentionally decoupled layers plus shared infrastructure:
   Count-capped, not day-based. Same scheme backs up the run log and `config/settings.py`.
   `core/restore.py` reverts the live DBs to a chosen snapshot (Fetch Control danger
   zone), copying the current DBs to `backups/pre_restore/` first as a one-level undo.
+- **Per-symbol analysis loops index once**: never filter the full OHLCV/financials
+  frame inside the per-symbol loop — a boolean mask per symbol re-scans millions of
+  rows. Pre-group by symbol before the loop (`groupby` → dict of pre-sorted slices)
+  so each lookup is O(1). See `analysis_layer/pipeline.run_analysis()`.
 
 ### Things deliberately deferred (don't "fix" them)
 
