@@ -24,10 +24,6 @@ def main() -> None:
     p.add_argument("--subset", help="comma-separated symbols to fetch only")
     p.add_argument("--no-lock", action="store_true", help="ignore the 5-day fetch lock")
     p.add_argument("--no-backup", action="store_true", help="skip the pre-run backup")
-    p.add_argument(
-        "--allow-market-open", action="store_true",
-        help="fetch even while the US market is open (off by default — prices would be intraday)",
-    )
     args = p.parse_args()
 
     subset = [s.strip().upper() for s in args.subset.split(",")] if args.subset else None
@@ -36,7 +32,6 @@ def main() -> None:
         subset=subset,
         respect_lock=not args.no_lock,
         run_backup=not args.no_backup,
-        block_when_market_open=not args.allow_market_open,
     )
     print("\n=== RUN SUMMARY ===")
     for stage, result in summary.items():

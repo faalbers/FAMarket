@@ -113,7 +113,10 @@ Three intentionally decoupled layers plus shared infrastructure:
   completed trading session** (via `pandas-market-calendars`) — never intraday.
   OHLCV writes are gated the same way: `sanitize_ohlcv` drops any bar past the last
   fully-settled session (close + 15 min, via `last_completed_session()`), so the
-  store never holds an intraday / non-final close.
+  store never holds an intraday / non-final close. The fetch pipeline itself runs
+  at any time (there is no market-closed gate) — this OHLCV session gate is the
+  sole intraday guard, so while the market is open today's in-progress bar is
+  simply omitted from the write.
 - **Analysis ratios are compute-and-reconcile**: fundamental ratios are computed
   from `financials.db` on one convention (canonical `adj_close`, TTM = last 4
   quarters), cross-checked against yfinance's equivalent in `quotes.db` with a

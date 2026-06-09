@@ -32,14 +32,14 @@ import streamlit as st
 
 from config import settings
 from core.database import Database
-from core.market_calendar import is_market_open
 from data_layer import cancel
 from data_layer.orchestrator import run_full_fetch
 
 ANALYSIS_META = "analysis_meta"
 _LOG_TAIL_LINES = 200
 _POLL_SECONDS = 2.0
-# Pre-filled when "Dev subset" scope is chosen — the canonical type-spanning set.
+# Shown as a greyed-out placeholder hint in the subset box (never prefilled as a
+# value) — the canonical type-spanning set for dev runs.
 _DEFAULT_SUBSET = ["AAPL", "MSFT", "JNJ", "KO", "PG", "O", "SPY", "VOO", "TSM", "VFIAX"]
 
 
@@ -209,14 +209,18 @@ st.markdown(
 )
 
 st.subheader("Options")
+# Default scope: "Full universe" unless a --subset was passed on the CLI, in which
+# case start on "Dev subset" so the prefilled symbols are actually used.
 scope = st.radio(
-    "Run scope", ["Dev subset", "Full universe"], index=0, horizontal=True,
+    "Run scope", ["Dev subset", "Full universe"],
+    index=0 if _cli_subset() else 1, horizontal=True,
     help="Dev subset limits Group 2 + analysis to the symbols below. Full universe "
     "processes every symbol in symbols.db — much longer.",
 )
 subset_raw = st.text_input(
     "Subset symbols (comma-separated)",
-    value=_cli_subset() or ", ".join(_DEFAULT_SUBSET),
+    value=_cli_subset() or "",
+    placeholder=", ".join(_DEFAULT_SUBSET),
     disabled=(scope == "Full universe"),
     help="Used only when scope is Dev subset. Prefill from the CLI with "
     "`streamlit run app.py -- --subset AAPL,MSFT`. Discovery still populates the full symbols.db.",
@@ -230,18 +234,6 @@ run_backup = col_b.checkbox(
     "Back up databases first", value=True,
     help="Rotating 5-version backup of every .db before the run.",
 )
-block_market = st.checkbox(
-    "Only fetch when the US market is closed", value=True,
-    help="Blocks all data fetching AND analysis while the regular NYSE session is "
-    "open, so prices are never captured intraday — symbol discovery still runs. "
-    "Honors weekends, US holidays, and early-close half-days. Uncheck to fetch "
-    "during market hours for testing.",
-)
-if block_market and is_market_open():
-    st.warning(
-        "US market is **open right now** — a run will do symbol discovery only and "
-        "skip data fetch + analysis. Uncheck the box above to fetch anyway (testing)."
-    )
 
 running = st.session_state.get("fetch_running", False)
 run_col, stop_col = st.columns(2)
@@ -272,7 +264,6 @@ if submitted:
         kwargs={
             "result": result, "discover": discover, "subset": subset,
             "respect_lock": respect_lock, "run_backup": run_backup,
-            "block_when_market_open": block_market,
         },
         daemon=True,
     )
@@ -307,7 +298,7 @@ if st.session_state.get("fetch_running"):
     status = st.status(f"{verb} pipeline ({label})…", expanded=True)
     if stopping:
         status.write("Stop requested — finishing the current batch (already committed), then unwinding.")
-    status.empty().code(_log_tail() or "(starting…)", language="log")
+    status.empty().code(_log_tail(10) or "(starting…)", language="log")
 
     if result.get("done"):
         st.session_state["fetch_running"] = False
@@ -319,10 +310,6 @@ if st.session_state.get("fetch_running"):
             st.session_state["fetch_error"] = result["error"]
         elif isinstance(summary, dict) and summary.get("cancelled"):
             status.update(label="Fetch stopped", state="error")
-            st.session_state["fetch_summary"] = summary
-            st.session_state["fetch_error"] = None
-        elif isinstance(summary, dict) and summary.get("market_open"):
-            status.update(label="Market open — data fetch skipped", state="error")
             st.session_state["fetch_summary"] = summary
             st.session_state["fetch_error"] = None
         else:
@@ -346,21 +333,9 @@ elif isinstance(_last_summary, dict) and _last_summary.get("cancelled"):
         "run is resumable — re-run to continue. Analysis was not rebuilt."
     )
     _show_summary(_last_summary)
-elif isinstance(_last_summary, dict) and _last_summary.get("market_open"):
-    st.warning(
-        "US market was open — only symbol discovery ran; data fetch and analysis were "
-        "skipped so prices aren't captured intraday. Re-run after market close, or "
-        "uncheck **Only fetch when the US market is closed** to fetch during market hours."
-    )
-    _show_summary(_last_summary)
 elif _last_summary is not None:
     st.success("Fetch complete.")
     _show_summary(_last_summary)
-
-tail = _log_tail()
-if tail:
-    with st.expander("Run log (tail)", expanded=bool(submitted)):
-        st.code(tail, language="log")
 
 # -- danger zone: reset to a clean slate ------------------------------------ #
 # Kept at the very bottom, collapsed, behind a two-step confirm (checkbox + button)

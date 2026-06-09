@@ -29,7 +29,6 @@ from config import settings
 from core.backup import backup_all
 from core.database import Database
 from core.logging_config import get_logger, roll_log, setup_logging
-from core.market_calendar import is_market_open
 from core.net import configure_tls
 from data_layer import cancel, fetch_status, symbols
 from data_layer.fetchers.edgar_fetcher import EDGARFinancials
@@ -64,14 +63,13 @@ def run_full_fetch(
     subset: list[str] | None = None,
     respect_lock: bool = True,
     run_backup: bool = True,
-    block_when_market_open: bool = True,
 ) -> dict:
     """Run the complete fetch pipeline. Returns a per-stage summary.
 
-    `block_when_market_open` (default on) is the market-closed gate: while the US
-    regular session is open, everything EXCEPT symbol discovery is skipped, so
-    prices are never captured intraday. Turn it off to fetch during market hours
-    (testing). The weekly production run is Friday after close, where it's a no-op.
+    Runs any time, including while the US market is open. The only price series
+    that must never be captured intraday is OHLCV, and `sanitize_ohlcv` guards
+    that itself: it drops any bar past the last fully-settled session, so an
+    in-progress (today's) bar is omitted while the market is open.
     """
     configure_tls()
     roll_log()        # one log per run: prior run archived as a versioned backup
@@ -99,18 +97,6 @@ def run_full_fetch(
     if discover:
         summary["discovery"] = symbols.run_discovery()
     if _cancelled():
-        return summary
-
-    # -- Market-closed gate ------------------------------------------------- #
-    # Discovery (above) is symbol metadata, safe any time. Everything below
-    # touches prices, so block it while the regular session is open — otherwise
-    # we'd store an intraday, non-final bar. Symbol discovery already ran.
-    if block_when_market_open and is_market_open():
-        summary["market_open"] = True
-        log.warning(
-            "US market is open — data fetch + analysis skipped (symbol discovery "
-            "only). Disable the market-closed gate to fetch during market hours."
-        )
         return summary
 
     # -- Group 2: data fetch ------------------------------------------------ #

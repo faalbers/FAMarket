@@ -181,7 +181,9 @@ def sanitize_ohlcv(symbol: str, hist: pd.DataFrame) -> pd.DataFrame:
     # day's *closing* price and never corrected until the symbol is re-fetched
     # after close — poisoning the analysis run in between. Drop any bar dated past
     # the last fully-settled session so the OHLCV store only ever holds final
-    # closes (defense-in-depth behind the orchestrator's market-closed gate).
+    # closes. This is the SOLE intraday guard for OHLCV (the fetch pipeline itself
+    # runs any time): while the market is open the last completed session is the
+    # prior day, so today's in-progress bar is omitted here.
     cutoff = last_completed_session()
     if cutoff is not None:
         df = df[df["date"] <= cutoff.strftime("%Y-%m-%d")]
