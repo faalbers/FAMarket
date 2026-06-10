@@ -200,6 +200,11 @@
      FETCH / ANALYSIS PHASE DESIGN:
      - Fetch ALL data first (all APIs, all symbols) → analysis runs automatically after fetch completes
      - Full recalculate of analysis.db every run (clean slate — fast, no complexity of tracking deltas)
+     - ✅ IMPLEMENTED amendment (2026-06-10): dev-subset runs no longer wipe the rest of analysis.db.
+       A subset run recomputes ONLY the subset rows, merges them into the existing table
+       (other symbols' rows kept as-is), then re-runs peers/scoring/rs_rank over the merged
+       frame so ranks and medians stay universe-wide (rs_raw is now a stored column for this).
+       No subset → full clean-slate rebuild, unchanged.
      - If an API fails after retries → log clear failure message, continue other fetchers, analysis still runs on available data
      - UI shows: "Analysis calculated: [timestamp]" + "Prices as of: [last completed trading session date]"
      - All price-based calculations use closing price of last completed trading session only (never intraday)
@@ -453,7 +458,7 @@
        - Peer comparisons (sector/industry medians)
        - Scoring & ranking
        - Intrinsic value calculations (Graham, Lynch, DCF using FRED Treasury yield)
-       - Full recalculate every run (clean slate)
+       - Full recalculate every run (clean slate; subset runs merge into the existing table — see 4.2)
        - Only processes is_active=True + is_validated=True symbols
      - Phase 3: UI Layer
        - Streamlit filter interface (block-based, AND/OR logic)

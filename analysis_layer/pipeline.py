@@ -1,20 +1,31 @@
 """
 Analysis orchestrator (Topic 4.2 — FETCH / ANALYSIS PHASE DESIGN).
 
-Runs the full clean-slate recalculation after a fetch:
-  1. Load the Phase 1 DBs into pandas (symbols, quotes, financials, ohlcv, macro).
+Runs the recalculation after a fetch:
+  1. Load the Phase 1 DBs into pandas (symbols, quotes, financials, ohlcv, macro)
+     — restricted to the subset symbols when one is given.
   2. Universe = symbols with is_active=True AND is_validated=True.
   3. Per symbol: metrics (+reconcile) · technical · intrinsic value.
-  4. Cross-symbol stages on the assembled frame: peer comparisons, then category
-     scores + Overall + rs_rank (added with the peers/scoring modules).
-  5. Database.replace() analysis.db — full rebuild, no deltas.
-  6. Record analysis_meta: analyzed_at + prices_as_of + n_symbols.
+  4. Subset runs only: merge with the existing analysis table — rows for subset
+     symbols are replaced, every other symbol's row is kept as-is.
+  5. Cross-symbol stages on the (merged) frame: peer comparisons, then category
+     scores + Overall + rs_rank (added with the peers/scoring modules) — so on a
+     subset run the ranks/medians still span the full stored universe.
+  6. Database.replace() analysis.db — the frame (full or merged) becomes the table.
+  7. Record analysis_meta: analyzed_at + prices_as_of + n_symbols.
 
 Prices: each symbol's canonical price is the adj_close of the last completed
 session (the OHLCV fetch already caps to it, so it's the latest stored date).
 
 The Streamlit Fetch Control panel calls run_analysis() right after a fetch; it can
-also be run standalone. `subset=[...]` limits the universe for dev testing.
+also be run standalone. `subset=[...]` recomputes only those symbols (dev testing)
+and leaves the rest of analysis.db intact; without it, the classic full
+clean-slate rebuild.
+
+rs_rank needs each symbol's raw weighted trailing return, so that input is
+persisted as the `rs_raw` column — on a subset run the un-recomputed rows feed
+their stored rs_raw back into the universe-wide re-rank. Rows written before
+rs_raw existed rank NaN until the next full run.
 """
 
 from __future__ import annotations
@@ -54,25 +65,39 @@ _MIN_OHLCV_LOOKBACK_DAYS = 400
 _OHLCV_COLS = "symbol, date, high, low, close, adj_close, volume"
 
 
-def _load() -> dict[str, pd.DataFrame]:
-    """Read every Phase 1 database needed by the analysis layer into pandas."""
+def _subset_clause(subset: list[str] | None) -> tuple[str | None, list[str] | None]:
+    """SQL `symbol IN (…)` filter (clause, params) — (None, None) for a full run."""
+    if not subset:
+        return None, None
+    return f"symbol IN ({', '.join('?' for _ in subset)})", list(subset)
+
+
+def _load(subset: list[str] | None = None) -> dict[str, pd.DataFrame]:
+    """Read every Phase 1 database needed by the analysis layer into pandas.
+
+    With a subset, the per-symbol tables are read pre-filtered to those symbols
+    (symbols.db and macro.db stay full — the universe gate needs the former, the
+    latter has no symbol column).
+    """
     out: dict[str, pd.DataFrame] = {}
     with Database(settings.SYMBOLS_DB) as db:
         out["symbols"] = db.read("symbols")
-    for name, path in (("quotes", settings.QUOTES_DB), ("financials", settings.FINANCIALS_DB),
-                       ("macro", settings.MACRO_DB)):
+    where, params = _subset_clause(subset)
+    for name, path in (("quotes", settings.QUOTES_DB), ("financials", settings.FINANCIALS_DB)):
         with Database(path) as db:
-            out[name] = db.read(name)
+            out[name] = db.read(name, where=where, params=params)
+    with Database(settings.MACRO_DB) as db:
+        out["macro"] = db.read("macro")
     fin = out["financials"]
     if not fin.empty and "period_end" in fin.columns:
         # One vectorized parse for the whole table; _periods.prepare() consumes it
         # instead of re-parsing period_end strings per symbol.
         fin["period_end_dt"] = pd.to_datetime(fin["period_end"], errors="coerce")
-    out.update(_load_ohlcv())
+    out.update(_load_ohlcv(subset))
     return out
 
 
-def _load_ohlcv() -> dict[str, pd.DataFrame]:
+def _load_ohlcv(subset: list[str] | None = None) -> dict[str, pd.DataFrame]:
     """Date-floored OHLCV bars + full-history sparse dividend/split events.
 
     The full table (~70M rows at a 50k universe) balloons past physical RAM in
@@ -94,16 +119,21 @@ def _load_ohlcv() -> dict[str, pd.DataFrame]:
             lookback = _MIN_OHLCV_LOOKBACK_DAYS
         last = db.query("SELECT MAX(date) AS d FROM ohlcv")["d"].iloc[0]
         cutoff = (pd.Timestamp(last) - pd.Timedelta(days=lookback)).strftime("%Y-%m-%d")
-        chunks = list(db.query(f"SELECT {_OHLCV_COLS} FROM ohlcv WHERE date >= ?",
-                               [cutoff], chunksize=2_000_000))
+        sub_clause, sub_params = _subset_clause(subset)
+        sub_sql = f" AND {sub_clause}" if sub_clause else ""
+        sub_params = sub_params or []
+        chunks = list(db.query(f"SELECT {_OHLCV_COLS} FROM ohlcv WHERE date >= ?{sub_sql}",
+                               [cutoff, *sub_params], chunksize=2_000_000))
         out = {"ohlcv": pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame()}
         del chunks
         have = db.columns("ohlcv")
         out["dividends"] = (db.query("SELECT symbol, date, dividends FROM ohlcv "
-                                     "WHERE dividends > 0 ORDER BY symbol, date")
+                                     f"WHERE dividends > 0{sub_sql} ORDER BY symbol, date",
+                                     sub_params)
                             if "dividends" in have else pd.DataFrame())
         out["splits"] = (db.query("SELECT symbol, date, splits FROM ohlcv "
-                                  "WHERE splits != 0 AND splits != 1 ORDER BY symbol, date")
+                                  f"WHERE splits != 0 AND splits != 1{sub_sql} "
+                                  "ORDER BY symbol, date", sub_params)
                          if "splits" in have else pd.DataFrame())
     for df in out.values():
         if not df.empty:
@@ -139,8 +169,15 @@ def _risk_free(macro: pd.DataFrame) -> float:
 
 
 def run_analysis(subset: list[str] | None = None) -> dict:
-    """Full clean-slate recalculation of analysis.db. Returns a run summary."""
-    data = _load()
+    """Recalculate analysis.db. Returns a run summary.
+
+    Without a subset: full clean-slate rebuild of the whole universe. With one:
+    only the subset is recomputed, merged into the existing table (their old rows
+    replaced, everything else kept), and the cross-symbol stages re-run over the
+    merged frame so ranks and peer medians stay universe-wide.
+    """
+    subset = list(subset) if subset else None  # treat [] like None (full run)
+    data = _load(subset)
     universe = _universe(data["symbols"], subset)
     if universe.empty:
         log.warning("Analysis — no active+validated symbols; nothing to do")
@@ -196,8 +233,9 @@ def run_analysis(subset: list[str] | None = None) -> dict:
             "sector": sec,
             "industry": ind,
             "price": price,
-            # raw weighted return -> universe-ranked into rs_rank in scoring (dropped after)
-            "_rs_raw": technical.relative_strength_raw(osym),
+            # raw weighted return -> universe-ranked into rs_rank in scoring; kept
+            # in the table so subset runs can re-rank the un-recomputed rows too
+            "rs_raw": technical.relative_strength_raw(osym),
             **m, **t, **iv,
         })
         if i % _PROGRESS_EVERY == 0:
@@ -205,6 +243,9 @@ def run_analysis(subset: list[str] | None = None) -> dict:
                      i, n_universe, n_universe - i)
 
     df = pd.DataFrame(rows)
+    n_recomputed = len(df)
+    if subset is not None:
+        df, prices_as_of = _merge_existing(df, subset, prices_as_of)
     df = _order_columns(df)
 
     # -- cross-symbol stages --------------------------------------------------- #
@@ -215,10 +256,38 @@ def run_analysis(subset: list[str] | None = None) -> dict:
 
     log.info("Analysis — writing analysis.db…")
     _write(df, prices_as_of)
-    _log_reconcile(reconcile, len(df))
-    log.info("analysis.db — %d symbols, %d columns written", len(df), df.shape[1])
-    return {"symbols": len(df), "columns": df.shape[1],
+    _log_reconcile(reconcile, n_recomputed)
+    log.info("analysis.db — %d symbols (%d recomputed), %d columns written",
+             len(df), n_recomputed, df.shape[1])
+    return {"symbols": len(df), "recomputed": n_recomputed, "columns": df.shape[1],
             "reconcile_divergences": len(reconcile), "prices_as_of": prices_as_of}
+
+
+def _merge_existing(df: pd.DataFrame, subset: list[str],
+                    prices_as_of: str | None) -> tuple[pd.DataFrame, str | None]:
+    """Subset run: splice the recomputed rows into the stored analysis table.
+
+    Every stored row whose symbol is in the subset is dropped — replaced by its
+    fresh row, or removed outright if the symbol no longer passes the universe
+    gate — and all other rows are kept untouched. The cross-symbol stages then
+    run over this merged frame, so peer medians, percentile scores and rs_rank
+    are recomputed universe-wide (rs_rank via the persisted rs_raw column; rows
+    written before rs_raw existed rank NaN until the next full run).
+    prices_as_of becomes the newer of the two vintages.
+    """
+    with Database(settings.ANALYSIS_DB) as db:
+        existing = db.read(TABLE)
+        meta = db.read(META_TABLE)
+    if existing.empty:
+        return df, prices_as_of
+    kept = existing[~existing["symbol"].isin(subset)]
+    log.info("Analysis — subset run: %d fresh rows merged with %d kept rows "
+             "(%d replaced/removed)", len(df), len(kept), len(existing) - len(kept))
+    if not meta.empty and "prices_as_of" in meta.columns:
+        prev = meta["prices_as_of"].iloc[-1]
+        if prev is not None and (prices_as_of is None or str(prev) > prices_as_of):
+            prices_as_of = str(prev)
+    return pd.concat([kept, df], ignore_index=True), prices_as_of
 
 
 def _order_columns(df: pd.DataFrame) -> pd.DataFrame:

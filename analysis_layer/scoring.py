@@ -5,7 +5,9 @@ Runs after every per-symbol metric exists (peers already added), as the last
 cross-symbol stage. Adds, in order:
 
   * rs_rank (0-99) — IBD-style universe percentile of the weighted trailing
-    return that the pipeline collected per symbol into the temp `_rs_raw` column.
+    return that the pipeline collected per symbol into the `rs_raw` column.
+    rs_raw is persisted in analysis.db (not dropped) so a subset run can re-rank
+    the merged frame: rows that weren't recomputed feed their stored rs_raw back in.
   * five category scores (0-100): value, quality, growth, momentum, income — each
     the weight-averaged percentile rank of its metrics (settings.CATEGORY_METRIC_WEIGHTS).
   * overall_score (0-100) — the category scores combined per OVERALL_SCORE_WEIGHTS.
@@ -48,8 +50,13 @@ def compute(df: pd.DataFrame) -> pd.DataFrame:
     """Add rs_rank, the five category scores, and overall_score to the frame."""
     if df.empty:
         return df
+    # On a subset-merged frame the kept rows arrive with their prior rs_rank; keep
+    # it where re-ranking yields NaN (rows from before rs_raw was persisted). Full
+    # runs build the frame without an rs_rank column, so this never fires there.
+    prior_rs = df["rs_rank"] if "rs_rank" in df.columns else None
     df["rs_rank"] = _rs_rank(df)
-    df = df.drop(columns=[c for c in ("_rs_raw",) if c in df.columns])
+    if prior_rs is not None:
+        df["rs_rank"] = df["rs_rank"].fillna(pd.to_numeric(prior_rs, errors="coerce"))
 
     for category, weights in settings.CATEGORY_METRIC_WEIGHTS.items():
         peer_relative = category in settings.SCORE_PEER_RELATIVE_CATEGORIES
@@ -61,9 +68,10 @@ def compute(df: pd.DataFrame) -> pd.DataFrame:
 
 def _rs_rank(df: pd.DataFrame) -> pd.Series:
     """0-99 universe percentile of the weighted trailing return (NaN preserved)."""
-    if "_rs_raw" not in df.columns:
+    if "rs_raw" not in df.columns:
         return pd.Series(np.nan, index=df.index, dtype="float64")
-    pct = _stats.percentile_rank(df["_rs_raw"], ascending=True)  # higher return = stronger
+    pct = _stats.percentile_rank(pd.to_numeric(df["rs_raw"], errors="coerce"),
+                                 ascending=True)  # higher return = stronger
     return (pct * 0.99).round()  # 0-100 percentile -> IBD 0-99 integer scale
 
 

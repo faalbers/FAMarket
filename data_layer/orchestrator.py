@@ -91,7 +91,8 @@ def run_full_fetch(
         # -- Groups 1 & 2: discovery + data fetch (return early on Stop) ---- #
         _run_fetch_groups(summary, discover, subset, respect_lock)
 
-        # -- Group 3: analysis (clean-slate rebuild of analysis.db) --------- #
+        # -- Group 3: analysis (full run: clean-slate rebuild; subset run: ---- #
+        # -- subset rows merged into the existing analysis.db) ---------------- #
         # Runs after the symbols DB is closed; the analysis layer opens its own DBs
         # and only processes is_active+is_validated symbols. On a clean finish it
         # always runs; on a Stop it runs only if that stop asked for it.

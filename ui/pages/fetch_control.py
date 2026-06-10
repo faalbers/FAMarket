@@ -255,8 +255,9 @@ st.subheader("Options")
 scope = st.radio(
     "Run scope", ["Dev subset", "Full universe"],
     index=0 if _cli_subset() else 1, horizontal=True,
-    help="Dev subset limits Group 2 + analysis to the symbols below. Full universe "
-    "processes every symbol in symbols.db — much longer.",
+    help="Dev subset limits Group 2 + analysis to the symbols below; their analysis "
+    "rows are updated in place and every other symbol's row is kept. Full universe "
+    "processes every symbol in symbols.db (clean-slate analysis rebuild) — much longer.",
 )
 subset_raw = st.text_input(
     "Subset symbols (comma-separated)",

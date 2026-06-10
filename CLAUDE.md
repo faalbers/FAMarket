@@ -16,8 +16,9 @@ yfinance/EDGAR/FRED fetchers) is functional. The **analysis layer** is now
 complete — `_periods`, `metrics`, `technical`, `intrinsic_value`, `_stats`,
 `peers`, `scoring` (category scores + Overall, percentile-rank) and universe-wide
 `rs_rank` all work; `pipeline.run_analysis()` assembles and writes `analysis.db`
-(125 cols — now includes a sector/industry-derived `screen_type` column via
-`analysis_layer/screen_type.py`) and is wired into the orchestrator as Group 3
+(126 cols — includes a sector/industry-derived `screen_type` column via
+`analysis_layer/screen_type.py`, and a persisted `rs_raw` input column for
+subset-run re-ranking) and is wired into the orchestrator as Group 3
 after each fetch. The **UI** is being built page by page: Fetch Control, Settings,
 and Filter are functional; Output and Calibration remain `st.info` skeletons. The
 Filter page (Topic 5) is backed by `ui/filter_registry.py` (per-`screen_type` metric
@@ -53,7 +54,11 @@ Three intentionally decoupled layers plus shared infrastructure:
   `data_layer/fetchers/` (yfinance, polygon, fmp, etrade, fred, edgar). Writes to
   the per-type databases.
 - **`analysis_layer/`** — reads the data DBs and **fully rebuilds `analysis.db`
-  every run** (clean slate via `Database.replace`, no delta tracking). Modules:
+  every full run** (clean slate via `Database.replace`, no delta tracking).
+  **Subset runs merge instead of wipe**: only the subset is loaded/recomputed,
+  its rows are spliced into the existing table (`pipeline._merge_existing`), and
+  peers/scoring/rs_rank re-run over the merged frame so ranks stay
+  universe-wide (`rs_raw` is persisted in `analysis.db` for this). Modules:
   `metrics`, `technical`, `peers`, `intrinsic_value`, `scoring`, orchestrated by
   `pipeline.run_analysis()`. Only processes symbols with `is_active=True` AND
   `is_validated=True`.
