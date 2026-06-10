@@ -21,6 +21,8 @@ The canonical key everywhere downstream is `symbol` (the normalized form).
 
 from __future__ import annotations
 
+import re
+
 import pandas as pd
 from ratelimit import limits, sleep_and_retry
 from tenacity import retry, stop_after_attempt, wait_fixed
@@ -48,6 +50,7 @@ def normalize_symbol(polygon_symbol: str, poly_type: str = "", market: str = "")
       * index   (I: prefix / indices market)  ->  leading "I:" becomes "^"
       * warrant (type WARRANT)                 ->  trailing .WS[.A] -> -WT
       * unit    (type UNIT)                    ->  trailing .U / .WS.A -> -UN
+      * preferred notation (BASEp[X])          ->  BASE-P[X]  (ABRpD -> ABR-PD)
       * class shares (a "." remains)           ->  every "." becomes "-"
     """
     sym = (polygon_symbol or "").strip()
@@ -72,6 +75,14 @@ def normalize_symbol(polygon_symbol: str, poly_type: str = "", market: str = "")
         for suffix in (".WS.A", ".U"):
             if sym.endswith(suffix):
                 return sym[: -len(suffix)] + "-UN"
+
+    # Preferred shares: Polygon spells these BASEp / BASEpX (lowercase 'p' +
+    # optional series letter); yfinance/E*Trade use BASE-P / BASE-PX (verified
+    # live 2026-06-10: ABRpD -> ABR-PD, ETIp -> ETI-P). Polygon types most as
+    # PFD but some as SP/ADRC, so match on the notation, not the type.
+    m = re.fullmatch(r"([A-Z]+)p([A-Z]?)", sym)
+    if m:
+        return f"{m.group(1)}-P{m.group(2)}"
 
     # Class shares and any remaining dotted ticker: BRK.B -> BRK-B
     if "." in sym:
