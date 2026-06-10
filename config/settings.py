@@ -118,6 +118,16 @@ ATR_PERIOD: int = 14
 VOLUME_AVG_PERIOD: int = 20
 RS_RANK_MIN_HISTORY_DAYS: int = 252  # NULL rs_rank below this
 
+# Daily price history loaded by run_analysis(), in CALENDAR days back from the
+# newest stored bar. Indicators need at most ~253 trading days (rs_rank is the
+# deepest), so ~2 years is generous. Dividends and splits are side-read in full
+# regardless, so deep-history metrics (div_growth_5y, EPS split-adjust) are
+# unaffected. The pipeline clamps low values so rs_rank never loses its window.
+# RAISE THIS if a metric is ever added that needs deeper *price* history (e.g.
+# 5y price CAGR, historical P/E bands). RAM scales ~linearly with it: +365 days
+# ≈ +8.5M loaded rows at a 50k-symbol universe.
+ANALYSIS_OHLCV_LOOKBACK_DAYS: int = 730
+
 # Peak detection (scipy.signal.find_peaks) — calibrated via the in-UI tool.
 PEAK_PROMINENCE: float = 0.05  # placeholder; tune in calibration tool
 PEAK_DISTANCE: int = 20        # min trading days between detected peaks

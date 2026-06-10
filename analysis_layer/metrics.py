@@ -200,14 +200,21 @@ def compute(
     symbol: str,
     fin: pd.DataFrame,
     quote: pd.Series | None,
-    ohlcv: pd.DataFrame,
     price: float,
+    *,
+    dividends: pd.Series | None = None,
+    splits: pd.Series | None = None,
+    as_of: pd.Timestamp | None = None,
     reconcile: list | None = None,
 ) -> dict:
     """All fundamental metrics for one symbol (raw numbers, percents as percents).
 
     `fin` is this symbol's financials rows (via _periods.by_symbol); `quote` is its
-    quotes row; `ohlcv` its price/dividend history; `price` the canonical adj_close.
+    quotes row; `price` the canonical adj_close. `dividends`/`splits` are sparse
+    FULL-history event series (datetime-indexed payment amounts / split factors) —
+    the pipeline reads them without the OHLCV date floor, so dividend streaks and
+    EPS split-adjustment keep their whole span. `as_of` is the symbol's last bar
+    date (anchors the dividend TTM window; None = no price history at all).
     Missing inputs yield NaN (= "not applicable"), so funds/ETFs with no financials
     fall through harmlessly. Divergences vs yfinance are appended to `reconcile`.
     """
@@ -297,9 +304,6 @@ def compute(
     m["altman_z"] = _altman_z(fin, ebit, rev, mktcap, total_assets, total_liab) if currency_ok else float("nan")
 
     # -- growth ------------------------------------------------------------- #
-    splits = None
-    if ohlcv is not None and not ohlcv.empty and "splits" in ohlcv.columns:
-        splits = ohlcv.set_index(pd.to_datetime(ohlcv["date"]))["splits"]
     eps_a = _split_adjust(P.annual(fin, "diluted_eps"), splits)
     eps_q = _split_adjust(P.quarterly(fin, "diluted_eps"), splits)
     m.update(_growth_block("revenue", P.annual(fin, "total_revenue"), P.quarterly(fin, "total_revenue")))
@@ -312,7 +316,7 @@ def compute(
     m["peg"] = _div(m["pe"], g3) if (pd.notna(g3) and g3 > 0) else float("nan")
 
     # -- income / dividends ------------------------------------------------- #
-    m.update(_income_block(fin, ohlcv, price, ni, fcf))
+    m.update(_income_block(fin, dividends, price, ni, fcf, as_of))
 
     # -- reconciliation ----------------------------------------------------- #
     if reconcile is not None and currency_ok:
@@ -346,26 +350,25 @@ def _altman_z(fin, ebit, rev, mktcap, total_assets, total_liab) -> float:
     return 1.2 * a + 1.4 * b + 3.3 * c + 0.6 * d + 1.0 * e
 
 
-def _income_block(fin, ohlcv, price, ni_ttm, fcf_ttm) -> dict:
-    """Dividend metrics from the ohlcv `dividends` column (no extra API)."""
+def _income_block(fin, paid: pd.Series | None, price, ni_ttm, fcf_ttm, as_of) -> dict:
+    """Dividend metrics from the full-history dividend events (no extra API)."""
     out = {
         "div_yield_ttm": float("nan"), "div_rate_ttm": float("nan"),
         "div_growth_5y": float("nan"), "div_payout_ratio": float("nan"),
         "div_consecutive_years": float("nan"), "div_consistency": float("nan"),
         "div_coverage": float("nan"),
     }
-    if ohlcv is None or ohlcv.empty or "dividends" not in ohlcv.columns:
+    if as_of is None or pd.isna(as_of):  # no price history at all -> not applicable
         return out
-    dts = pd.to_datetime(ohlcv["date"])
-    divs = pd.to_numeric(ohlcv["dividends"], errors="coerce").fillna(0.0)
-    paid = pd.Series(divs.to_numpy(), index=dts)
-    paid = paid[paid > 0]
-    if paid.empty:  # non-payer: a real 0% yield, the rest not applicable
+    if paid is not None and not paid.empty:
+        paid = pd.to_numeric(paid, errors="coerce")
+        paid = paid[paid > 0]
+    if paid is None or paid.empty:  # non-payer: a real 0% yield, the rest not applicable
         out["div_yield_ttm"] = 0.0
         out["div_rate_ttm"] = 0.0
         return out
 
-    last = dts.max()
+    last = pd.Timestamp(as_of)
     ttm_div = float(paid[paid.index > last - pd.Timedelta(days=365)].sum())
     out["div_rate_ttm"] = ttm_div
     out["div_yield_ttm"] = _pct(_div(ttm_div, price))

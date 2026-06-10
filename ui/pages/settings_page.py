@@ -43,6 +43,7 @@ _HELP: dict[str, str] = {
     "ATR_PERIOD": "Window (days) for Average True Range, a volatility measure. Standard is 14.",
     "VOLUME_AVG_PERIOD": "Window (days) for the average-volume baseline used in volume comparisons.",
     "RS_RANK_MIN_HISTORY_DAYS": "Minimum price history (days) required to compute RS rank; below this it's left blank (~1 year = 252).",
+    "ANALYSIS_OHLCV_LOOKBACK_DAYS": "Calendar days of daily price history the analysis loads per run (730 ≈ 2 years). Indicators need at most ~1 year; dividends/splits are always read in full, so income & growth metrics are unaffected. Raise it only if a new metric needs deeper price history — RAM use grows with it.",
     "RS_RANK_QUARTER_DAYS": "Length (trading days) of each of the four look-back windows in the RS-rank return (~63 ≈ 3 months).",
     "RS_RANK_WEIGHTS": "Weights applied to the four quarters (newest → oldest) when blending the trailing return; heaviest on the most recent.",
     "PEAK_PROMINENCE": "Minimum prominence (as a fraction of price) for find_peaks to count a swing high/low.",
@@ -146,6 +147,10 @@ with st.expander("Scoring — Metric weights within each category"):
 
 # -- Indicator parameters (grouped by the indicator they drive) ------------- #
 with st.expander("Analysis — Indicator parameters"):
+    st.markdown("**Analysis window** — price history loaded per run")
+    c1, c2, c3 = st.columns(3)
+    _int(c1, "ANALYSIS_OHLCV_LOOKBACK_DAYS", "OHLCV lookback (days)", min_value=400, max_value=4000)
+
     st.markdown("**RSI** — momentum oscillator")
     c1, c2, c3 = st.columns(3)
     _int(c1, "RSI_PERIOD", "Period", min_value=2, max_value=200)

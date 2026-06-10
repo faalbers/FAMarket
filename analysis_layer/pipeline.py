@@ -44,16 +44,73 @@ _PROGRESS_EVERY = 500
 _IDENTITY = ["symbol", "name", "security_type", "screen_type", "sector", "industry", "price"]
 
 
+# Lower bound on the OHLCV window: rs_rank's 4 quarters × ~63 trading days + 1
+# mark ≈ 253 trading days ≈ 365 calendar days, plus weekend/holiday slack.
+_MIN_OHLCV_LOOKBACK_DAYS = 400
+
+# Bar columns the analysis actually consumes (technical indicators + canonical
+# price). `open` is unused; `dividends`/`splits` come from the sparse side reads.
+_OHLCV_COLS = "symbol, date, high, low, close, adj_close, volume"
+
+
 def _load() -> dict[str, pd.DataFrame]:
     """Read every Phase 1 database needed by the analysis layer into pandas."""
     out: dict[str, pd.DataFrame] = {}
     with Database(settings.SYMBOLS_DB) as db:
         out["symbols"] = db.read("symbols")
     for name, path in (("quotes", settings.QUOTES_DB), ("financials", settings.FINANCIALS_DB),
-                       ("ohlcv", settings.OHLCV_DB), ("macro", settings.MACRO_DB)):
+                       ("macro", settings.MACRO_DB)):
         with Database(path) as db:
-            out[name] = db.read(name if name != "macro" else "macro")
+            out[name] = db.read(name)
+    out.update(_load_ohlcv())
     return out
+
+
+def _load_ohlcv() -> dict[str, pd.DataFrame]:
+    """Date-floored OHLCV bars + full-history sparse dividend/split events.
+
+    The full table (~70M rows at a 50k universe) balloons past physical RAM in
+    pandas, but no indicator needs more than ~253 trading days — so only the
+    trailing ANALYSIS_OHLCV_LOOKBACK_DAYS of bars are read. The two deep-history
+    consumers — dividends (div_growth_5y, streaks) and splits (EPS adjustment) —
+    are event rows (a handful per symbol-year), read separately with NO floor.
+    `date` is parsed to datetime64 once here, not per symbol in the loop.
+    """
+    empty = {"ohlcv": pd.DataFrame(), "dividends": pd.DataFrame(), "splits": pd.DataFrame()}
+    with Database(settings.OHLCV_DB) as db:
+        if db.is_empty("ohlcv"):
+            return empty
+        lookback = settings.ANALYSIS_OHLCV_LOOKBACK_DAYS
+        if lookback < _MIN_OHLCV_LOOKBACK_DAYS:
+            log.warning("Analysis — ANALYSIS_OHLCV_LOOKBACK_DAYS=%d is below the %d-day "
+                        "floor rs_rank needs; clamping to %d",
+                        lookback, _MIN_OHLCV_LOOKBACK_DAYS, _MIN_OHLCV_LOOKBACK_DAYS)
+            lookback = _MIN_OHLCV_LOOKBACK_DAYS
+        last = db.query("SELECT MAX(date) AS d FROM ohlcv")["d"].iloc[0]
+        cutoff = (pd.Timestamp(last) - pd.Timedelta(days=lookback)).strftime("%Y-%m-%d")
+        chunks = list(db.query(f"SELECT {_OHLCV_COLS} FROM ohlcv WHERE date >= ?",
+                               [cutoff], chunksize=2_000_000))
+        out = {"ohlcv": pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame()}
+        del chunks
+        have = db.columns("ohlcv")
+        out["dividends"] = (db.query("SELECT symbol, date, dividends FROM ohlcv "
+                                     "WHERE dividends > 0 ORDER BY symbol, date")
+                            if "dividends" in have else pd.DataFrame())
+        out["splits"] = (db.query("SELECT symbol, date, splits FROM ohlcv "
+                                  "WHERE splits != 0 AND splits != 1 ORDER BY symbol, date")
+                         if "splits" in have else pd.DataFrame())
+    for df in out.values():
+        if not df.empty:
+            df["date"] = pd.to_datetime(df["date"])
+    return out
+
+
+def _events_by_symbol(events: pd.DataFrame, col: str) -> dict[str, pd.Series]:
+    """{symbol -> datetime-indexed Series of event values} from a sparse frame."""
+    if events.empty:
+        return {}
+    return {s: pd.Series(g[col].to_numpy(), index=pd.DatetimeIndex(g["date"]))
+            for s, g in events.groupby("symbol", sort=False)}
 
 
 def _universe(symbols: pd.DataFrame, subset: list[str] | None) -> pd.DataFrame:
@@ -84,9 +141,9 @@ def run_analysis(subset: list[str] | None = None) -> dict:
         return {"symbols": 0}
 
     quotes = data["quotes"].set_index("symbol") if not data["quotes"].empty else pd.DataFrame()
-    financials, ohlcv = data["financials"], data["ohlcv"]
+    financials, ohlcv = data["financials"], data.pop("ohlcv")
     risk_free = _risk_free(data["macro"])
-    prices_as_of = str(ohlcv["date"].max()) if not ohlcv.empty else None
+    prices_as_of = ohlcv["date"].max().strftime("%Y-%m-%d") if not ohlcv.empty else None
     log.info("Analysis — %d symbols, prices as of %s, risk-free %.3f",
              len(universe), prices_as_of, risk_free)
 
@@ -96,6 +153,9 @@ def run_analysis(subset: list[str] | None = None) -> dict:
     empty_ohlcv = ohlcv.iloc[0:0]
     ohlcv_by = ({s: g.sort_values("date") for s, g in ohlcv.groupby("symbol", sort=False)}
                 if not ohlcv.empty else {})
+    del ohlcv  # the groups copy the data; don't hold a second full frame alive
+    div_by = _events_by_symbol(data.pop("dividends"), "dividends")
+    split_by = _events_by_symbol(data.pop("splits"), "splits")
     empty_fin = financials.iloc[0:0]
     fin_by = ({s: g for s, g in financials.groupby("symbol", sort=False)}
               if not financials.empty and "symbol" in financials.columns else {})
@@ -110,7 +170,10 @@ def run_analysis(subset: list[str] | None = None) -> dict:
         price = float(osym["adj_close"].iloc[-1]) if len(osym) else float("nan")
         quote = quotes.loc[sym] if sym in quotes.index else None
 
-        m = metrics.compute(sym, fsym, quote, osym, price, reconcile=reconcile)
+        m = metrics.compute(sym, fsym, quote, price,
+                            dividends=div_by.get(sym), splits=split_by.get(sym),
+                            as_of=(osym["date"].iloc[-1] if len(osym) else None),
+                            reconcile=reconcile)
         t = technical.compute(sym, osym)
         iv = intrinsic_value.compute(sym, fsym, quote, price, m, risk_free)
         sec = quote.get("sector") if quote is not None else None

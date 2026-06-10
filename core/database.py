@@ -123,8 +123,16 @@ class Database:
             sql += f" WHERE {where}"
         return pd.read_sql_query(sql, self.conn, params=list(params) if params else None)
 
-    def query(self, sql: str, params: Iterable | None = None) -> pd.DataFrame:
-        return pd.read_sql_query(sql, self.conn, params=list(params) if params else None)
+    def query(self, sql: str, params: Iterable | None = None, chunksize: int | None = None):
+        """Run raw SQL into a DataFrame; with `chunksize`, an iterator of frames.
+
+        Chunked reads keep the peak footprint of very large results near one
+        chunk: read_sql materializes every row as Python objects before the
+        DataFrame forms, which transiently dwarfs the final frame.
+        """
+        return pd.read_sql_query(
+            sql, self.conn, params=list(params) if params else None, chunksize=chunksize
+        )
 
     # -- writes (the three explicit verbs) ----------------------------------- #
     def append(self, table: str, df: pd.DataFrame) -> int:
