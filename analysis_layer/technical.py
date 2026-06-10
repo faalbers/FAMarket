@@ -240,7 +240,8 @@ def relative_strength_raw(ohlcv: pd.DataFrame) -> float:
         return float("nan")
     close = pd.to_numeric(ohlcv.sort_values("date")["adj_close"], errors="coerce").dropna()
     q, weights = settings.RS_RANK_QUARTER_DAYS, settings.RS_RANK_WEIGHTS
-    if len(close) < settings.RS_RANK_MIN_HISTORY_DAYS:
+    needed = len(weights) * q + 1  # deepest mark below is close.iloc[-1 - len(weights)*q]
+    if len(close) < max(settings.RS_RANK_MIN_HISTORY_DAYS, needed):
         return float("nan")
     # offsets 0,q,2q,3q,4q back from the latest close -> four quarter-over-quarter
     # ratios, newest first; each window's return weighted per RS_RANK_WEIGHTS.
