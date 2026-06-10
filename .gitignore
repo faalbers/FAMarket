@@ -37,3 +37,6 @@ Thumbs.db
 
 # --- Claude Code (machine-local) ---
 .claude/settings.local.json
+
+# --- Local developer notes (never commit) ---
+dev_docs/
