@@ -198,7 +198,7 @@ def _growth_block(name: str, annual: pd.Series, quarterly: pd.Series) -> dict:
 # --------------------------------------------------------------------------- #
 def compute(
     symbol: str,
-    fin: pd.DataFrame,
+    fin: P.SymbolPeriods,
     quote: pd.Series | None,
     price: float,
     *,
@@ -209,7 +209,7 @@ def compute(
 ) -> dict:
     """All fundamental metrics for one symbol (raw numbers, percents as percents).
 
-    `fin` is this symbol's financials rows (via _periods.by_symbol); `quote` is its
+    `fin` is this symbol's prepared period frames (via _periods.prepare); `quote` is its
     quotes row; `price` the canonical adj_close. `dividends`/`splits` are sparse
     FULL-history event series (datetime-indexed payment amounts / split factors) —
     the pipeline reads them without the OHLCV date floor, so dividend streaks and

@@ -55,34 +55,72 @@ def by_symbol(fin: pd.DataFrame, symbol: str) -> pd.DataFrame:
     return fin[fin["symbol"] == symbol]
 
 
-def _series(df: pd.DataFrame, freq: str, field: str) -> pd.Series:
+class SymbolPeriods:
+    """One symbol's financials pre-split by freq, period_end-indexed and sorted.
+
+    Built ONCE per symbol (see prepare()) so the ~50 P.* calls a metrics pass
+    makes don't each re-filter by freq, re-parse period_end, and re-sort the
+    same frame — that repetition profiled at ~2/3 of the whole analysis loop.
+    """
+
+    __slots__ = ("annual", "quarterly")
+
+    def __init__(self, annual: pd.DataFrame, quarterly: pd.DataFrame):
+        self.annual = annual
+        self.quarterly = quarterly
+
+
+_EMPTY = pd.DataFrame()
+
+
+def prepare(fin: "pd.DataFrame | SymbolPeriods") -> SymbolPeriods:
+    """Pre-split a symbol's financials rows by freq (idempotent).
+
+    Uses the loader's vectorized `period_end_dt` column when present, else
+    parses `period_end` here. Rows with an unparseable period_end are dropped.
+    """
+    if isinstance(fin, SymbolPeriods):
+        return fin
+    if fin.empty or "period_end" not in fin.columns or "freq" not in fin.columns:
+        return SymbolPeriods(_EMPTY, _EMPTY)
+    pe = (fin["period_end_dt"] if "period_end_dt" in fin.columns
+          else pd.to_datetime(fin["period_end"], errors="coerce"))
+    freqs = fin["freq"]
+    split: dict[str, pd.DataFrame] = {}
+    for freq in (ANNUAL, QUARTERLY):
+        mask = (freqs == freq) & pe.notna()
+        sub = fin.loc[mask].set_index(pd.DatetimeIndex(pe[mask]))
+        split[freq] = sub.sort_index()
+    return SymbolPeriods(split[ANNUAL], split[QUARTERLY])
+
+
+def _series(fin: "pd.DataFrame | SymbolPeriods", freq: str, field: str) -> pd.Series:
     """Ascending period_end -> value for one freq+field; NaN/non-numeric dropped.
 
     Index is a DatetimeIndex. Empty Series when the symbol lacks the column or
     has no reported values for it (both are normal — coverage varies by symbol).
     """
+    p = prepare(fin)
+    df = p.annual if freq == ANNUAL else p.quarterly
     if df.empty or field not in df.columns:
         return pd.Series(dtype="float64")
-    sub = df[df["freq"] == freq][["period_end", field]]
-    val = pd.to_numeric(sub[field], errors="coerce")
-    sub = sub.assign(**{field: val}).dropna(subset=[field])
-    if sub.empty:
+    s = pd.to_numeric(df[field], errors="coerce").dropna()
+    if s.empty:
         return pd.Series(dtype="float64")
-    s = sub.set_index(pd.to_datetime(sub["period_end"]))[field].astype("float64")
-    return s.sort_index()
+    return s.astype("float64")
 
 
-def annual(df: pd.DataFrame, field: str) -> pd.Series:
+def annual(df: "pd.DataFrame | SymbolPeriods", field: str) -> pd.Series:
     """Annual reported values for `field`, oldest -> newest."""
     return _series(df, ANNUAL, field)
 
 
-def quarterly(df: pd.DataFrame, field: str) -> pd.Series:
+def quarterly(df: "pd.DataFrame | SymbolPeriods", field: str) -> pd.Series:
     """Quarterly reported values for `field`, oldest -> newest."""
     return _series(df, QUARTERLY, field)
 
 
-def latest(df: pd.DataFrame, field: str, freq: str = QUARTERLY) -> float:
+def latest(df: "pd.DataFrame | SymbolPeriods", field: str, freq: str = QUARTERLY) -> float:
     """Most recent reported value (for a STOCK / balance-sheet item).
 
     Defaults to the quarterly series so the value is as current as filings allow,
@@ -98,7 +136,7 @@ def latest(df: pd.DataFrame, field: str, freq: str = QUARTERLY) -> float:
     return float("nan")
 
 
-def ttm(df: pd.DataFrame, field: str) -> float:
+def ttm(df: "pd.DataFrame | SymbolPeriods", field: str) -> float:
     """Trailing-twelve-month sum of the last four quarters (for a FLOW item).
 
     NaN unless four quarterly values exist AND they form a consecutive window
@@ -114,16 +152,15 @@ def ttm(df: pd.DataFrame, field: str) -> float:
     return float(last4.sum())
 
 
-def current(df: pd.DataFrame, field: str, kind: str) -> float:
+def current(df: "pd.DataFrame | SymbolPeriods", field: str, kind: str) -> float:
     """Current value of `field`: FLOW -> TTM sum, STOCK -> latest reported."""
     return ttm(df, field) if kind == FLOW else latest(df, field)
 
 
-def latest_period_end(df: pd.DataFrame, freq: str = QUARTERLY) -> pd.Timestamp | None:
+def latest_period_end(
+    df: "pd.DataFrame | SymbolPeriods", freq: str = QUARTERLY
+) -> pd.Timestamp | None:
     """Most recent reported period_end for a freq (for 'financials as of' display)."""
-    if df.empty or "period_end" not in df.columns:
-        return None
-    sub = df[df["freq"] == freq]
-    if sub.empty:
-        return None
-    return pd.to_datetime(sub["period_end"]).max()
+    p = prepare(df)
+    sub = p.annual if freq == ANNUAL else p.quarterly
+    return None if sub.empty else sub.index.max()

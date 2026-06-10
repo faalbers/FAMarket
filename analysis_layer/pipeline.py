@@ -26,6 +26,7 @@ import pandas as pd
 from config import settings
 from core.database import Database
 from core.logging_config import get_logger
+from analysis_layer import _periods as P
 from analysis_layer import metrics, technical, intrinsic_value, peers, scoring
 from analysis_layer.screen_type import classify as classify_screen_type
 
@@ -62,6 +63,11 @@ def _load() -> dict[str, pd.DataFrame]:
                        ("macro", settings.MACRO_DB)):
         with Database(path) as db:
             out[name] = db.read(name)
+    fin = out["financials"]
+    if not fin.empty and "period_end" in fin.columns:
+        # One vectorized parse for the whole table; _periods.prepare() consumes it
+        # instead of re-parsing period_end strings per symbol.
+        fin["period_end_dt"] = pd.to_datetime(fin["period_end"], errors="coerce")
     out.update(_load_ohlcv())
     return out
 
@@ -156,8 +162,11 @@ def run_analysis(subset: list[str] | None = None) -> dict:
     del ohlcv  # the groups copy the data; don't hold a second full frame alive
     div_by = _events_by_symbol(data.pop("dividends"), "dividends")
     split_by = _events_by_symbol(data.pop("splits"), "splits")
-    empty_fin = financials.iloc[0:0]
-    fin_by = ({s: g for s, g in financials.groupby("symbol", sort=False)}
+    # Prepare each symbol's period frames ONCE (freq split + date index + sort);
+    # the ~50 _periods calls per symbol then reduce to column lookups. Doing it
+    # here moves ~2/3 of the old loop cost into one upfront pass.
+    empty_fin = P.prepare(financials.iloc[0:0])
+    fin_by = ({s: P.prepare(g) for s, g in financials.groupby("symbol", sort=False)}
               if not financials.empty and "symbol" in financials.columns else {})
 
     reconcile: list = []

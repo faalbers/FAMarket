@@ -37,7 +37,8 @@ def compute(symbol: str, ohlcv: pd.DataFrame) -> dict:
     """All technical indicators for one symbol. Empty dict if no price history."""
     if ohlcv is None or ohlcv.empty:
         return {}
-    df = ohlcv.sort_values("date")
+    # The pipeline hands over pre-sorted groups; only sort when that's not true.
+    df = ohlcv if ohlcv["date"].is_monotonic_increasing else ohlcv.sort_values("date")
     close = pd.to_numeric(df["adj_close"], errors="coerce").reset_index(drop=True)
     close = close.dropna()
     if len(close) < 2:
@@ -60,7 +61,9 @@ def compute(symbol: str, ohlcv: pd.DataFrame) -> dict:
 def _moving_averages(close: pd.Series, price: float) -> dict:
     out: dict = {}
     for p in settings.MOVING_AVERAGES:
-        ma = float(close.rolling(p).mean().iloc[-1]) if len(close) >= p else float("nan")
+        # Only the LAST rolling mean is reported, and `close` is already NaN-free,
+        # so the tail mean is the same value without computing the whole series.
+        ma = float(close.iloc[-p:].mean()) if len(close) >= p else float("nan")
         out[f"ma_{p}"] = ma
         out[f"price_vs_ma_{p}"] = (price / ma - 1) * 100 if ma and ma > 0 else float("nan")
     return out
@@ -138,6 +141,9 @@ def _bollinger(close: pd.Series, price: float) -> dict:
     keys = ("bb_upper", "bb_middle", "bb_lower", "bb_width", "bb_pct")
     if len(close) < p:
         return {x: float("nan") for x in keys} | {"bb_position": None, "bb_squeeze": None}
+    # Outputs only need the last bar plus the squeeze lookback of band widths, so
+    # rolling over just that tail produces the same values as the full series.
+    close = close.iloc[-(_SQUEEZE_LOOKBACK + p - 1):]
     mid = close.rolling(p).mean()
     std = close.rolling(p).std(ddof=0)
     upper, lower = mid + k * std, mid - k * std
@@ -238,7 +244,8 @@ def relative_strength_raw(ohlcv: pd.DataFrame) -> float:
     """
     if ohlcv is None or ohlcv.empty:
         return float("nan")
-    close = pd.to_numeric(ohlcv.sort_values("date")["adj_close"], errors="coerce").dropna()
+    src = ohlcv if ohlcv["date"].is_monotonic_increasing else ohlcv.sort_values("date")
+    close = pd.to_numeric(src["adj_close"], errors="coerce").dropna()
     q, weights = settings.RS_RANK_QUARTER_DAYS, settings.RS_RANK_WEIGHTS
     needed = len(weights) * q + 1  # deepest mark below is close.iloc[-1 - len(weights)*q]
     if len(close) < max(settings.RS_RANK_MIN_HISTORY_DAYS, needed):

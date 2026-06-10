@@ -47,7 +47,7 @@ def _shares(quote: pd.Series | None, fin: pd.DataFrame) -> float:
 
 def compute(
     symbol: str,
-    fin: pd.DataFrame,
+    fin: P.SymbolPeriods,
     quote: pd.Series | None,
     price: float,
     m: dict,
