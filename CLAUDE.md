@@ -106,7 +106,10 @@ Three intentionally decoupled layers plus shared infrastructure:
   `settings.RATE_LIMITS` / `RETRY_*`.
 - **Resumability**: `fetch_status` (composite PK `symbol, fetcher_name`) tracks
   the last successful fetch and an error counter; a 5-day per-fetcher lock skips
-  recently-fetched pairs.
+  recently-fetched pairs. Financials additionally defer symbols whose next
+  statement can't exist yet (filing cycle + `FINANCIALS_REPORT_LAG_DAYS`,
+  `staleness.financials_not_due`) — a deferral, not abandonment; forced runs
+  bypass it.
 - **Logging is summary-level only** (`core/logging_config.py`): batch progress
   and failures, no per-symbol/per-value noise; sanitize fixes are silent.
 - **Prices**: all price-based calculations use `adj_close` of the **last

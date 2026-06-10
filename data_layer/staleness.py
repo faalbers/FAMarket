@@ -21,6 +21,10 @@ The financials rule abandons a symbol when EITHER stored stream that exists has
 gone stale — so an annual-only filer with a current 10-K is kept, while a name that
 has stopped filing quarterlies is dropped. A symbol with no stored financials at all
 is never "stale" (nothing to age out); the no-data counter governs that case.
+
+This module also hosts the financials DUE-DATE gate (financials_not_due) — the
+opposite-direction check that defers fetching while the next statement cannot
+exist yet (reporting cycle + FINANCIALS_REPORT_LAG_DAYS filing window).
 """
 
 from __future__ import annotations
@@ -66,6 +70,40 @@ def stale_by_max_date(
         s for s, d in rows.itertuples(index=False, name=None)
         if s in cand and _older_than(d, cutoff)
     }
+
+
+def financials_not_due(candidates: list[str]) -> set[str]:
+    """Candidates whose NEXT financial statement cannot exist yet (due-date gate).
+
+    The inverse of financials_stale: a statement cycle is ~91 days (quarterly) /
+    365 days (annual), plus FINANCIALS_REPORT_LAG_DAYS for the SEC filing window.
+    A symbol is deferred while EVERY stream it has on file is inside that window
+    — fetching it would be guaranteed to find nothing new. It comes due again by
+    itself once the window passes (deferral, not abandonment). Symbols with no
+    stored financials are always due.
+    """
+    cand = set(candidates)
+    lag = settings.FINANCIALS_REPORT_LAG_DAYS
+    q_cut = date.today() - timedelta(days=91 + lag)   # newest q before this -> due
+    a_cut = date.today() - timedelta(days=365 + lag)  # newest annual before this -> due
+    with Database(settings.FINANCIALS_DB) as db:
+        if not db.table_exists("financials"):
+            return set()
+        rows = db.query(
+            "SELECT symbol, freq, MAX(period_end) d FROM financials GROUP BY symbol, freq"
+        )
+    latest: dict[str, dict[str, object]] = {}
+    for s, freq, d in rows.itertuples(index=False, name=None):
+        if s in cand and d:
+            latest.setdefault(s, {})[freq] = d
+    not_due = set()
+    for s, by_freq in latest.items():
+        q, a = by_freq.get("quarterly"), by_freq.get("annual")
+        q_due = q is not None and _older_than(q, q_cut)
+        a_due = a is not None and _older_than(a, a_cut)
+        if not q_due and not a_due:
+            not_due.add(s)
+    return not_due
 
 
 def financials_stale(candidates: list[str]) -> set[str]:

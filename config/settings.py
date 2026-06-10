@@ -78,6 +78,13 @@ OHLCV_STALE_WEEKS: int = 4                     # newest OHLCV date older than th
 FINANCIALS_QUARTERLY_STALE_QUARTERS: int = 2   # newest quarterly period_end older than this
 FINANCIALS_YEARLY_STALE_QUARTERS: int = 6      # newest annual period_end older than this
 
+# Financials due-date gate: defer a symbol while its NEXT statement cannot exist
+# yet — newest quarterly period_end + ~91 days (annual-only: + 365 days) + this
+# lag. The lag covers the SEC filing window (a 10-Q is due 40-45 days after the
+# quarter ends). Deferral, not abandonment: the symbol comes due again on its
+# own; a forced run (respect_lock=False) bypasses it like every gate.
+FINANCIALS_REPORT_LAG_DAYS: int = 45
+
 # Minimum history pulled on an initial OHLCV load.
 OHLCV_INITIAL_YEARS: int = 10
 

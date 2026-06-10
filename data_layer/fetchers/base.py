@@ -110,6 +110,17 @@ class BaseFetcher(ABC):
             self.stale_date_column, self.stale_after_days, candidates,
         )
 
+    def not_due_symbols(self, candidates: list[str]) -> set[str]:
+        """Symbols whose next data point cannot exist yet (deferral, NOT abandonment).
+
+        Default: none. The yfinance financials fetcher overrides this with the
+        filing-cycle gate (staleness.financials_not_due) — statements appear ~4x
+        a year, so most weeks a symbol can be skipped knowing nothing new exists.
+        Deferred symbols come due again on their own; a forced run
+        (respect_lock=False) bypasses this like every other gate.
+        """
+        return set()
+
     def _write(self, db: Database, rows: pd.DataFrame) -> None:
         if rows.empty:
             return
@@ -128,19 +139,21 @@ class BaseFetcher(ABC):
     ) -> dict:
         """Fetch all due symbols for this fetcher. Returns a run summary dict."""
         candidates = self.select_symbols(symbols_df)
-        n_stale = 0
+        n_stale = n_not_due = 0
         if respect_lock:
             due = fetch_status.due_symbols(status_db, candidates, self.name, self.lock_days)
             stale = self.stale_symbols(candidates) if settings.FETCH_ABANDONMENT_ENABLED else set()
-            symbols = [s for s in due if s not in stale]
-            n_stale = len(due) - len(symbols)
-        else:  # forced run: ignore locks, abandonment, and staleness
+            not_due = self.not_due_symbols(candidates)
+            symbols = [s for s in due if s not in stale and s not in not_due]
+            n_stale = sum(1 for s in due if s in stale)
+            n_not_due = sum(1 for s in due if s in not_due and s not in stale)
+        else:  # forced run: ignore locks, abandonment, staleness, and due dates
             symbols = candidates
         total = len(symbols)
         n_batches = (total + self.batch_size - 1) // self.batch_size if total else 0
         self.log.info(
-            "Start — %d/%d symbols due (%d skipped stale; %d batches of %d)",
-            total, len(candidates), n_stale, n_batches, self.batch_size,
+            "Start — %d/%d symbols due (%d not yet due; %d skipped stale; %d batches of %d)",
+            total, len(candidates), n_not_due, n_stale, n_batches, self.batch_size,
         )
 
         # A call can end three ways: returned rows (data), returned empty/None

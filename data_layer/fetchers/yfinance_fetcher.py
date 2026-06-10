@@ -323,6 +323,12 @@ class YFinanceFinancials(BaseFetcher):
     def stale_symbols(self, candidates: list[str]) -> set[str]:
         return staleness.financials_stale(candidates)
 
+    def not_due_symbols(self, candidates: list[str]) -> set[str]:
+        # Statements appear ~4x/year; defer symbols whose next filing can't
+        # exist yet (cycle + FINANCIALS_REPORT_LAG_DAYS). Trade-off: mid-cycle
+        # restatements wait for the next due window.
+        return staleness.financials_not_due(candidates)
+
     def fetch_one(self, symbol: str) -> pd.DataFrame | None:
         import yfinance as yf
 

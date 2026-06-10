@@ -58,6 +58,7 @@ _HELP: dict[str, str] = {
     "OHLCV_STALE_WEEKS": "Stop fetching a symbol whose newest stored OHLCV bar is older than this many weeks.",
     "FINANCIALS_QUARTERLY_STALE_QUARTERS": "Stop fetching when the newest stored quarterly statement is older than this many quarters.",
     "FINANCIALS_YEARLY_STALE_QUARTERS": "Stop fetching when the newest stored annual statement is older than this many quarters.",
+    "FINANCIALS_REPORT_LAG_DAYS": "Filing-window buffer for the financials due-date gate. A symbol is skipped until newest quarter + ~91 days + this lag (annual-only filers: + 365 days + lag) — before that, the next statement can't exist yet. SEC 10-Q deadline is 40-45 days.",
     "OHLCV_INACTIVE_AFTER_WEEKS": "Mark a symbol invalid (drop it from analysis) if its newest OHLCV bar is older than this. Distinct from the staleness probe, which stops fetching.",
     "RETRY_MAX_ATTEMPTS": "Max attempts (tenacity) on a transient API failure before giving up on that call.",
     "RETRY_WAIT_SECONDS": "Wait between retry attempts on a transient API failure.",
@@ -213,6 +214,9 @@ with st.expander("Fetch — behaviour & viability/abandonment"):
     _int(c1, "OHLCV_STALE_WEEKS", "OHLCV stale (weeks)", min_value=1, max_value=104)
     _int(c2, "FINANCIALS_QUARTERLY_STALE_QUARTERS", "Quarterly stale (quarters)", min_value=1, max_value=20)
     _int(c3, "FINANCIALS_YEARLY_STALE_QUARTERS", "Annual stale (quarters)", min_value=1, max_value=40)
+    st.caption("Due-date gate — defer financials while the next statement can't exist yet")
+    c1, c2, c3 = st.columns(3)
+    _int(c1, "FINANCIALS_REPORT_LAG_DAYS", "Filing lag (days)", min_value=0, max_value=120)
 
     st.markdown("**Validation** — drop a symbol from the analysis universe")
     c1, c2, c3 = st.columns(3)
