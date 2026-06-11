@@ -289,5 +289,5 @@ if st.button("💾 Save changes", type="primary"):
             with st.expander("What changed", expanded=True):
                 st.dataframe(
                     {"Setting": list(changed), "New value": [str(v) for v in changed.values()]},
-                    hide_index=True, use_container_width=True,
+                    hide_index=True, width="stretch",
                 )

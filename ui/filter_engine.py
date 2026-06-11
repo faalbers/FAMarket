@@ -154,7 +154,9 @@ def is_complete(block: dict) -> bool:
 
     def filled(vmode_key: str, val_key: str) -> bool:
         if block.get(vmode_key, "V") == "P":
-            return bool(block.get(val_key))  # a referenced parameter key
+            # must reference a real parameter; an unset/leftover value (e.g. text
+            # typed while in V mode) means the block isn't ready to evaluate
+            return str(block.get(val_key, "")) in R.BASE_BY_KEY
         return str(block.get(val_key, "")).strip() != ""
 
     if not filled("vmode", "value"):

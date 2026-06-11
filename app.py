@@ -56,6 +56,19 @@ st.markdown(
         padding: 0 0.1rem;
     }
     [data-testid="stMain"] [data-testid="stCaptionContainer"] p { font-size: 0.72rem; }
+    /* Param-picker inline info panels (.fam-hi): each option row in the picker
+       has a ▸ toggle that expands the param's info in-flow below the row
+       (collapsed by default), so it never covers the list. Theme-neutral
+       colors: inherits text color, translucent grey background. */
+    .fam-hi {
+        background: rgba(128, 128, 128, 0.12);
+        border-left: 3px solid rgba(128, 128, 128, 0.45);
+        border-radius: 0.35rem;
+        padding: 0.45rem 0.6rem;
+        font-size: 0.75rem; line-height: 1.4;
+    }
+    .fam-hi ul { margin: 0.3rem 0 0 1.1rem; padding: 0; }
+    .fam-hi .fam-h-s { margin-top: 0.3rem; }
     </style>
     """,
     unsafe_allow_html=True,

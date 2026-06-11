@@ -205,7 +205,7 @@ def _show_summary(summary: dict) -> None:
         return
     df = pd.DataFrame(rows, columns=["Parameter", "Value"])
     df["Value"] = df["Value"].map(lambda v: "" if v is None else str(v))
-    st.dataframe(df, hide_index=True, use_container_width=True)
+    st.dataframe(df, hide_index=True, width="stretch")
 
 
 # --------------------------------------------------------------------------- #

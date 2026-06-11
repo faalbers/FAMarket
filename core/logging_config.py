@@ -111,9 +111,29 @@ def setup_logging() -> None:
 _NOISY_LIBRARIES = ("yfinance", "peewee", "urllib3", "curl_cffi")
 
 
+class _BenignDisconnectFilter(logging.Filter):
+    """Drop asyncio's ConnectionResetError noise from abrupt client disconnects.
+
+    On Windows' Proactor event loop, closing the browser tab while a stream is
+    in flight makes the transport's connection_lost callback call
+    socket.shutdown() on a socket the peer already reset → WinError 10054,
+    which asyncio logs as ERROR ("Exception in callback
+    _ProactorBasePipeTransport._call_connection_lost()"). The session is being
+    torn down anyway (autoshutdown follows), so this is pure noise — a known
+    CPython/Proactor quirk. Any other asyncio error still passes through.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if "_call_connection_lost" not in record.getMessage():
+            return True
+        exc = record.exc_info[1] if record.exc_info else None
+        return not isinstance(exc, ConnectionResetError)
+
+
 def _quiet_noisy_libraries() -> None:
     for name in _NOISY_LIBRARIES:
         logging.getLogger(name).setLevel(logging.CRITICAL)
+    logging.getLogger("asyncio").addFilter(_BenignDisconnectFilter())
 
 
 def get_logger(name: str) -> logging.Logger:
