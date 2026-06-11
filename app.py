@@ -79,7 +79,9 @@ nav = st.navigation(
     [
         st.Page("ui/pages/fetch_control.py", title="Fetch Control", icon="⬇️"),
         st.Page("ui/pages/filter.py", title="Filter", icon="🔎"),
-        st.Page("ui/pages/output.py", title="Output", icon="📊"),
+        # url_path pinned: filter runs open in their own tabs at /output?run=<id>,
+        # so this URL is a contract (rename-proof) — see ui/output_runs.py.
+        st.Page("ui/pages/output.py", title="Output", icon="📊", url_path="output"),
         st.Page("ui/pages/calibration.py", title="Calibration", icon="🎚️"),
         st.Page("ui/pages/settings_page.py", title="Settings", icon="⚙️"),
     ]

@@ -29,8 +29,10 @@ from datetime import datetime, timezone
 import pandas as pd
 import streamlit as st
 
+from analysis_layer.pipeline import run_analysis
 from config import settings
 from core.database import Database
+from core.logging_config import get_logger, roll_log
 from data_layer import cancel
 from data_layer.orchestrator import run_full_fetch
 
@@ -93,6 +95,30 @@ def _run_worker(result: dict, **kwargs) -> None:
     try:
         result["summary"] = run_full_fetch(**kwargs)
     except Exception as exc:  # carried back to the page instead of a blank screen
+        result["error"] = f"{type(exc).__name__}: {exc}"
+    finally:
+        result["done"] = True
+
+
+def _run_analysis_worker(result: dict, subset: list[str] | None) -> None:
+    """TEMPORARY (dev): analysis-only run — rebuild analysis.db, no fetch.
+
+    Same worker contract as `_run_worker` (no st.* calls, reports into `result`)
+    so it plugs into the same live-status fragment. The summary is wrapped under
+    an "analysis" key to match the shape `run_full_fetch` returns.
+    """
+    cancel.set_worker(threading.current_thread())
+    try:
+        # Fresh log for this run (previous one archived), same as the orchestrator
+        # does at the top of a fetch — otherwise the live tail shows the OLD log.
+        roll_log()
+        result["summary"] = {"analysis": run_analysis(subset=subset)}
+    except Exception as exc:
+        # Log the full traceback too — the UI banner only shows type+message,
+        # and run_full_fetch logs its own failures; this path must as well.
+        get_logger("analysis").exception(
+            "Analysis-only run failed — %s: %s", type(exc).__name__, exc
+        )
         result["error"] = f"{type(exc).__name__}: {exc}"
     finally:
         result["done"] = True
@@ -230,7 +256,7 @@ else:
 st.divider()
 
 # -- run configuration ------------------------------------------------------ #
-# Note: not wrapped in st.form so the scope radio can enable/disable the subset
+# Note: not wrapped in st.form so the scope radio can show/hide the subset
 # box live (form widgets only take effect on submit, which would freeze the toggle).
 st.subheader("Group 1 — Symbol Discovery")
 discover = st.checkbox(
@@ -253,20 +279,23 @@ st.subheader("Options")
 # Default scope: "Full universe" unless a --subset was passed on the CLI, in which
 # case start on "Dev subset" so the prefilled symbols are actually used.
 scope = st.radio(
-    "Run scope", ["Dev subset", "Full universe"],
-    index=0 if _cli_subset() else 1, horizontal=True,
-    help="Dev subset limits Group 2 + analysis to the symbols below; their analysis "
-    "rows are updated in place and every other symbol's row is kept. Full universe "
-    "processes every symbol in symbols.db (clean-slate analysis rebuild) — much longer.",
+    "Run scope", ["Full universe", "Dev subset"],
+    index=1 if _cli_subset() else 0, horizontal=True,
+    help="Full universe processes every symbol in symbols.db (clean-slate analysis "
+    "rebuild) — much longer. Dev subset limits Group 2 + analysis to the symbols you "
+    "enter; their analysis rows are updated in place and every other symbol's row is kept.",
 )
-subset_raw = st.text_input(
-    "Subset symbols (comma-separated)",
-    value=_cli_subset() or "",
-    placeholder=", ".join(_DEFAULT_SUBSET),
-    disabled=(scope == "Full universe"),
-    help="Used only when scope is Dev subset. Prefill from the CLI with "
-    "`streamlit run app.py -- --subset AAPL,MSFT`. Discovery still populates the full symbols.db.",
-)
+# The subset box only exists while Dev subset is selected (hidden, not just
+# disabled, on Full universe — where it would be ignored anyway).
+subset_raw = ""
+if scope == "Dev subset":
+    subset_raw = st.text_input(
+        "Subset symbols (comma-separated)",
+        value=_cli_subset() or "",
+        placeholder=", ".join(_DEFAULT_SUBSET),
+        help="Prefill from the CLI with `streamlit run app.py -- --subset AAPL,MSFT`. "
+        "Discovery still populates the full symbols.db.",
+    )
 col_a, col_b = st.columns(2)
 respect_lock = col_a.checkbox(
     "Respect 5-day fetch lock", value=True,
@@ -278,8 +307,18 @@ run_backup = col_b.checkbox(
 )
 
 running = st.session_state.get("fetch_running", False)
-run_col, stop_col, opt_col = st.columns([1, 1, 1.4], vertical_alignment="center")
+run_col, analyze_col, stop_col, opt_col = st.columns(
+    [1, 1, 1, 1.4], vertical_alignment="center"
+)
 submitted = run_col.button("▶ Run Fetch", type="primary", disabled=running)
+# TEMPORARY (dev): rebuild analysis.db from the already-fetched data, no fetch.
+# Honors the same Dev subset / Full universe scope. Remove once development settles.
+analyze_clicked = analyze_col.button(
+    "⚙ Run Analysis",
+    disabled=running,
+    help="TEMPORARY dev button — analysis rebuild only, no fetch. Uses the run "
+    "scope above. Note: Stop does not interrupt an analysis run.",
+)
 
 # Decided at Stop time, not run-start: the on_click callback reads this checkbox's
 # live value, so toggling it during a run is honoured. On by default so a stopped
@@ -316,7 +355,7 @@ stop_col.button("■ Stop Fetch", disabled=not running, on_click=_request_stop)
 # each script run renders the log tail, then schedules a rerun a couple of seconds
 # later. That keeps the script free to process the Stop button between polls — a
 # blocking wait loop would freeze the page and the Stop click would never land.
-if submitted:
+if submitted or analyze_clicked:
     if scope == "Full universe":
         subset = None
     else:
@@ -324,17 +363,26 @@ if submitted:
         if subset is None:  # subset scope but the box was cleared — don't run everything
             st.warning("Dev subset selected but no symbols entered. Add symbols or switch to Full universe.")
             st.stop()
-    label = f"{len(subset)} symbols" if subset else "full universe"
+    scope_label = f"{len(subset)} symbols" if subset else "full universe"
     cancel.clear()  # drop any leftover stop before the worker checks it
     result: dict = {}
-    worker = threading.Thread(
-        target=_run_worker,
-        kwargs={
-            "result": result, "discover": discover, "subset": subset,
-            "respect_lock": respect_lock, "run_backup": run_backup,
-        },
-        daemon=True,
-    )
+    if analyze_clicked:
+        label = f"analysis only, {scope_label}"
+        worker = threading.Thread(
+            target=_run_analysis_worker,
+            kwargs={"result": result, "subset": subset},
+            daemon=True,
+        )
+    else:
+        label = scope_label
+        worker = threading.Thread(
+            target=_run_worker,
+            kwargs={
+                "result": result, "discover": discover, "subset": subset,
+                "respect_lock": respect_lock, "run_backup": run_backup,
+            },
+            daemon=True,
+        )
     worker.start()
     st.session_state["fetch_running"] = True
     st.session_state["fetch_stopping"] = False

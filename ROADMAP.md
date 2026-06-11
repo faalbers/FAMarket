@@ -45,7 +45,7 @@
 - Filter rows: [ ⏸ ] [ + ] [ - ] [ Parameter ] [ Operator ] [ V/P ] [ Value ] — toggle/add OR/delete/param/op/value-or-param
 - Filter page layout: Security Type checklist (collapsible) + Filters section (collapsible) with Load/Add/Save/Clear buttons, scrollable drag-to-reorder block list, + Add Filter, Run Filter
 - Filter sets saved as .filt files; column selections saved as .prms files; paths set in Settings
-- Output page is separate from filter page — Run Filter navigates there
+- Output: each filter run opens in its OWN browser tab (updated 2026-06-11; was: Run Filter navigates to the in-app Output page). Run Filter persists the result as a run file (results/ folder, parquet rows + json metadata, newest OUTPUT_RUNS_KEEP kept, survives restarts) and auto-opens it at /output?run=<id> (fallback link in a caption if the browser blocks the popup); empty results show a message on the Filter page instead — no tab, no run file. The sidebar Output page is a recent-runs launcher
 - Output results table: Symbol (AAPL (stock)), Company Name, Sector/Industry, then selected parameter columns
 - Action menu opens new browser tab per action; actions grouped as: Normalized Charts / Fundamentals / Dividends / Analyze on external site
 - Dividend yield calculated from yfinance history() Dividends column — no separate API needed
@@ -383,14 +383,24 @@
        - [ Load ] [ Add ] [ Save ] [ Clear ] button row
        - Scrollable block list (drag-to-reorder)
        - [ + Add Filter ] (adds new AND block at bottom)
-       - [ Run Filter ] (navigates to Output page with results)
+       - [ Run Filter ] (auto-opens the run in its own browser tab)
 
-     RUN FILTER:
-     - Navigates to a separate Output page
+     RUN FILTER (updated 2026-06-11 — was: navigate to the in-app Output page):
+     - Saves the result as a run file: parquet rows + json metadata in results/
+       (ui/output_runs.py; newest OUTPUT_RUNS_KEEP kept; survives app restarts)
+     - Auto-opens the run in its OWN browser tab at /output?run=<id>; several
+       output tabs can be open at once. Fallback link in a caption in case the
+       browser blocks the popup (allow pop-ups for the site once)
+     - Empty results: message on the Filter page — no tab opened, no run file
      - Results displayed there (Topic 6)
 
 ✅ Topic 6 — Output Interface (Streamlit)
    - ✅ Subtopic 6.1 — Results table & sorting
+     - (updated 2026-06-11) One browser tab per filter run: each tab shows one
+       run at /output?run=<id>, independent column selections per tab. The
+       sidebar Output page (no ?run param) is a recent-runs launcher: saved runs
+       listed with filter name / run time / row count / security types and an
+       "Open ↗" link each
      - Table columns: Symbol (AAPL (stock)), Company Name, Sector/Industry, then filter parameters
      - Add/remove parameter columns via same searchable dropdown as filter
      - Column selection saveable as .prms file; load with Swap or Add option

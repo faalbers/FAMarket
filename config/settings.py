@@ -49,6 +49,12 @@ LOG_DATEFMT: str = "%Y-%m-%d %H:%M:%S"
 FILTERS_DIR: Path = BASE_DIR / "filters"        # .filt files (saved filter sets)
 COLUMN_SETS_DIR: Path = BASE_DIR / "column_sets"  # .prms files (output column sets)
 
+# Saved filter-run results (Topic 6): each Run Filter writes one parquet (rows) +
+# json (metadata) pair here, so every run opens in its own browser tab at
+# /output?run=<id> and survives app restarts. Newest N kept, pruned on each save.
+OUTPUT_RUNS_DIR: Path = BASE_DIR / "results"
+OUTPUT_RUNS_KEEP: int = 20
+
 # --------------------------------------------------------------------------- #
 # Fetch behaviour
 # --------------------------------------------------------------------------- #
@@ -260,5 +266,5 @@ FRED_SERIES: dict[str, str] = {
 
 def ensure_runtime_dirs() -> None:
     """Create the directories the app writes to. Safe to call on every startup."""
-    for path in (DB_DIR, BACKUP_DIR, LOG_DIR, FILTERS_DIR, COLUMN_SETS_DIR):
+    for path in (DB_DIR, BACKUP_DIR, LOG_DIR, FILTERS_DIR, COLUMN_SETS_DIR, OUTPUT_RUNS_DIR):
         path.mkdir(parents=True, exist_ok=True)

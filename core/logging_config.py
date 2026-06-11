@@ -27,9 +27,32 @@ from config import settings
 _configured = False
 
 
+class _StampedFormatter(logging.Formatter):
+    """LOG_FORMAT, but multi-line records repeat the timestamp on every line.
+
+    A traceback is ONE log record whose continuation lines normally print bare —
+    easy to misread as separate, unstamped entries (and impossible to grep by
+    date). Prefixing each continuation line with the record's own timestamp
+    keeps every line of the block visibly tied to when it happened.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        text = super().format(record)
+        if "\n" not in text:
+            return text
+        stamp = self.formatTime(record, self.datefmt)
+        first, rest = text.split("\n", 1)
+        cont = "\n".join(f"{stamp} | {line}" for line in rest.splitlines())
+        return f"{first}\n{cont}"
+
+
+def _make_formatter() -> logging.Formatter:
+    return _StampedFormatter(settings.LOG_FORMAT, datefmt=settings.LOG_DATEFMT)
+
+
 def _make_file_handler() -> logging.FileHandler:
     handler = logging.FileHandler(settings.LOG_FILE, encoding="utf-8")
-    handler.setFormatter(logging.Formatter(settings.LOG_FORMAT, datefmt=settings.LOG_DATEFMT))
+    handler.setFormatter(_make_formatter())
     return handler
 
 
@@ -83,7 +106,7 @@ def setup_logging() -> None:
         return
 
     settings.LOG_DIR.mkdir(parents=True, exist_ok=True)
-    formatter = logging.Formatter(settings.LOG_FORMAT, datefmt=settings.LOG_DATEFMT)
+    formatter = _make_formatter()
 
     # Windows consoles default to a legacy code page (cp1252) that can't render
     # the em-dash used in batch log lines; force the stream to UTF-8.

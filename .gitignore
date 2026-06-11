@@ -21,6 +21,10 @@ logs/*.log.*
 filters/*.filt
 column_sets/*.prms
 
+# --- Saved filter-run results (generated; newest OUTPUT_RUNS_KEEP kept) ---
+results/*.parquet
+results/*.json
+
 # --- Python ---
 __pycache__/
 *.py[cod]

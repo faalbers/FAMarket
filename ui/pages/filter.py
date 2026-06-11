@@ -7,9 +7,12 @@ Layout (ROADMAP 5.3):
   * ▶ Filters — Load / Add / Save / Clear row, then the block list. Each block:
     [⏸][+OR][param][window?][value|vs-sector|vs-industry][operator][V/P][value]
     [▲][▼][✕]. OR children are indented one level (fallbacks), drag replaced by ▲▼.
-  * Run Filter — computes the result set, stashes it (plus the parameters used, to
-    seed the column selection) and navigates to the Output page (ROADMAP decision:
-    Output is a separate page; Run Filter goes there).
+  * Run Filter — computes the result set and persists it as a run file
+    (ui/output_runs.py: parquet rows + json metadata, incl. the parameters used to
+    seed Output's column selection), then auto-opens the run in its OWN browser
+    tab at /output?run=<id>. Several output tabs can be open side by side; past
+    runs are listed on the Output page launcher. Empty results don't open a tab
+    (and aren't saved) — a message shows here instead.
 
 Metric availability per type comes from `ui/filter_registry.py`; evaluation and
 .filt persistence from `ui/filter_engine.py`. The page only orchestrates widgets +
@@ -29,6 +32,7 @@ from config.param_hints import PARAM_HINTS
 from core.database import Database
 from ui import filter_engine as E
 from ui import filter_registry as R
+from ui import output_runs as O
 
 # --------------------------------------------------------------------------- #
 # data + state
@@ -51,6 +55,9 @@ def _ensure_state() -> None:
         st.session_state["filter_types"] = {R.STANDARD}
     if "filter_blocks" not in st.session_state:
         st.session_state["filter_blocks"] = [_with_id(E.new_block())]
+    # Name of the loaded/saved .filt set (None = ad-hoc) — shown by the Output
+    # launcher so a saved run is identifiable later.
+    st.session_state.setdefault("filter_set_name", None)
 
 
 def _with_id(block: dict) -> dict:
@@ -78,6 +85,7 @@ def _cb_add_filter() -> None:
 
 def _cb_clear() -> None:
     st.session_state["filter_blocks"] = [_with_id(E.new_block())]
+    st.session_state["filter_set_name"] = None
 
 
 def _cb_add_child(bid: str) -> None:
@@ -371,6 +379,7 @@ with st.expander("Filters", expanded=True):
                 st.session_state["filter_blocks"] = [_with_id(b) for b in data["blocks"]] or [_with_id(E.new_block())]
                 if data["selected_types"]:
                     st.session_state["filter_types"] = set(data["selected_types"])
+                st.session_state["filter_set_name"] = pick
                 st.rerun()
         else:
             st.caption("No saved filters yet.")
@@ -387,6 +396,7 @@ with st.expander("Filters", expanded=True):
         name = st.text_input("Save as", key="save_name", placeholder="my-screen")
         if st.button("Save", key="do_save", disabled=not name.strip()):
             path = E.save_filterset(name.strip(), list(selected), st.session_state["filter_blocks"])
+            st.session_state["filter_set_name"] = name.strip()
             st.success(f"Saved {path.name}")
     bar[3].button("🧹 Clear", on_click=_cb_clear, width="stretch", help="Remove all blocks")
 
@@ -457,10 +467,29 @@ def _used_columns(blocks: list[dict]) -> list[str]:
 
 
 st.divider()
+# Run Filter persists the result as a run file and AUTO-OPENS it in its own
+# browser tab (/output?run=<id>) — several output tabs can be open side by side.
+# The window.open script is rendered ONLY on the click rerun, so later reruns
+# never re-open the tab. Browsers may block this first popup (it arrives after a
+# server round-trip, outside the click gesture) — the caption carries a plain
+# fallback link, and allowing pop-ups for the site once fixes it for good.
+# Empty results: message here instead — no tab, no run file.
 if st.button("▶ Run Filter", type="primary"):
     result = E.run_filter(df, selected, st.session_state["filter_blocks"])
-    st.session_state["filter_results"] = result
-    st.session_state["filter_results_types"] = list(selected)
-    st.session_state["filter_param_cols"] = _used_columns(st.session_state["filter_blocks"])
-    st.session_state["filter_results_id"] = uuid.uuid4().hex
-    st.switch_page("ui/pages/output.py")
+    if result.empty:
+        st.warning("No symbols matched — nothing opened. Loosen a filter or check "
+                   "the selected security types.")
+    else:
+        rid = O.save_run(
+            result,
+            screen_types=list(selected),
+            param_cols=_used_columns(st.session_state["filter_blocks"]),
+            filter_name=st.session_state.get("filter_set_name"),
+            blocks=st.session_state["filter_blocks"],
+        )
+        _url = f"/output?run={rid}"
+        st.iframe(f"<script>window.parent.open('{_url}', '_blank');</script>", height=1)
+        _n = len(result)
+        st.caption(f"Results opened in a new tab — {_n} match{'es' if _n != 1 else ''}. "
+                   f"No tab? Allow pop-ups for this site, or [open it here]({_url}). "
+                   "Past runs are listed on the Output page.")

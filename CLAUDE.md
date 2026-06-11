@@ -8,8 +8,12 @@ FAMarket is a local, Python-based stock-screening system: fetch US-market data
 from free APIs → compute fundamental/technical metrics → screen via a Streamlit
 UI. The complete design is already brainstormed — **read `ROADMAP.md` before any
 non-trivial change**; it records every architectural decision and the build
-sequencing. `Stock_Screening_Analysis.md` is the original blueprint. Treat both
-as read-only design docs (the user maintains them manually).
+sequencing. `ROADMAP.md` is a **living document**: when a design decision is
+changed or refined in agreement with the user, update the affected entries
+in-place (mark with the date and what it replaced; shipped items get ✅).
+Never rewrite it wholesale, and never change a decision the user hasn't agreed
+to. `Stock_Screening_Analysis.md` is the original blueprint — that one stays
+read-only.
 
 Build status: the **data layer** (`core/`, `config/`, symbol discovery, and the
 yfinance/EDGAR/FRED fetchers) is functional. The **analysis layer** is now
@@ -20,9 +24,13 @@ complete — `_periods`, `metrics`, `technical`, `intrinsic_value`, `_stats`,
 `analysis_layer/screen_type.py`, and a persisted `rs_raw` input column for
 subset-run re-ranking) and is wired into the orchestrator as Group 3
 after each fetch. The **UI** is being built page by page: Fetch Control, Settings,
-and Filter are functional; Output and Calibration remain `st.info` skeletons. The
+Filter and Output are functional; Calibration remains an `st.info` skeleton. The
 Filter page (Topic 5) is backed by `ui/filter_registry.py` (per-`screen_type` metric
-applicability) + `ui/filter_engine.py` (block model + `.filt` JSON). Build order is
+applicability) + `ui/filter_engine.py` (block model + `.filt` JSON). Each Run Filter
+persists a run file (`ui/output_runs.py`: parquet+json in `results/`, newest
+`OUTPUT_RUNS_KEEP` kept) and auto-opens `/output?run=<id>` in its own browser tab;
+the sidebar Output page is a recent-runs launcher (.prms column sets, multi-sort,
+row-select + Action menu still to come). Build order is
 strictly **Data → Analysis → UI**, each layer completed fully before starting the
 next (no thin end-to-end slices).
 
