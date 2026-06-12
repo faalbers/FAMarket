@@ -60,7 +60,7 @@ OUTPUT_RUNS_KEEP: int = 20
 # --------------------------------------------------------------------------- #
 # A successful (symbol, fetcher) fetch is locked for this many days; the weekly
 # Friday cadence naturally falls outside the window so normal runs refetch.
-FETCH_LOCK_DAYS: int = 5
+FETCH_LOCK_DAYS: int = 4
 
 # --------------------------------------------------------------------------- #
 # Fetch viability / abandonment (data_layer/fetch_status.py + staleness.py)
@@ -69,8 +69,10 @@ FETCH_LOCK_DAYS: int = 5
 # stops producing fresh data. Two probes implement that one idea:
 #   * strike probe    — for symbols that return NOTHING (no date to age).
 #   * staleness probe — for symbols that return only OLD data (a frontier to age).
-# A forced run (respect_lock=False) bypasses both; data returning resets them. The
-# master switch turns the whole policy off (e.g. to make one run touch everything).
+# This switch (NOT the 5-day lock) governs the whole viability policy — abandonment,
+# staleness, and the financials due-date gate. Turn it off to make one run touch
+# every symbol regardless of viability; data returning resets the probes. The 5-day
+# lock is separate (respect_lock) and gates only the fetch cadence.
 FETCH_ABANDONMENT_ENABLED: bool = True
 
 # Strike probe: after this many actual fetches that return no data, the pair is
@@ -88,7 +90,7 @@ FINANCIALS_YEARLY_STALE_QUARTERS: int = 6      # newest annual period_end older 
 # yet — newest quarterly period_end + ~91 days (annual-only: + 365 days) + this
 # lag. The lag covers the SEC filing window (a 10-Q is due 40-45 days after the
 # quarter ends). Deferral, not abandonment: the symbol comes due again on its
-# own; a forced run (respect_lock=False) bypasses it like every gate.
+# own. A viability gate — governed by FETCH_ABANDONMENT_ENABLED, not the 5-day lock.
 FINANCIALS_REPORT_LAG_DAYS: int = 45
 
 # Minimum history pulled on an initial OHLCV load.
