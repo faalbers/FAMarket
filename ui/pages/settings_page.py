@@ -1,10 +1,11 @@
 """
 Settings page (Topic 3.4) — GUI over config/settings.py.
 
-Both the UI and hand-edits write the SAME file: on Save, only the values that
-changed are rewritten in place (comments/layout preserved), a versioned backup of
-settings.py is taken first, and the live `settings` module is updated so the change
-takes effect immediately (config/settings_io.py does the work).
+`settings.py` holds the committed defaults; the UI never edits it. On Save, only the
+values that DIFFER from the current ones are written to a gitignored, machine-local
+override (`settings.local.json`) and applied to the live `settings` module so the
+change takes effect immediately (config/settings_overrides.py does the work). Delete
+the override file to revert everything to the defaults.
 
 Scope (first cut): the safe-to-edit knobs — scoring weights, indicator params,
 fetch/abandonment, intrinsic value, peer comparison, reconcile tolerance, rate
@@ -17,7 +18,7 @@ from __future__ import annotations
 import streamlit as st
 
 from config import settings
-from config.settings_io import SettingsWriteError, update_settings
+from config.settings_overrides import SettingsWriteError, update_settings
 
 # new_values accumulates every widget's current value, keyed by the dotted settings
 # path; Save diffs it against the live settings and writes only what changed.
@@ -283,9 +284,10 @@ if st.button("💾 Save changes", type="primary"):
         try:
             update_settings(changed)
         except SettingsWriteError as exc:
-            st.error(f"Save failed — settings.py was not modified. {exc}")
+            st.error(f"Save failed — no settings were changed. {exc}")
         else:
-            st.success(f"Saved {len(changed)} change(s) to config/settings.py (versioned backup taken).")
+            st.success(f"Saved {len(changed)} change(s) to settings.local.json "
+                       "(defaults in settings.py are untouched).")
             with st.expander("What changed", expanded=True):
                 st.dataframe(
                     {"Setting": list(changed), "New value": [str(v) for v in changed.values()]},

@@ -99,9 +99,14 @@ Three intentionally decoupled layers plus shared infrastructure:
 - **Secrets vs settings**: API keys live only in `.env` (git-ignored; see
   `.env.template`), loaded via `config/secrets.py` (use `secrets.require("KEY")`
   for a clear error when missing). Everything else (paths, batch sizes, rate
-  limits, scoring weights, indicator params) lives in `config/settings.py`, which
-  the Settings UI page edits in place — so keep it a plain module of
-  round-trippable constants.
+  limits, scoring weights, indicator params) lives in `config/settings.py` as the
+  committed **defaults** — keep it a plain module of constants. The Settings UI
+  **never writes settings.py**: on Save it persists only the changed keys to a
+  gitignored, machine-local `settings.local.json` (flat `{dotted.path: value}`),
+  which `config/settings_overrides.py` lays on top of the defaults at the bottom of
+  `settings.py` (type-coerced to each default; unknown/malformed keys ignored).
+  Delete that file to reset all settings to defaults. (Replaced the old in-place
+  AST rewrite `config/settings_io.py`, 2026-06-12.)
 - **TLS / certificates**: this machine sits behind TLS interception (a proxy/AV
   re-signs HTTPS with a private CA in the Windows trust store). `certifi` alone
   fails with CERTIFICATE_VERIFY_FAILED, so `core/net.configure_tls()` MUST run

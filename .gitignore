@@ -1,6 +1,9 @@
 # --- Secrets ---
 .env
 
+# --- UI setting overrides (machine-local; defaults live in config/settings.py) ---
+settings.local.json
+
 # --- Generated CA bundle (rebuilt at startup from the OS trust store) ---
 .ca_bundle.pem
 
@@ -14,6 +17,7 @@ databases/*.db-wal
 databases/*.db-shm
 backups/*.db
 backups/*.log
+backups/*.py
 logs/*.log
 logs/*.log.*
 

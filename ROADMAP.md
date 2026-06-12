@@ -175,7 +175,8 @@
      - NULL for symbols where a parameter doesn't apply
      - All keys in .env, .env in .gitignore
      - Non-sensitive settings (batch sizes, rate limits, file paths, scoring weights, peak detection params, etc.) in config/settings.py
-     - Settings page in Streamlit UI provides interface to edit config/settings.py — both routes update the same file
+     - Settings page in Streamlit UI provides interface to edit config/settings.py
+     - ✅ 2026-06-12: defaults + local-override model (replaces "both routes update the same file"). config/settings.py holds the committed DEFAULTS and is never written by the UI. Saving writes ONLY the changed keys to a gitignored, machine-local `settings.local.json` (flat `{dotted.path: value}`, e.g. `RATE_LIMITS.yfinance`); the bottom of settings.py lays it on top at import (config/settings_overrides.py — type-coerced to each default, unknown/bad keys ignored). Reasons: no git churn on settings.py, simpler/safer than the previous in-place AST rewrite, and exe-ready (override can move to a user-data dir when frozen). Retired the old config/settings_io.py + its settings.py backups. Hand-edit a default (committed) or the override (local). Delete the file to reset all to defaults.
      - Settings page uses collapsible sections grouped by category — grouping to be designed during coding phase
 
 ✅ Topic 4 — Analysis Layer
@@ -446,6 +447,12 @@
 
 ## Future Ideas (post-MVP, no timeline)
 - News sentiment analysis — fetch news via Finviz and Polygon news APIs, derive sentiment scoring per symbol from article content. Never designed in detail — start fresh when the time comes.
+- Standalone executable (added 2026-06-12) — package the whole app so it launches by double-click, no manual `streamlit run`.
+  - **Feasible, not blocked.** The app is a local web server, so the "exe" starts the Streamlit server, opens the browser at localhost, and quits on tab close (autoshutdown.py already does the quit).
+  - **Recommended approach:** freeze a bundled Python env + a small launcher, OR a PyInstaller / Nuitka one-folder build. NOT stlite/WASM — it can't run the native deps (curl_cffi, pyarrow, SQLite writes, truststore).
+  - **Main prerequisite refactor — writable paths when frozen.** Every writable dir hangs off `BASE_DIR = Path(__file__).../..` (settings.py): databases, backups, logs, results, filters. In a frozen build `__file__` is inside the read-only bundle. Detect `sys.frozen` and redirect those dirs to a user data folder (e.g. `%LOCALAPPDATA%\FAMarket`); read-only code/assets stay in the bundle. Contained change — all paths already funnel through `BASE_DIR`.
+  - **Other care points (all solvable):** collect native binaries (curl_cffi/libcurl, pyarrow, numpy/pandas, lxml) via freezer hooks; Streamlit packaging needs `copy_metadata("streamlit")` + its static assets/hidden imports; resolve the TLS CA-bundle paths in core/net.py relative to the bundle (`sys._MEIPASS`); `.env`/API keys fine for personal single-machine use (user supplies own keys if ever distributed); confirm the freezer supports the Python version in use (3.14 is new — tooling may lag).
+  - **Budget as two contained pieces:** (1) writable-paths-when-frozen, (2) freezer config with the right hooks. Nothing in the current design needs changing before then.
 
 ✅ Topic 8 — Build Phases
    - ✅ Subtopic 8.1 — What to build first (MVP scope)
@@ -510,6 +517,12 @@
        - ☑ E*Trade
        - ☑ FRED
      - Group 2 locked until Group 1 completes
+     - ✅ 2026-06-12: indices excluded from Group 2 entirely (replaces the
+       implicit "minimal scope-tier" handling for `index`). They are
+       reference-only, carry no fetchable fundamentals, and are typed `index` at
+       discovery time, so `orchestrator.load_fetch_universe()` drops
+       `security_type == "index"` before any fetcher runs. Benchmark OHLCV, if
+       ever needed, stays an analysis-layer concern.
      - Live log output shown in UI during fetch run
      - Each API can be run independently (e.g. re-run just yfinance after a failure)
 
@@ -535,6 +548,17 @@
      - 5-day lock per (symbol, fetcher_name) after successful fetch — symbol not re-fetched until lock expires
      - Lock is per fetcher function (e.g. yfinance_quotes and etrade_quotes have independent locks)
      - Weekly cadence naturally falls outside 5-day window → normal weekly runs always fetch fresh data
+     - ✅ 2026-06-12: the 5-day lock and the viability gates are now INDEPENDENT
+       switches (replaces the earlier single `respect_lock` that bypassed everything
+       at once — that bundling was an unintended miscommunication).
+       - `respect_lock` (UI "Respect 5-day fetch lock" / CLI `--no-lock`) gates ONLY
+         the cadence lock.
+       - Abandonment (no-data cap), staleness, and the financials due-date gate are
+         the "viability gates", governed solely by `FETCH_ABANDONMENT_ENABLED`.
+       - A full "refetch everything" run = lock off AND `FETCH_ABANDONMENT_ENABLED`
+         off. The split lives in `fetch_status.classify_skips` + `BaseFetcher.select_due`
+         (one source of truth for both a real run and the Report Fetch dry run), and
+         the report now shows a separate Locked vs Abandoned column.
      - fetch_status table columns: symbol, fetcher_name, last_fetched, fetch_errors
        - Composite primary key: (symbol, fetcher_name)
        - fetcher_name stored as plain string e.g. "yfinance_quotes", "etrade_quotes"

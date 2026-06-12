@@ -2,13 +2,20 @@
 Central configuration for all NON-SENSITIVE settings.
 
 API keys never live here — they live in `.env` (see `.env.template`).
-This file holds everything the Settings page in the Streamlit UI is allowed to
-edit: file paths, batch sizes, rate limits, scoring weights, indicator
-parameters, etc. Both the UI and hand-edits write to this same file, so keep it
-a plain module of module-level constants (no logic that's hard to round-trip).
+This file holds the committed DEFAULTS for everything the Settings page in the
+Streamlit UI is allowed to edit: file paths, batch sizes, rate limits, scoring
+weights, indicator parameters, etc. Keep it a plain module of module-level
+constants.
 
-Roadmap references: Topic 3.4 (config split), Topic 4.4 (scoring weights),
-Topic 4.2 (indicator params), Topic 9 (logging / fetch locks).
+The UI no longer rewrites this file. It saves only the CHANGED keys to a
+gitignored, machine-local override (`settings.local.json`, see
+`config/settings_overrides.py`); the bottom of this module lays those overrides
+on top of the defaults at import time. Hand-edit a default here (committed) or the
+override file (local-only). Updated 2026-06-12 — replaced the previous in-place
+AST rewrite of this file (config/settings_io.py).
+
+Roadmap references: Topic 3.4 (config split + override model), Topic 4.4 (scoring
+weights), Topic 4.2 (indicator params), Topic 9 (logging / fetch locks).
 """
 
 from __future__ import annotations
@@ -54,6 +61,12 @@ COLUMN_SETS_DIR: Path = BASE_DIR / "column_sets"  # .prms files (output column s
 # /output?run=<id> and survives app restarts. Newest N kept, pruned on each save.
 OUTPUT_RUNS_DIR: Path = BASE_DIR / "results"
 OUTPUT_RUNS_KEEP: int = 20
+
+# UI-saved setting overrides (gitignored, machine-local). Holds ONLY the keys the
+# Settings page changed from the defaults above; applied on top at the bottom of
+# this module. Lives at the project root for now — the "Standalone executable"
+# Future Idea (ROADMAP) will relocate writable paths like this to a user-data dir.
+SETTINGS_OVERRIDES_PATH: Path = BASE_DIR / "settings.local.json"
 
 # --------------------------------------------------------------------------- #
 # Fetch behaviour
@@ -270,3 +283,12 @@ def ensure_runtime_dirs() -> None:
     """Create the directories the app writes to. Safe to call on every startup."""
     for path in (DB_DIR, BACKUP_DIR, LOG_DIR, FILTERS_DIR, COLUMN_SETS_DIR, OUTPUT_RUNS_DIR):
         path.mkdir(parents=True, exist_ok=True)
+
+
+# Lay the gitignored local overrides on top of the defaults above. Done at the very
+# bottom so every default is already defined; `apply` reads the path from this
+# module's own globals (no re-import mid-load) and quietly ignores a missing or
+# malformed file, so defaults always stand on their own.
+from config import settings_overrides as _settings_overrides  # noqa: E402
+
+_settings_overrides.apply(globals())
