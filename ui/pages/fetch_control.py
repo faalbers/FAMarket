@@ -34,7 +34,7 @@ from config import settings
 from core.database import Database
 from core.logging_config import get_logger, roll_log
 from data_layer import cancel
-from data_layer.orchestrator import run_full_fetch
+from data_layer.orchestrator import report_fetch, run_full_fetch
 
 ANALYSIS_META = "analysis_meta"
 _LOG_TAIL_LINES = 200
@@ -141,9 +141,10 @@ def _live_status() -> None:
     status = st.status(f"{verb} pipeline ({label})…", expanded=True)
     if stopping:
         _tail = (
-            " then rebuilding analysis from the data fetched so far."
+            " then reassessing the fetched symbols and rebuilding analysis from the "
+            "data fetched so far."
             if st.session_state.get("analyze_after_stop", True)
-            else " then unwinding (analysis skipped)."
+            else " then reassessing the fetched symbols (analysis skipped)."
         )
         status.write(
             "Stop requested — finishing the current batch (already committed)," + _tail
@@ -234,6 +235,59 @@ def _show_summary(summary: dict) -> None:
     st.dataframe(df, hide_index=True, width="stretch")
 
 
+@st.dialog("Next fetch — gate report", width="large")
+def _show_report(report: dict) -> None:
+    """Modal report of how many symbols each Group 2 step would fetch right now.
+
+    Dismissed by clicking outside / Esc / the ✕ (standard st.dialog). Pure display
+    of the dict returned by `orchestrator.report_fetch` — no fetching happened.
+    """
+    universe = report.get("universe", 0)
+    respect_lock = report.get("respect_lock", True)
+    abandonment_on = report.get("abandonment_enabled", True)
+    lock_days = report.get("lock_days", settings.FETCH_LOCK_DAYS)
+    st.markdown(f"**Fetch universe:** {universe:,} symbols  ·  *(active, non-index)*")
+    rows = [
+        {
+            "Step": s["step"],
+            "Candidates": s["candidates"],
+            "Locked": s["locked"],
+            "Abandoned": s["abandoned"],
+            "Stale": s["stale"],
+            "Not due": s["not_due"],
+            "Will fetch": s["due"],
+        }
+        for s in report.get("steps", [])
+    ]
+    if rows:
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    # The cadence lock and the viability gates are independent switches — report each.
+    if not respect_lock:
+        st.info(
+            f"{lock_days}-day lock is **off** — symbols inside the cadence window are "
+            "refetched. The viability gates (abandonment / staleness / due-date) still apply."
+        )
+    if not abandonment_on:
+        st.warning(
+            "Viability gates are **off** (`FETCH_ABANDONMENT_ENABLED`) — abandoned, "
+            "stale and not-due symbols are fetched too. Combine with the lock off "
+            "for a full refetch of everything."
+        )
+    st.caption(
+        "- **Candidates** — symbols of the types this step handles\n"
+        f"- **Locked** — skipped by the {lock_days}-day cadence lock (the lock checkbox)\n"
+        "- **Abandoned** — hit the no-data cap (a viability gate)\n"
+        "- **Stale** — data too old to keep fetching (a viability gate)\n"
+        "- **Not due** — next statement can't exist yet, financials only (a viability gate)\n"
+        "- **Will fetch** — what this step would actually fetch now\n\n"
+        "The lock checkbox toggles only **Locked**; the viability gates "
+        "(Abandoned / Stale / Not due) are governed by `FETCH_ABANDONMENT_ENABLED` "
+        "on the Settings page. FRED macro series always run (not symbol-gated). "
+        "OHLCV/financials counts use the currently stored security types — quotes "
+        "resolves types first in a real run, so they can shift slightly."
+    )
+
+
 # --------------------------------------------------------------------------- #
 # page
 # --------------------------------------------------------------------------- #
@@ -298,8 +352,13 @@ if scope == "Dev subset":
     )
 col_a, col_b = st.columns(2)
 respect_lock = col_a.checkbox(
-    "Respect 5-day fetch lock", value=True,
-    help="Skip (symbol, fetcher) pairs fetched within the last 5 days.",
+    f"Respect {settings.FETCH_LOCK_DAYS}-day fetch lock", value=True,
+    help=f"Skip (symbol, fetcher) pairs fetched within the last "
+    f"{settings.FETCH_LOCK_DAYS} days (set by FETCH_LOCK_DAYS on the Settings page). "
+    "This controls ONLY the cadence lock — the viability gates (abandonment, "
+    "staleness, financials due-date) stay active and are governed separately by "
+    "FETCH_ABANDONMENT_ENABLED on the Settings page. For a full refetch of "
+    "everything, turn both off.",
 )
 run_backup = col_b.checkbox(
     "Back up databases first", value=True,
@@ -307,18 +366,14 @@ run_backup = col_b.checkbox(
 )
 
 running = st.session_state.get("fetch_running", False)
-run_col, analyze_col, stop_col, opt_col = st.columns(
-    [1, 1, 1, 1.4], vertical_alignment="center"
+
+# Row 1: Run Fetch | Stop Fetch | Analyze after stop. (Stop's button is created
+# further down — after its on_click callback is defined — but into this row's
+# column, so it lands here alongside Run Fetch.)
+run_col, stop_col, opt_col = st.columns(
+    [1, 1, 1.4], vertical_alignment="center"
 )
 submitted = run_col.button("▶ Run Fetch", type="primary", disabled=running)
-# TEMPORARY (dev): rebuild analysis.db from the already-fetched data, no fetch.
-# Honors the same Dev subset / Full universe scope. Remove once development settles.
-analyze_clicked = analyze_col.button(
-    "⚙ Run Analysis",
-    disabled=running,
-    help="TEMPORARY dev button — analysis rebuild only, no fetch. Uses the run "
-    "scope above. Note: Stop does not interrupt an analysis run.",
-)
 
 # Decided at Stop time, not run-start: the on_click callback reads this checkbox's
 # live value, so toggling it during a run is honoured. On by default so a stopped
@@ -329,6 +384,31 @@ opt_col.checkbox(
     key="analyze_after_stop",
     help="When you Stop a run, still rebuild analysis.db from the data fetched so "
     "far. Off leaves the existing analysis untouched.",
+)
+
+# Row 2: Report Fetch — a dry run of the Group 2 gates, directly below Run Fetch.
+# Same style/icon as the others; opens a dismissible modal with the per-step counts,
+# fetches nothing.
+report_col = st.columns([1, 2.4])[0]
+report_clicked = report_col.button(
+    "▶ Report Fetch",
+    type="primary",
+    disabled=running,
+    help="Preview the next fetch: how many symbols each step would fetch right now "
+    "given the current gate options and symbol states. No data is fetched.",
+)
+
+# Row 3: Run Analysis on its own line. Same style/icon as Run Fetch (primary ▶) so
+# the run actions read as a matching set.
+# TEMPORARY (dev): rebuild analysis.db from the already-fetched data, no fetch.
+# Honors the same Dev subset / Full universe scope. Remove once development settles.
+analyze_col = st.columns([1, 2.4])[0]
+analyze_clicked = analyze_col.button(
+    "▶ Run Analysis",
+    type="primary",
+    disabled=running,
+    help="TEMPORARY dev button — analysis rebuild only, no fetch. Uses the run "
+    "scope above. Note: Stop does not interrupt an analysis run.",
 )
 
 
@@ -349,6 +429,19 @@ def _request_stop() -> None:
 # next safe boundary (between fetchers / between batches), where every completed
 # batch is already committed, then unwinds. So it's enabled only while a run is live.
 stop_col.button("■ Stop Fetch", disabled=not running, on_click=_request_stop)
+
+# -- report fetch (dry run of the Group 2 gates) ---------------------------- #
+# Computes inline (no worker) and pops a dismissible modal — it only reads the DBs,
+# never the network, so it's quick enough to block for. Uses the SAME scope + lock
+# options as a real run so the preview matches what Run Fetch would do.
+if report_clicked:
+    if scope == "Dev subset" and _parse_subset(subset_raw) is None:
+        st.warning("Dev subset selected but no symbols entered. Add symbols or switch to Full universe.")
+    else:
+        report_subset = None if scope == "Full universe" else _parse_subset(subset_raw)
+        with st.spinner("Checking fetch gates…"):
+            _report = report_fetch(subset=report_subset, respect_lock=respect_lock)
+        _show_report(_report)
 
 # -- start a run ------------------------------------------------------------ #
 # The worker runs on a daemon thread and the page does NOT block waiting for it:
@@ -412,7 +505,7 @@ elif isinstance(_last_summary, dict) and _last_summary.get("cancelled"):
     _analysed = _last_summary.get("analysis") is not None
     st.warning(
         "Fetch stopped before completing. All fetched batches are committed and the "
-        "run is resumable — re-run to continue. "
+        "run is resumable — re-run to continue. The fetched symbols were reassessed. "
         + (
             "Analysis was rebuilt from the data fetched so far."
             if _analysed
