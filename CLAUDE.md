@@ -145,8 +145,12 @@ Three intentionally decoupled layers plus shared infrastructure:
   `valuation_basis="yfinance"`) only when inputs are missing or the reporting
   currency mismatches. Percentage-valued metrics are **stored as percent numbers**
   (`12.5`, not `0.125`), and every `config/param_hints.py` entry declares a `unit`.
-- **Charts** use the color-blind-safe palette in `settings.CHART_COLORWAY` (no
-  red/green; blue-to-orange for heatmaps).
+- **Charts** are rendered with **Apache ECharts** (`streamlit-echarts`, pinned
+  `==0.4.0` — 0.7.0 uses `st.components.v2` and breaks on the current Streamlit).
+  Use a color-blind-safe palette (no red/green; blue-to-orange for heatmaps); the
+  price chart's dark theme + bright palette live in `ui/pages/charts.py`
+  (`_COLORWAY`/`_DARK_*`) — lift them into shared config when more chart views are
+  built. `settings.CHART_COLORWAY` is the default palette for any other chart.
 - **Streamlit live updates** use `st.fragment(run_every=…)`, never a
   `time.sleep() + st.rerun()` poll loop — the blocking sleep freezes the script
   between ticks and silently drops widget input (e.g. a Stop click). A button that
