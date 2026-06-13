@@ -6,15 +6,16 @@ Opened in its own browser tab from an Output run's Action menu, e.g.
 The selected symbols + chart kind ride in the query string, so each Action is a
 plain link that opens a fresh tab — the same mechanism as /output?run=<id>.
 
-EXPERIMENT (branch experiment/echarts): the price chart is rendered with Apache
-ECharts (streamlit-echarts) instead of Plotly — dark theme, bright color-blind-safe
-palette, axis-trigger tooltip (unified hover: every symbol named + colored + valued),
-clickable legend, mouse-wheel zoom. Baseline to return to: tag plotly-charts-baseline.
+The price chart is rendered with Apache ECharts (streamlit-echarts): dark theme, a
+bright color-blind-safe palette, an axis-trigger tooltip (unified hover — every symbol
+named + colored + valued at the cursor), and a clickable scroll legend that toggles
+lines (so no separate symbol selector is needed).
 
-view=price: adjusted close, every symbol indexed to 100 at the window start, period
-buttons + custom range, gridlines, line breaks for data gaps (no interpolation). The
-symbol selector is an Output-style multi-row-selectable list (selecting none = plot
-all). Fundamentals and dividend chart views land here next.
+view=price: adjusted close, every symbol indexed to 100 at the window start. The Period
+presets (1Y/3Y/5Y) set the loaded data window; the ECharts dataZoom slider + wheel/drag
+pick sub-ranges (native arbitrary-range selector); the toolbox restore icon resets to
+the full view. Line breaks mark data gaps (no interpolation). Fundamentals and dividend
+chart views land here next.
 """
 
 from __future__ import annotations
@@ -31,9 +32,10 @@ from core.database import Database
 _GAP_DAYS = 7      # consecutive bars more than this many days apart → draw a line break
 _CHART_HEIGHT = 600  # px; the symbol list's scroll box is capped to this so they align
 
-# EXPERIMENT (branch experiment/echarts): dark theme + a bright, color-blind-safe line
-# palette (Paul Tol's "vibrant" scheme, brightest-first) — higher contrast on a dark
-# background than the Okabe-Ito set in settings.CHART_COLORWAY. Promote to settings if kept.
+# Dark chart theme + a bright, color-blind-safe line palette (Paul Tol's "vibrant"
+# scheme, brightest-first) — higher contrast on a dark background than the Okabe-Ito
+# set in settings.CHART_COLORWAY. (Local to the charts page; lift into settings when
+# the fundamentals/dividend chart views need the same theme.)
 _DARK_BG = "#0e1117"     # matches Streamlit's default dark theme background
 _DARK_TEXT = "#e6e6e6"
 _GRID_LINE = "rgba(255,255,255,0.14)"  # subtle gridlines on the dark background
@@ -137,7 +139,7 @@ with _period_host:
 _years = {"1Y": 1, "3Y": 3, "5Y": 5}[_period]
 _start, _end = _today - pd.DateOffset(years=_years), _today
 
-# -- build the chart (EXPERIMENT: Apache ECharts via streamlit-echarts) ------- #
+# -- build the chart (Apache ECharts via streamlit-echarts) ------------------- #
 # Same inputs as the Plotly version (data reader, selector, period window); only the
 # render differs. tooltip trigger="axis" gives the unified hover (every symbol named,
 # colored, with its value at the cursor); the legend is a clickable name+color key.

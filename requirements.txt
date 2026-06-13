@@ -21,7 +21,7 @@ pandas-market-calendars  # last completed trading session
 # --- UI ---
 streamlit           # local web UI (streamlit run app.py)
 plotly              # interactive charts (normalized prices, heatmaps, radar)
-streamlit-echarts==0.4.0  # EXPERIMENT (branch): Apache ECharts price chart
+streamlit-echarts==0.4.0  # Apache ECharts price chart (pinned: 0.7.0 breaks on current Streamlit)
 
 # --- Config ---
 python-dotenv       # load API keys from .env

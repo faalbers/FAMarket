@@ -442,17 +442,19 @@
      - Dividend growth line charts: annual and quarterly periods only (TTM excluded)
 
    - ✅ Subtopic 6.3 — Normalized price chart details
-     - ✅ IMPLEMENTED (2026-06-12): ui/pages/charts.py, view=price. adj_close
-       indexed to 100 at the window start, one Plotly line per symbol, CHART_COLORWAY
-       palette, period buttons (1Y/3Y/5Y) + custom date range (below the chart),
-       vertical gridlines (date auto-ticks, adaptive), NaN line breaks for data gaps
-       (connectgaps=False, >7-day threshold). Line identification is the x-unified
-       hover alone — no on-chart labels or legend (tried floating right-edge labels;
-       removed because Streamlit's st.plotly_chart emits no relayout event so they
-       can't re-track a live zoom/pan, and the hover already names every line at the
-       cursor). Symbol selector is a narrow left-side Output-style multi-row-selectable
-       list (selecting none = plot all). Still deferred: block-select a range on the
-       chart to populate the custom date inputs.
+     - ✅ IMPLEMENTED (2026-06-12): ui/pages/charts.py, view=price — rendered with
+       Apache ECharts (streamlit-echarts==0.4.0; 0.7.0 breaks on the current Streamlit's
+       components.v2). adj_close indexed to 100 at the window start; dark theme + bright
+       color-blind-safe palette (Paul Tol "vibrant", local _COLORWAY); axis-trigger
+       tooltip = unified hover (every symbol named + colored + valued at the cursor);
+       clickable scroll legend toggles lines (replaces a separate symbol selector);
+       gridlines; NaN gap breaks (connectNulls=False, >7-day threshold). Range: Period
+       presets 1Y/3Y/5Y set the loaded window, ECharts dataZoom slider + wheel/drag pick
+       sub-ranges (native arbitrary-range selector — no custom date inputs), toolbox
+       restore = reset to full view. Chose ECharts after trialing Plotly (worked, less
+       finance-native) and TradingView Lightweight Charts via streamlit-lightweight-
+       charts-pro (rejected: the wrapper ignored theming and dropped legend names). The
+       trial used disposable git branches off tag plotly-charts-baseline.
      - All symbols start at 100% (normalized), one line per symbol
      - Inline symbol labels at end of each line (no legend), offset to avoid overlap
      - Time period buttons at bottom: 1Y, 3Y, 5Y, custom date range (calendar input)
