@@ -117,16 +117,16 @@ if _missing:
 
 st.caption("Normalized adjusted close — every line indexed to 100 at the window start.")
 
-# -- layout: full-width chart, period controls in their own row below it -------- #
+# -- layout: period row on top, full-width chart below it ---------------------- #
 # The ECharts legend (click a name to show/hide a line) replaces a separate symbol
 # selector, so every symbol with data is plotted and toggled from the legend. The
-# containers are created top→bottom (chart above, period below); period widgets are
-# read before the chart is built, but render into their own container underneath.
-_chart_host = st.container()
+# period container is created first (renders above the chart); its widgets are read
+# before the chart is built, which renders into the chart container below.
 _period_host = st.container()
+_chart_host = st.container()
 _checked = _have
 
-# Period control (below the chart): "Period:" label + preset buttons on one row. The
+# Period control (above the chart): "Period:" label + preset buttons on one row. The
 # presets set the data window loaded; arbitrary sub-ranges are handled inside the chart
 # by the ECharts dataZoom slider (no custom date pickers — ECharts has no native preset
 # selector, but its dataZoom IS a native range selector).
