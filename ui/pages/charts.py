@@ -200,7 +200,7 @@ _options = {
     },
     # Vertical + horizontal gridlines; ECharts time axis picks the tick granularity
     # (years / months / weeks) for the visible span and re-picks it on zoom.
-    "grid": {"left": 8, "right": 18, "top": 44, "bottom": 62, "containLabel": True},
+    "grid": {"left": 8, "right": 18, "top": 44, "bottom": 78, "containLabel": True},
     "xAxis": {
         "type": "time",
         "axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.35)"}},
@@ -219,7 +219,7 @@ _options = {
     "dataZoom": [
         {"type": "inside"},
         {
-            "type": "slider", "bottom": 8, "height": 22,
+            "type": "slider", "bottom": 8, "height": 38,
             "borderColor": "rgba(255,255,255,0.18)",
             "fillerColor": "rgba(51,187,238,0.18)",
             "handleStyle": {"color": "#33BBEE"},
