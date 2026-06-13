@@ -6,12 +6,15 @@ Opened in its own browser tab from an Output run's Action menu, e.g.
 The selected symbols + chart kind ride in the query string, so each Action is a
 plain link that opens a fresh tab — the same mechanism as /output?run=<id>.
 
-Implemented so far: view=price — adjusted close, every symbol indexed to 100 at the
-window start, color-blind-safe palette (settings.CHART_COLORWAY), period buttons +
-custom range, vertical gridlines, and line breaks for data gaps (no interpolation).
-Line identification is the x-unified hover (no on-chart labels or legend). The symbol
-selector is an Output-style multi-row-selectable list (selecting none = plot all).
-Fundamentals and dividend chart views land here next.
+EXPERIMENT (branch experiment/echarts): the price chart is rendered with Apache
+ECharts (streamlit-echarts) instead of Plotly — dark theme, bright color-blind-safe
+palette, axis-trigger tooltip (unified hover: every symbol named + colored + valued),
+clickable legend, mouse-wheel zoom. Baseline to return to: tag plotly-charts-baseline.
+
+view=price: adjusted close, every symbol indexed to 100 at the window start, period
+buttons + custom range, gridlines, line breaks for data gaps (no interpolation). The
+symbol selector is an Output-style multi-row-selectable list (selecting none = plot
+all). Fundamentals and dividend chart views land here next.
 """
 
 from __future__ import annotations
@@ -19,14 +22,22 @@ from __future__ import annotations
 from datetime import date
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
+from streamlit_echarts import st_echarts
 
 from config import settings
 from core.database import Database
 
 _GAP_DAYS = 7      # consecutive bars more than this many days apart → draw a line break
 _CHART_HEIGHT = 600  # px; the symbol list's scroll box is capped to this so they align
+
+# EXPERIMENT (branch experiment/echarts): dark theme + a bright, color-blind-safe line
+# palette (Paul Tol's "vibrant" scheme, brightest-first) — higher contrast on a dark
+# background than the Okabe-Ito set in settings.CHART_COLORWAY. Promote to settings if kept.
+_DARK_BG = "#0e1117"     # matches Streamlit's default dark theme background
+_DARK_TEXT = "#e6e6e6"
+_GRID_LINE = "rgba(255,255,255,0.08)"
+_COLORWAY = ("#33BBEE", "#EE7733", "#EE3377", "#009988", "#0077BB", "#CC3311", "#BBBBBB")
 
 
 @st.cache_data(show_spinner=False)
@@ -53,24 +64,22 @@ def _load_prices(symbols: tuple[str, ...], _mtime: float) -> pd.DataFrame:
               .sort_values(["symbol", "date"], kind="stable"))
 
 
-def _with_gap_breaks(dates: pd.Series, values: pd.Series) -> tuple[list, list]:
-    """Insert a NaN point wherever consecutive bars are >_GAP_DAYS apart.
+def _echarts_points(dates: pd.Series, values: pd.Series) -> list[list]:
+    """Build ECharts [date, value] points, inserting a null wherever consecutive
+    bars are >_GAP_DAYS apart.
 
-    With connectgaps=False plotly renders the NaN as a break, so genuine data gaps
-    (missing fetch, trading halt) show as a discontinuity instead of a straight-line
-    interpolation. Normal weekend/holiday gaps stay under the threshold.
+    With series `connectNulls=False`, ECharts renders the null as a break, so genuine
+    data gaps (missing fetch, trading halt) show as a discontinuity instead of a
+    straight-line interpolation. Normal weekend/holiday gaps stay under the threshold.
     """
-    xs: list = []
-    ys: list = []
+    pts: list[list] = []
     prev = None
     for d, v in zip(dates, values):
         if prev is not None and (d - prev).days > _GAP_DAYS:
-            xs.append(prev + (d - prev) / 2)
-            ys.append(float("nan"))
-        xs.append(d)
-        ys.append(v)
+            pts.append([(prev + (d - prev) / 2).strftime("%Y-%m-%d"), None])
+        pts.append([d.strftime("%Y-%m-%d"), round(float(v), 2)])
         prev = d
-    return xs, ys
+    return pts
 
 
 # --------------------------------------------------------------------------- #
@@ -146,41 +155,72 @@ if _end < _start:
     st.warning("End date is before the start date.")
     st.stop()
 
-# -- build the figure -------------------------------------------------------- #
+# -- build the chart (EXPERIMENT: Apache ECharts via streamlit-echarts) ------- #
+# Same inputs as the Plotly version (data reader, selector, period window); only the
+# render differs. tooltip trigger="axis" gives the unified hover (every symbol named,
+# colored, with its value at the cursor); the legend is a clickable name+color key.
 _win = prices[(prices["date"] >= _start) & (prices["date"] <= _end)]
-_colors = settings.CHART_COLORWAY
-fig = go.Figure()
-for _i, _sym in enumerate(_checked):
+_series_opt: list[dict] = []
+for _sym in _checked:
     _s = _win[_win["symbol"] == _sym]
     if _s.empty:
         continue
     _base = float(_s["adj_close"].iloc[0])
     if _base == 0:
         continue
-    _color = _colors[_i % len(_colors)]
     _norm = _s["adj_close"] / _base * 100.0
-    _xs, _ys = _with_gap_breaks(_s["date"], _norm)
-    fig.add_trace(go.Scatter(
-        x=_xs, y=_ys, mode="lines", name=_sym, connectgaps=False,
-        line=dict(color=_color, width=1.6),
-        hovertemplate=f"<b>{_sym}</b>  %{{y:.1f}}<extra></extra>",
-    ))
+    _series_opt.append({
+        "name": _sym,
+        "type": "line",
+        "showSymbol": False,
+        "connectNulls": False,
+        "lineStyle": {"width": 2},
+        "emphasis": {"focus": "series"},
+        "data": _echarts_points(_s["date"], _norm),
+    })
 
-# No on-chart symbol labels — the x-unified hover already names every line and shows
-# its value at the cursor (works at any zoom level), so it serves as the legend.
-fig.update_layout(
-    colorway=list(settings.CHART_COLORWAY),
-    hovermode="x unified",
-    showlegend=False,
-    height=_CHART_HEIGHT,
-    margin=dict(l=50, r=30, t=20, b=40),
-    # Vertical gridlines outline the time axis. Plotly's date auto-ticks choose the
-    # granularity (years / months / weeks) for the visible span and re-pick it on
-    # zoom/pan, so the lines stay readable instead of crowding at any zoom level.
-    xaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.18)"),
-    yaxis=dict(title="Indexed (window start = 100)",
-               showgrid=True, gridcolor="rgba(128,128,128,0.10)"),
-)
-_right.plotly_chart(fig, width="stretch")
-_right.caption("Drag to zoom, double-click to reset. Hover to read each line's value "
-               "(the symbol names appear there). Line breaks mark data gaps (no interpolation).")
+if not _series_opt:
+    _right.info("No data in the selected window.")
+    st.stop()
+
+_options = {
+    "backgroundColor": _DARK_BG,
+    "color": list(_COLORWAY),
+    "textStyle": {"color": _DARK_TEXT},
+    "tooltip": {
+        "trigger": "axis", "order": "valueDesc",
+        "backgroundColor": "rgba(15,18,25,0.92)",
+        "borderColor": "rgba(255,255,255,0.20)",
+        "textStyle": {"color": _DARK_TEXT},
+    },
+    "legend": {
+        "type": "scroll", "top": 4,
+        "data": [s["name"] for s in _series_opt],
+        "textStyle": {"color": _DARK_TEXT},
+        "inactiveColor": "rgba(255,255,255,0.35)",
+        "pageTextStyle": {"color": _DARK_TEXT},
+    },
+    # Vertical + horizontal gridlines; ECharts time axis picks the tick granularity
+    # (years / months / weeks) for the visible span and re-picks it on zoom.
+    "grid": {"left": 8, "right": 18, "top": 44, "bottom": 28, "containLabel": True},
+    "xAxis": {
+        "type": "time",
+        "axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.35)"}},
+        "axisLabel": {"color": _DARK_TEXT},
+        "splitLine": {"show": True, "lineStyle": {"color": _GRID_LINE}},
+    },
+    "yAxis": {
+        "type": "value", "name": "Indexed (100)", "scale": True,
+        "nameTextStyle": {"color": _DARK_TEXT},
+        "axisLabel": {"color": _DARK_TEXT},
+        "splitLine": {"show": True, "lineStyle": {"color": _GRID_LINE}},
+    },
+    # Mouse-wheel zoom + drag-pan inside the plot (no extra slider bar).
+    "dataZoom": [{"type": "inside"}],
+    "series": _series_opt,
+}
+with _right:
+    st_echarts(options=_options, height=f"{_CHART_HEIGHT}px", key="echarts_price")
+_right.caption("Apache ECharts spike (dark theme). Legend (top) is a clickable name+color "
+               "key; hover shows every symbol's value at the cursor. Mouse-wheel to zoom, "
+               "drag to pan. Line breaks mark data gaps.")
