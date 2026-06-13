@@ -21,18 +21,17 @@ session state; no screening logic lives here.
 
 from __future__ import annotations
 
-import html
 import uuid
 
 import pandas as pd
 import streamlit as st
 
 from config import settings
-from config.param_hints import PARAM_HINTS
 from core.database import Database
 from ui import filter_engine as E
 from ui import filter_registry as R
 from ui import output_runs as O
+from ui import param_picker as P
 
 # --------------------------------------------------------------------------- #
 # data + state
@@ -55,9 +54,9 @@ def _ensure_state() -> None:
         st.session_state["filter_types"] = {R.STANDARD}
     if "filter_blocks" not in st.session_state:
         st.session_state["filter_blocks"] = [_with_id(E.new_block())]
-    # Name of the loaded/saved .filt set (None = ad-hoc) — shown by the Output
-    # launcher so a saved run is identifiable later.
-    st.session_state.setdefault("filter_set_name", None)
+    # Working name for the filter set, editable in the toolbar. Used as the .filt
+    # filename on Save and recorded on each run (Output launcher). Empty = ad-hoc.
+    st.session_state.setdefault("filter_name", "untitled")
 
 
 def _with_id(block: dict) -> dict:
@@ -85,7 +84,7 @@ def _cb_add_filter() -> None:
 
 def _cb_clear() -> None:
     st.session_state["filter_blocks"] = [_with_id(E.new_block())]
-    st.session_state["filter_set_name"] = None
+    st.session_state["filter_name"] = "untitled"
 
 
 def _cb_add_child(bid: str) -> None:
@@ -123,50 +122,17 @@ def _cb_flip_vmode(bid: str, which: str) -> None:
         lst[i][key] = "P" if lst[i].get(key, "V") == "V" else "V"
 
 
-def _cb_set_field(bid: str, field: str, value, nonce_key: str | None = None) -> None:
+def _cb_set_field(bid: str, field: str, value) -> None:
+    """Set one field on a block (the picker handles closing via its nonce)."""
     found = _find(st.session_state["filter_blocks"], bid)
     if found:
         lst, i = found
         lst[i][field] = value
-    # Re-key the picker's wrapping container so the popover remounts closed —
-    # Streamlit has no API to close a popover programmatically.
-    if nonce_key:
-        st.session_state[nonce_key] = st.session_state.get(nonce_key, 0) + 1
-
-
-def _cb_toggle_info(state_key: str, k: str) -> None:
-    """Expand/collapse one param's inline info (only one open per picker)."""
-    st.session_state[state_key] = None if st.session_state.get(state_key) == k else k
 
 
 # --------------------------------------------------------------------------- #
 # param picker helpers
 # --------------------------------------------------------------------------- #
-def _hint_html(base: R.Base) -> str:
-    """The hint as HTML for the picker's inline info panel (.fam-hi in app.py).
-
-    Streamlit's own tooltips proved uncontrollable inside a popover (position
-    flips per option, offsets ignored), so each param row carries a ▸ toggle
-    that expands this HTML in-flow below the row instead.
-    """
-    h = PARAM_HINTS.get(base.key)
-    e = html.escape
-    if not h:
-        unit = f" (unit: {base.unit})" if base.unit else ""
-        return e(f"{base.name} — {base.category}{unit}")
-    parts = [f"<b>{e(h['name'])}</b> · {e(h['category'])}"
-             + (f" · unit: {e(h['unit'])}" if h.get("unit") else "")]
-    if h.get("what_it_is"):
-        parts.append(f"<div class='fam-h-s'>{e(h['what_it_is'])}</div>")
-    how = h.get("how_to_use")
-    if how:
-        items = how if isinstance(how, list) else [str(how)]
-        parts.append("<ul>" + "".join(f"<li>{e(x)}</li>" for x in items) + "</ul>")
-    if h.get("vs_peers"):
-        parts.append(f"<div class='fam-h-s'><i>Peers:</i> {e(h['vs_peers'])}</div>")
-    return "".join(parts)
-
-
 def _param_options(selected: set[str]) -> tuple[list[str], dict[str, str]]:
     """(ordered base keys applicable to the selection, key -> 'Category · Name' label)."""
     grouped = R.bases_by_category(selected)
@@ -181,41 +147,26 @@ def _param_options(selected: set[str]) -> tuple[list[str], dict[str, str]]:
 
 def _param_picker(col, bid: str, field: str, current: str | None,
                   opt_keys: list[str], opt_labels: dict[str, str], keyp: str) -> None:
-    """Popover param browser: search box + one row per param, grouped by category.
+    """Single-select popover param browser for a filter block field.
 
-    Each row is [param name | ▸]: clicking the name selects it AND closes the
-    popover (selection bumps a nonce that re-keys the wrapping container, which
-    remounts the popover closed — there's no close API). The ▸ toggle expands
-    the param's info inline below the row, collapsed by default, one open at a
-    time. Hovering the closed trigger still shows the current selection's hint.
+    Thin wrapper over the shared `param_picker.render`: clicking a name sets the
+    field and closes the popover (the Output page uses the same widget in
+    multi-select mode for its column set).
     """
     label = opt_labels.get(current) or (f"⚠️ {current}" if current else "— pick —")
-    nonce_key = f"{keyp}:nonce"
-    wrap = col.container(key=f"{keyp}:wrap{st.session_state.get(nonce_key, 0)}")
-    # No help= on the trigger: the hint is browsable via each row's ▸ toggle
-    # inside the list; once picked, the user doesn't need it hovering here.
-    with wrap.popover(label, width="stretch"):
-        q = st.text_input("search", key=f"{keyp}:q", placeholder="🔍 search…",
-                          label_visibility="collapsed").strip().lower()
-        info_key = f"{keyp}:info"
-        last_cat = None
-        for k in opt_keys:
-            b = R.BASE_BY_KEY[k]
-            if q and q not in b.name.lower() and q not in b.category.lower() and q not in k:
-                continue
-            if b.category != last_cat:
-                st.caption(b.category)
-                last_cat = b.category
-            expanded = st.session_state.get(info_key) == k
-            row = st.columns([5, 1], gap="small")
-            row[0].button(b.name, key=f"{keyp}:opt:{k}",
-                          on_click=_cb_set_field, args=(bid, field, k, nonce_key),
-                          type="primary" if k == current else "secondary", width="stretch")
-            row[1].button("▾" if expanded else "▸", key=f"{keyp}:nfo:{k}",
-                          on_click=_cb_toggle_info, args=(info_key, k),
-                          help="Show / hide info", width="stretch")
-            if expanded:
-                st.markdown(f"<div class='fam-hi'>{_hint_html(b)}</div>", unsafe_allow_html=True)
+    P.render(
+        col,
+        opt_keys=opt_keys,
+        label=label,
+        keyp=keyp,
+        category_of=lambda k: R.BASE_BY_KEY[k].category,
+        name_of=lambda k: R.BASE_BY_KEY[k].name,
+        info_html_of=lambda k: P.hint_html(R.BASE_BY_KEY[k]),
+        search_text_of=lambda k: f"{R.BASE_BY_KEY[k].name} {R.BASE_BY_KEY[k].category} {k}".lower(),
+        is_selected=lambda k: k == current,
+        on_pick=lambda k: _cb_set_field(bid, field, k),
+        close_on_pick=True,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -368,10 +319,15 @@ opt_keys, opt_labels = _param_options(selected)
 
 # -- Filters ---------------------------------------------------------------- #
 with st.expander("Filters", expanded=True):
-    bar = st.columns([1, 1, 1, 1, 6])
+    bar = st.columns([1, 1, 1, 1, 3], vertical_alignment="bottom")
     saved = E.list_filter_files()
-    # Load / Add (replace vs append a saved .filt set)
-    with bar[0].popover("📂 Load", width="stretch"):
+    # Load / Add (replace vs append a saved .filt set). Each popover is wrapped in a
+    # nonce-keyed container so a successful action can close it: Streamlit has no
+    # close-popover API, but re-keying the wrapper remounts the popover shut (the
+    # same trick the param picker uses). Feedback goes to a toast that survives the
+    # rerun, instead of a message stranded inside the now-closed popover.
+    load_nonce = st.session_state.get("load_nonce", 0)
+    with bar[0].container(key=f"load_wrap{load_nonce}").popover("📂 Load", width="stretch"):
         if saved:
             pick = st.selectbox("Replace current with…", saved, key="load_pick")
             if st.button("Load (replace)", key="do_load"):
@@ -379,26 +335,48 @@ with st.expander("Filters", expanded=True):
                 st.session_state["filter_blocks"] = [_with_id(b) for b in data["blocks"]] or [_with_id(E.new_block())]
                 if data["selected_types"]:
                     st.session_state["filter_types"] = set(data["selected_types"])
-                st.session_state["filter_set_name"] = pick
+                st.session_state["filter_name"] = pick
+                st.session_state["load_nonce"] = load_nonce + 1  # re-key wrapper -> popover closes
+                st.toast(f"Loaded {pick}")
                 st.rerun()
         else:
             st.caption("No saved filters yet.")
-    with bar[1].popover("➕ Add", width="stretch"):
+    add_nonce = st.session_state.get("add_nonce", 0)
+    with bar[1].container(key=f"add_wrap{add_nonce}").popover("➕ Add", width="stretch"):
         if saved:
             pick = st.selectbox("Append blocks from…", saved, key="add_pick")
             if st.button("Add (append)", key="do_add"):
                 data = E.load_filterset(pick)
                 st.session_state["filter_blocks"].extend(_with_id(b) for b in data["blocks"])
+                st.session_state["add_nonce"] = add_nonce + 1  # re-key wrapper -> popover closes
+                st.toast(f"Added blocks from {pick}")
                 st.rerun()
         else:
             st.caption("No saved filters yet.")
-    with bar[2].popover("💾 Save", width="stretch"):
-        name = st.text_input("Save as", key="save_name", placeholder="my-screen")
-        if st.button("Save", key="do_save", disabled=not name.strip()):
-            path = E.save_filterset(name.strip(), list(selected), st.session_state["filter_blocks"])
-            st.session_state["filter_set_name"] = name.strip()
-            st.success(f"Saved {path.name}")
+    save_nonce = st.session_state.get("save_nonce", 0)
+    with bar[2].container(key=f"save_wrap{save_nonce}").popover("💾 Save", width="stretch"):
+        typed = (st.session_state.get("filter_name") or "").strip()
+        st.caption("Save the current conditions as a .filt file. Pick an existing "
+                   "filter to overwrite it, or keep **— new file —** to save under "
+                   "the name in the Filter name box.")
+        if saved:
+            pick = st.selectbox("Overwrite an existing filter…",
+                                ["— new file —"] + saved, key="save_pick")
+            target = typed if pick == "— new file —" else pick
+        else:
+            target = typed
+        st.markdown(f"Save as **{target or '—'}.filt**")
+        if st.button("Save", key="do_save", disabled=not target):
+            path = E.save_filterset(target, list(selected), st.session_state["filter_blocks"])
+            st.session_state["filter_name"] = target  # reflect saved name in the box
+            st.session_state["save_nonce"] = save_nonce + 1  # re-key wrapper -> popover closes
+            st.toast(f"Saved {path.name}")
+            st.rerun()
     bar[3].button("🧹 Clear", on_click=_cb_clear, width="stretch", help="Remove all blocks")
+    bar[4].text_input(
+        "Filter name", key="filter_name", placeholder="untitled",
+        help="Working name for this filter set. Used as the .filt filename when "
+             "you Save, and recorded on each run. Leave blank for an ad-hoc run.")
 
     st.divider()
 
@@ -420,30 +398,8 @@ with st.expander("Filters", expanded=True):
     st.button("＋ Add Filter", on_click=_cb_add_filter)
 
 # Scroll a freshly opened param-picker popover to its current (primary-styled)
-# entry. Streamlit has no scroll API, so a zero-height component watches the
-# parent document for a popover body appearing and centers the highlighted
-# button inside it — scrolling only the popover's own scroll container (never
-# the page). The param pickers are the only popovers with a primary button.
-st.iframe(
-    """
-    <script>
-    const doc = window.parent.document;
-    const center = () => {
-        for (const body of doc.querySelectorAll('[data-testid="stPopoverBody"]')) {
-            if (body.dataset.famScrolled) continue;
-            const cur = body.querySelector('[data-testid="stBaseButton-primary"]');
-            if (!cur) continue;
-            body.dataset.famScrolled = "1";
-            const b = body.getBoundingClientRect(), c = cur.getBoundingClientRect();
-            body.scrollTop += c.top - b.top - body.clientHeight / 2 + cur.clientHeight / 2;
-        }
-    };
-    new MutationObserver(center).observe(doc.body, {childList: true, subtree: true});
-    center();
-    </script>
-    """,
-    height=1,  # st.iframe rejects 0; 1px is effectively invisible
-)
+# entry — shared with the Output page's column picker.
+P.scroll_to_current()
 
 # -- Run -------------------------------------------------------------------- #
 def _used_columns(blocks: list[dict]) -> list[str]:
@@ -484,7 +440,7 @@ if st.button("▶ Run Filter", type="primary"):
             result,
             screen_types=list(selected),
             param_cols=_used_columns(st.session_state["filter_blocks"]),
-            filter_name=st.session_state.get("filter_set_name"),
+            filter_name=(st.session_state.get("filter_name") or "").strip() or None,
             blocks=st.session_state["filter_blocks"],
         )
         _url = f"/output?run={rid}"

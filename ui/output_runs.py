@@ -105,6 +105,24 @@ def list_runs() -> list[dict]:
     return sorted(runs, key=lambda m: m.get("run_id", ""), reverse=True)
 
 
+def delete_runs(run_ids: list[str]) -> int:
+    """Delete the parquet+json for each run id; return how many were removed."""
+    removed = 0
+    for rid in run_ids:
+        if not rid or not _RUN_ID_RE.match(rid):
+            continue
+        gone = False
+        for suffix in (".parquet", ".json"):
+            p = _dir() / f"{rid}{suffix}"
+            if p.exists():
+                p.unlink(missing_ok=True)
+                gone = True
+        if gone:
+            removed += 1
+            log.info("Deleted filter run %s", rid)
+    return removed
+
+
 def _prune() -> None:
     """Keep the newest OUTPUT_RUNS_KEEP runs; delete the parquet+json beyond."""
     stems = sorted((p.stem for p in _dir().glob("*.json")), reverse=True)

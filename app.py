@@ -29,7 +29,7 @@ setup_logging()
 # across reruns. Before exiting, gracefully unwind any in-flight fetch (finish the
 # current batch, skip analysis) so the databases aren't left mid-write — with CLI
 # notices about what it's doing (cancel.stop_for_shutdown prints to stdout).
-enable_autoshutdown(on_shutdown=cancel.stop_for_shutdown)
+enable_autoshutdown(grace=4.0, on_shutdown=cancel.stop_for_shutdown)
 
 st.set_page_config(page_title="FAMarket — Stock Screener", layout="wide")
 
@@ -69,6 +69,13 @@ st.markdown(
     }
     .fam-hi ul { margin: 0.3rem 0 0 1.1rem; padding: 0; }
     .fam-hi .fam-h-s { margin-top: 0.3rem; }
+    /* Output column list: render each ✕ delete button (st-key-rmcol…) as a small
+       square the same size/rounding as the checkbox box right next to it, so the
+       delete + active-toggle pair reads as one matched control. */
+    [data-testid="stMain"] [class*="st-key-rmcol"] .stButton > button {
+        width: 1rem; min-width: 1rem; height: 1rem; min-height: 1rem;
+        padding: 0; line-height: 1; border-radius: 0.25rem; font-size: 0.7rem;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -82,6 +89,9 @@ nav = st.navigation(
         # url_path pinned: filter runs open in their own tabs at /output?run=<id>,
         # so this URL is a contract (rename-proof) — see ui/output_runs.py.
         st.Page("ui/pages/output.py", title="Output", icon="📊", url_path="output"),
+        # url_path pinned: chart actions open in their own tab at /charts?view=…&symbols=…
+        # (an Output Action link) — this URL is a contract, like /output above.
+        st.Page("ui/pages/charts.py", title="Charts", icon="📈", url_path="charts"),
         st.Page("ui/pages/calibration.py", title="Calibration", icon="🎚️"),
         st.Page("ui/pages/settings_page.py", title="Settings", icon="⚙️"),
     ]

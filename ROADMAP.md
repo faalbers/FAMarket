@@ -412,6 +412,14 @@
      - Click anywhere on row to select it
 
    - ✅ Subtopic 6.2 — Action menu
+     - ✅ IMPLEMENTED (2026-06-12): results table is multi-row selectable; an
+       Action popover above it (disabled until rows are selected) holds the
+       Normalized price chart (opens ui/pages/charts.py in a new tab) plus the
+       external-site links — Finviz + Yahoo (one multi-symbol tab each),
+       TradingView (one tab per symbol). Each opens in a new browser tab via
+       st.link_button; external URLs come from settings.EXTERNAL_SITES. Still to
+       build: the Fundamentals + Dividends chart actions, and Koyfin (URL format
+       still to be confirmed).
      - [ Action ] button opens grouped dropdown, one action at a time, each opens a new browser tab
      - Action menu structure:
        - Normalized Charts
@@ -434,6 +442,17 @@
      - Dividend growth line charts: annual and quarterly periods only (TTM excluded)
 
    - ✅ Subtopic 6.3 — Normalized price chart details
+     - ✅ IMPLEMENTED (2026-06-12): ui/pages/charts.py, view=price. adj_close
+       indexed to 100 at the window start, one Plotly line per symbol, CHART_COLORWAY
+       palette, period buttons (1Y/3Y/5Y) + custom date range (below the chart),
+       vertical gridlines (date auto-ticks, adaptive), NaN line breaks for data gaps
+       (connectgaps=False, >7-day threshold). Line identification is the x-unified
+       hover alone — no on-chart labels or legend (tried floating right-edge labels;
+       removed because Streamlit's st.plotly_chart emits no relayout event so they
+       can't re-track a live zoom/pan, and the hover already names every line at the
+       cursor). Symbol selector is a narrow left-side Output-style multi-row-selectable
+       list (selecting none = plot all). Still deferred: block-select a range on the
+       chart to populate the custom date inputs.
      - All symbols start at 100% (normalized), one line per symbol
      - Inline symbol labels at end of each line (no legend), offset to avoid overlap
      - Time period buttons at bottom: 1Y, 3Y, 5Y, custom date range (calendar input)
