@@ -100,8 +100,9 @@ class BaseFetcher(ABC):
         Default reads the declarative `stale_after_days`/`stale_date_column`
         attributes (the single-stream case, e.g. OHLCV); financials overrides for
         its per-freq rule. Recomputed from the data each run, so once skipped a
-        symbol's stored date never advances and it stays skipped — a forced run
-        (respect_lock=False) is the recovery path. See data_layer/staleness.py.
+        symbol's stored date never advances and it stays skipped — turn off
+        settings.FETCH_ABANDONMENT_ENABLED to retry it (the 5-day lock does NOT
+        control this gate). See data_layer/staleness.py.
         """
         if self.stale_after_days is None:
             return set()
@@ -116,8 +117,8 @@ class BaseFetcher(ABC):
         Default: none. The yfinance financials fetcher overrides this with the
         filing-cycle gate (staleness.financials_not_due) — statements appear ~4x
         a year, so most weeks a symbol can be skipped knowing nothing new exists.
-        Deferred symbols come due again on their own; a forced run
-        (respect_lock=False) bypasses this like every other gate.
+        Deferred symbols come due again on their own; this is a viability gate
+        governed by settings.FETCH_ABANDONMENT_ENABLED, NOT by the 5-day lock.
         """
         return set()
 
@@ -131,6 +132,54 @@ class BaseFetcher(ABC):
         else:
             db.upsert(self.table, rows, key=self.upsert_key)
 
+    def select_due(
+        self,
+        symbols_df: pd.DataFrame,
+        status_db: Database,
+        respect_lock: bool = True,
+    ) -> tuple[list[str], dict]:
+        """Apply the fetch gates; return (symbols_to_fetch, gate-count breakdown).
+
+        The single source of truth for *which* symbols a run would fetch — used by
+        run() and by the orchestrator's dry-run fetch report. Network-free: every
+        gate reads only fetch_status and the already-stored data.
+
+        Two INDEPENDENT gate groups (narrowing order applies_to first, then both):
+          * the 5-day cadence lock — toggled by `respect_lock` alone;
+          * the viability gates (no-data abandonment, staleness, filing-cycle due
+            date) — toggled by settings.FETCH_ABANDONMENT_ENABLED alone.
+        So unchecking the lock no longer disables staleness/due-date, and a true
+        "refetch everything" run needs respect_lock off AND the abandonment switch
+        off. The returned stats sum as
+        candidates = locked + abandoned + stale + not_due + due.
+        """
+        candidates = self.select_symbols(symbols_df)
+        # Cadence lock (respect_lock) and abandonment (FETCH_ABANDONMENT_ENABLED) are
+        # classified together here, but each gate is governed by its own switch
+        # inside classify_skips — they do not depend on each other.
+        due, locked, abandoned = fetch_status.classify_skips(
+            status_db, candidates, self.name, self.lock_days, respect_lock
+        )
+        # Staleness + filing-cycle due-date: viability gates, on/off with the
+        # abandonment master switch — never with the lock.
+        if settings.FETCH_ABANDONMENT_ENABLED:
+            stale = self.stale_symbols(candidates)
+            not_due = self.not_due_symbols(candidates)
+        else:
+            stale = not_due = set()
+        symbols = [s for s in due if s not in stale and s not in not_due]
+        n_stale = sum(1 for s in due if s in stale)
+        n_not_due = sum(1 for s in due if s in not_due and s not in stale)
+        stats = {
+            "candidates": len(candidates),
+            "locked": len(locked),
+            "abandoned": len(abandoned),
+            "stale": n_stale,
+            "not_due": n_not_due,
+            "due": len(symbols),
+        }
+        return symbols, stats
+
     def run(
         self,
         symbols_df: pd.DataFrame,
@@ -138,22 +187,14 @@ class BaseFetcher(ABC):
         respect_lock: bool = True,
     ) -> dict:
         """Fetch all due symbols for this fetcher. Returns a run summary dict."""
-        candidates = self.select_symbols(symbols_df)
-        n_stale = n_not_due = 0
-        if respect_lock:
-            due = fetch_status.due_symbols(status_db, candidates, self.name, self.lock_days)
-            stale = self.stale_symbols(candidates) if settings.FETCH_ABANDONMENT_ENABLED else set()
-            not_due = self.not_due_symbols(candidates)
-            symbols = [s for s in due if s not in stale and s not in not_due]
-            n_stale = sum(1 for s in due if s in stale)
-            n_not_due = sum(1 for s in due if s in not_due and s not in stale)
-        else:  # forced run: ignore locks, abandonment, staleness, and due dates
-            symbols = candidates
-        total = len(symbols)
+        symbols, stats = self.select_due(symbols_df, status_db, respect_lock)
+        total = stats["due"]
         n_batches = (total + self.batch_size - 1) // self.batch_size if total else 0
         self.log.info(
-            "Start — %d/%d symbols due (%d not yet due; %d skipped stale; %d batches of %d)",
-            total, len(candidates), n_not_due, n_stale, n_batches, self.batch_size,
+            "Start — %d/%d symbols due (%d locked; %d abandoned; %d not yet due; "
+            "%d skipped stale; %d batches of %d)",
+            total, stats["candidates"], stats["locked"], stats["abandoned"],
+            stats["not_due"], stats["stale"], n_batches, self.batch_size,
         )
 
         # A call can end three ways: returned rows (data), returned empty/None

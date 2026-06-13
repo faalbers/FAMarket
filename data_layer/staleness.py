@@ -8,7 +8,8 @@ and skip a symbol whose latest value is older than the configured window.
 
 The test is recomputed every run from the data itself, so it is self-perpetuating:
 once a symbol is skipped its stored date never advances, so it stays skipped — until
-a forced run (respect_lock=False) refetches it and fresh data resets the clock.
+FETCH_ABANDONMENT_ENABLED is turned off (this is a viability gate, not the 5-day
+lock) and a refetch returns fresh data that resets the clock.
 
 Thresholds (config/settings.py):
   * OHLCV                 — newest `date` older than OHLCV_STALE_WEEKS weeks.

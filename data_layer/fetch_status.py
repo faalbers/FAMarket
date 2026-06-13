@@ -15,8 +15,9 @@ A fetch ends one of three ways (see data_layer/fetchers/base.py):
 Abandonment: once no_data_count reaches settings.MAX_NO_DATA_FETCHES the pair is
 permanently skipped on normal runs — a delisted ticker that keeps returning
 nothing stops costing API calls forever. The counter resets the instant data
-returns (so a relisted symbol recovers), and a forced run (respect_lock=False)
-bypasses the gate entirely as the manual retry path.
+returns (so a relisted symbol recovers). Abandonment is INDEPENDENT of the 5-day
+lock: it is gated by settings.FETCH_ABANDONMENT_ENABLED (turn that off to retry
+abandoned pairs), not by respect_lock, which now governs only the time-lock window.
 
   fetcher_name is a plain string, e.g. "yfinance_quotes", "etrade_quotes" — each
   fetcher function holds an independent lock and counters.
@@ -59,9 +60,17 @@ def ensure_table(db: Database) -> None:
 
 
 def is_locked(
-    db: Database, symbol: str, fetcher_name: str, lock_days: int | None = None
+    db: Database,
+    symbol: str,
+    fetcher_name: str,
+    lock_days: int | None = None,
+    respect_lock: bool = True,
 ) -> bool:
-    """True if this pair fetched within the lock window OR has been abandoned."""
+    """True if this pair is abandoned OR — when respect_lock — still time-locked.
+
+    The two gates are independent (see `_skip`): abandonment follows
+    FETCH_ABANDONMENT_ENABLED; the time-lock follows respect_lock.
+    """
     lock_days = settings.FETCH_LOCK_DAYS if lock_days is None else lock_days
     row = db.conn.execute(
         f"SELECT last_fetched, no_data_count FROM {TABLE} WHERE symbol=? AND fetcher_name=?",
@@ -69,13 +78,11 @@ def is_locked(
     ).fetchone()
     if not row:
         return False
-    return _skip(row[0], row[1], lock_days)
+    return _skip(row[0], row[1], lock_days, respect_lock)
 
 
-def _skip(last_fetched: str | None, no_data_count: int | None, lock_days: int) -> bool:
-    """Whether a pair should be skipped: abandoned (no-data cap) or time-locked."""
-    if settings.FETCH_ABANDONMENT_ENABLED and (no_data_count or 0) >= settings.MAX_NO_DATA_FETCHES:
-        return True  # abandoned: returned no data MAX_NO_DATA_FETCHES times
+def _time_locked(last_fetched: str | None, lock_days: int) -> bool:
+    """True if this pair was fetched within the lock window (the cadence gate)."""
     if not last_fetched:
         return False
     try:
@@ -85,13 +92,43 @@ def _skip(last_fetched: str | None, no_data_count: int | None, lock_days: int) -
     return datetime.now(timezone.utc) - last < timedelta(days=lock_days)
 
 
-def due_symbols(
-    db: Database, symbols: list[str], fetcher_name: str, lock_days: int | None = None
-) -> list[str]:
-    """Symbols NOT currently locked or abandoned for this fetcher.
+def _abandoned(no_data_count: int | None) -> bool:
+    """True if this pair hit the no-data cap (only when abandonment is enabled)."""
+    return settings.FETCH_ABANDONMENT_ENABLED and (no_data_count or 0) >= settings.MAX_NO_DATA_FETCHES
 
-    One query loads the whole fetcher's status, then filtering happens in Python —
-    far cheaper than a per-symbol query when iterating tens of thousands of symbols.
+
+def _skip(
+    last_fetched: str | None,
+    no_data_count: int | None,
+    lock_days: int,
+    respect_lock: bool = True,
+) -> bool:
+    """Whether a pair should be skipped — two INDEPENDENT gates, OR'd together:
+
+      * abandoned   — no_data_count hit the cap (gated by FETCH_ABANDONMENT_ENABLED).
+      * time-locked — fetched within the lock window (gated by respect_lock).
+
+    The 5-day lock no longer governs abandonment: turning respect_lock off ignores
+    only the cadence window; abandonment/staleness/due-date are controlled by the
+    FETCH_ABANDONMENT_ENABLED master switch instead.
+    """
+    return _abandoned(no_data_count) or (respect_lock and _time_locked(last_fetched, lock_days))
+
+
+def classify_skips(
+    db: Database,
+    symbols: list[str],
+    fetcher_name: str,
+    lock_days: int | None = None,
+    respect_lock: bool = True,
+) -> tuple[list[str], list[str], list[str]]:
+    """Classify each symbol as (due, time-locked, abandoned) in a single query.
+
+    The two skip gates are independent — abandonment (FETCH_ABANDONMENT_ENABLED) and
+    the time-lock (respect_lock); abandonment wins when both apply. `due_symbols` is
+    the (due) projection of this. One query loads the whole fetcher's status, then
+    classification happens in Python — far cheaper than a per-symbol query when
+    iterating tens of thousands of symbols.
     """
     lock_days = settings.FETCH_LOCK_DAYS if lock_days is None else lock_days
     rows = db.conn.execute(
@@ -99,12 +136,32 @@ def due_symbols(
         (fetcher_name,),
     ).fetchall()
     status = {s: (lf, nd) for s, lf, nd in rows}
-    out = []
+    due: list[str] = []
+    locked: list[str] = []
+    abandoned: list[str] = []
     for s in symbols:
         lf, nd = status.get(s, (None, 0))
-        if not _skip(lf, nd, lock_days):
-            out.append(s)
-    return out
+        if _abandoned(nd):
+            abandoned.append(s)
+        elif respect_lock and _time_locked(lf, lock_days):
+            locked.append(s)
+        else:
+            due.append(s)
+    return due, locked, abandoned
+
+
+def due_symbols(
+    db: Database,
+    symbols: list[str],
+    fetcher_name: str,
+    lock_days: int | None = None,
+    respect_lock: bool = True,
+) -> list[str]:
+    """Symbols NOT currently abandoned or (when respect_lock) time-locked.
+
+    The (due) projection of `classify_skips` — see it for the gate split.
+    """
+    return classify_skips(db, symbols, fetcher_name, lock_days, respect_lock)[0]
 
 
 def mark_success(db: Database, symbol: str, fetcher_name: str) -> None:

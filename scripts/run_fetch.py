@@ -22,7 +22,12 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Run the FAMarket fetch pipeline")
     p.add_argument("--no-discover", action="store_true", help="skip symbol discovery")
     p.add_argument("--subset", help="comma-separated symbols to fetch only")
-    p.add_argument("--no-lock", action="store_true", help="ignore the 5-day fetch lock")
+    p.add_argument(
+        "--no-lock",
+        action="store_true",
+        help="ignore the 5-day fetch lock (viability gates still apply; set "
+        "FETCH_ABANDONMENT_ENABLED=False to bypass abandonment/staleness/due-date)",
+    )
     p.add_argument("--no-backup", action="store_true", help="skip the pre-run backup")
     args = p.parse_args()
 
