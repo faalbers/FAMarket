@@ -183,6 +183,12 @@ _options = {
         "textStyle": {"color": _DARK_TEXT},
         "inactiveColor": "rgba(255,255,255,0.35)",
         "pageTextStyle": {"color": _DARK_TEXT},
+        # "All" turns every line on; "Invert" flips the selection (all-on → all-off).
+        "selector": [{"type": "all", "title": "All"}, {"type": "inverse", "title": "Invert"}],
+        "selectorPosition": "end",
+        "selectorLabel": {"color": _DARK_TEXT, "borderColor": "rgba(255,255,255,0.30)",
+                          "backgroundColor": "rgba(255,255,255,0.05)"},
+        "selectorButtonGap": 8,
     },
     # Native "reset to full chart": the toolbox restore icon (top-right) clears any
     # zoom/pan and returns to the full view — no custom button needed.
