@@ -124,26 +124,18 @@ _chart_host = st.container()
 _period_host = st.container()
 _checked = _have
 
-# Period control (below the chart): "Period:" label + options on one row, with the
-# custom date inputs appearing inline only when Custom is picked.
+# Period control (below the chart): "Period:" label + preset buttons on one row. The
+# presets set the data window loaded; arbitrary sub-ranges are handled inside the chart
+# by the ECharts dataZoom slider (no custom date pickers — ECharts has no native preset
+# selector, but its dataZoom IS a native range selector).
 _today = pd.Timestamp(date.today())
 with _period_host:
-    _pr = st.columns([0.5, 5, 1.5, 1.5], vertical_alignment="center")
+    _pr = st.columns([0.5, 6], vertical_alignment="center")
     _pr[0].markdown("**Period:**")
-    _period = _pr[1].radio("Period", ["1Y", "3Y", "5Y", "Custom"], index=2,
+    _period = _pr[1].radio("Period", ["1Y", "3Y", "5Y"], index=2,
                            horizontal=True, label_visibility="collapsed")
-    if _period == "Custom":
-        _start = pd.Timestamp(_pr[2].date_input(
-            "Start", value=(_today - pd.DateOffset(years=3)).date(),
-            label_visibility="collapsed"))
-        _end = pd.Timestamp(_pr[3].date_input(
-            "End", value=_today.date(), label_visibility="collapsed"))
-    else:
-        _years = {"1Y": 1, "3Y": 3, "5Y": 5}[_period]
-        _start, _end = _today - pd.DateOffset(years=_years), _today
-if _end < _start:
-    st.warning("End date is before the start date.")
-    st.stop()
+_years = {"1Y": 1, "3Y": 3, "5Y": 5}[_period]
+_start, _end = _today - pd.DateOffset(years=_years), _today
 
 # -- build the chart (EXPERIMENT: Apache ECharts via streamlit-echarts) ------- #
 # Same inputs as the Plotly version (data reader, selector, period window); only the
@@ -164,7 +156,7 @@ for _sym in _checked:
         "type": "line",
         "showSymbol": False,
         "connectNulls": False,
-        "lineStyle": {"width": 2},
+        "lineStyle": {"width": 1.5},
         "emphasis": {"focus": "series"},
         "data": _echarts_points(_s["date"], _norm),
     })
@@ -184,15 +176,23 @@ _options = {
         "textStyle": {"color": _DARK_TEXT},
     },
     "legend": {
-        "type": "scroll", "top": 4,
+        "type": "scroll", "top": 4, "left": "center", "right": 90,
         "data": [s["name"] for s in _series_opt],
         "textStyle": {"color": _DARK_TEXT},
         "inactiveColor": "rgba(255,255,255,0.35)",
         "pageTextStyle": {"color": _DARK_TEXT},
     },
+    # Native "reset to full chart": the toolbox restore icon (top-right) clears any
+    # zoom/pan and returns to the full view — no custom button needed.
+    "toolbox": {
+        "right": 10, "top": 2,
+        "iconStyle": {"borderColor": _DARK_TEXT},
+        "emphasis": {"iconStyle": {"borderColor": "#33BBEE"}},
+        "feature": {"dataZoom": {"yAxisIndex": "none"}, "restore": {}},
+    },
     # Vertical + horizontal gridlines; ECharts time axis picks the tick granularity
     # (years / months / weeks) for the visible span and re-picks it on zoom.
-    "grid": {"left": 8, "right": 18, "top": 44, "bottom": 28, "containLabel": True},
+    "grid": {"left": 8, "right": 18, "top": 44, "bottom": 62, "containLabel": True},
     "xAxis": {
         "type": "time",
         "axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.35)"}},
@@ -205,12 +205,28 @@ _options = {
         "axisLabel": {"color": _DARK_TEXT},
         "splitLine": {"show": True, "lineStyle": {"color": _GRID_LINE}},
     },
-    # Mouse-wheel zoom + drag-pan inside the plot (no extra slider bar).
-    "dataZoom": [{"type": "inside"}],
+    # Range selection: mouse-wheel zoom + drag-pan inside the plot, plus a draggable
+    # slider at the bottom (ECharts' native arbitrary-range selector — replaces custom
+    # date inputs). Both styled for the dark theme.
+    "dataZoom": [
+        {"type": "inside"},
+        {
+            "type": "slider", "bottom": 8, "height": 22,
+            "borderColor": "rgba(255,255,255,0.18)",
+            "fillerColor": "rgba(51,187,238,0.18)",
+            "handleStyle": {"color": "#33BBEE"},
+            "moveHandleStyle": {"color": "#33BBEE"},
+            "textStyle": {"color": _DARK_TEXT},
+            "dataBackground": {"lineStyle": {"color": "rgba(255,255,255,0.25)"},
+                               "areaStyle": {"color": "rgba(255,255,255,0.06)"}},
+            "selectedDataBackground": {"lineStyle": {"color": "#33BBEE"},
+                                       "areaStyle": {"color": "rgba(51,187,238,0.12)"}},
+        },
+    ],
     "series": _series_opt,
 }
 with _chart_host:
     st_echarts(options=_options, height=f"{_CHART_HEIGHT}px", key="echarts_price")
     st.caption("Apache ECharts (dark theme). Click a legend name to show/hide that line; "
-               "hover shows every symbol's value at the cursor. Mouse-wheel to zoom, drag "
-               "to pan. Line breaks mark data gaps.")
+               "hover shows every symbol's value at the cursor. Zoom with the wheel or the "
+               "bottom slider; the ⟳ restore icon (top-right) resets to the full chart.")
