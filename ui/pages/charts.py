@@ -36,7 +36,7 @@ _CHART_HEIGHT = 600  # px; the symbol list's scroll box is capped to this so the
 # background than the Okabe-Ito set in settings.CHART_COLORWAY. Promote to settings if kept.
 _DARK_BG = "#0e1117"     # matches Streamlit's default dark theme background
 _DARK_TEXT = "#e6e6e6"
-_GRID_LINE = "rgba(255,255,255,0.08)"
+_GRID_LINE = "rgba(255,255,255,0.14)"  # subtle gridlines on the dark background
 _COLORWAY = ("#33BBEE", "#EE7733", "#EE3377", "#009988", "#0077BB", "#CC3311", "#BBBBBB")
 
 
@@ -115,24 +115,14 @@ if _missing:
 
 st.caption("Normalized adjusted close — every line indexed to 100 at the window start.")
 
-# -- layout: narrow symbol selector on the left, chart on the right; the period --
-# -- controls render in their own row BELOW the chart (the container is created --
-# -- here so it lands there, but its widgets are read before the figure is built). #
-_left, _right = st.columns([1, 9], gap="medium")
+# -- layout: full-width chart, period controls in their own row below it -------- #
+# The ECharts legend (click a name to show/hide a line) replaces a separate symbol
+# selector, so every symbol with data is plotted and toggled from the legend. The
+# containers are created top→bottom (chart above, period below); period widgets are
+# read before the chart is built, but render into their own container underneath.
+_chart_host = st.container()
 _period_host = st.container()
-
-# Symbol selector (left): an Output-style multi-row-selectable list (click,
-# Shift-click range, Ctrl/Cmd-click add). Selecting nothing plots every symbol, so
-# "all" is the zero-effort default. Height is capped to the chart so a long universe
-# scrolls and a short one stays compact.
-_left.caption("Symbols")
-_sym_df = pd.DataFrame({"Symbol": _have})
-_list_height = min(_CHART_HEIGHT, 38 + len(_have) * 35 + 3)
-_sel = (_left.dataframe(
-    _sym_df, hide_index=True, width="stretch", height=_list_height,
-    on_select="rerun", selection_mode="multi-row", key="chartsym_sel",
-) or {}).get("selection", {})
-_checked = [_have[i] for i in _sel.get("rows", []) if i < len(_have)] or _have
+_checked = _have
 
 # Period control (below the chart): "Period:" label + options on one row, with the
 # custom date inputs appearing inline only when Custom is picked.
@@ -180,7 +170,7 @@ for _sym in _checked:
     })
 
 if not _series_opt:
-    _right.info("No data in the selected window.")
+    _chart_host.info("No data in the selected window.")
     st.stop()
 
 _options = {
@@ -219,8 +209,8 @@ _options = {
     "dataZoom": [{"type": "inside"}],
     "series": _series_opt,
 }
-with _right:
+with _chart_host:
     st_echarts(options=_options, height=f"{_CHART_HEIGHT}px", key="echarts_price")
-_right.caption("Apache ECharts spike (dark theme). Legend (top) is a clickable name+color "
-               "key; hover shows every symbol's value at the cursor. Mouse-wheel to zoom, "
-               "drag to pan. Line breaks mark data gaps.")
+    st.caption("Apache ECharts (dark theme). Click a legend name to show/hide that line; "
+               "hover shows every symbol's value at the cursor. Mouse-wheel to zoom, drag "
+               "to pan. Line breaks mark data gaps.")
