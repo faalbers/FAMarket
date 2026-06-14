@@ -222,10 +222,35 @@
      - Peak detection only — no MA-based trend stored
      - Uses scipy.signal.find_peaks on closing prices (swing highs) and inverted prices (swing lows)
      - Classifies: "strong_uptrend" (HH+HL confirmed), "weak_uptrend", "sideways", "weak_downtrend", "strong_downtrend" (LL+LH confirmed)
-     - Calibration tool built into Streamlit UI (not a separate script):
-       - Auto-selects representative stocks from full database (highest/lowest R², most/least volatile)
-       - Shows detected peaks overlaid on price charts, one by one, click-through at Frank's pace
-       - Save prominence/distance parameters directly to config from UI
+     - ✅ IMPLEMENTED amendment (2026-06-13): SWING-BREAK gate added to the
+       classifier (analysis_layer/technical._classify). The peak structure alone
+       ignored all price action after the last peak, so a stock that made HH+HL but
+       has since collapsed below its last swing low still read "strong_uptrend". Now
+       a trend reverts to "sideways" once price closes below the last swing low (up)
+       or above the last swing high (down) — Dow-theory "trend intact only while the
+       last swing holds". A broken trend is NOT relabelled to the opposite direction
+       (that needs a new confirmed swing). Stays inside the peak-detection paradigm —
+       no MA/regression input (the MA-confirm alternative was considered and rejected
+       to keep the label self-contained; price_vs_ma_50 remains a separate column).
+       Measured ~13% of liquid-universe labels flip, all trend→sideways.
+     - ✅ IMPLEMENTED (2026-06-13): Calibration tool built into Streamlit UI
+       (ui/pages/calibration.py), not a separate script:
+       - Auto-selects representative stocks by PRICE behavior, not the stored
+         fundamental-growth R² (amended from "highest/lowest R², most/least volatile":
+         the stored R² measures revenue/EPS trend quality, the wrong axis for tuning
+         PRICE peaks). Picks from a liquid equity pool (top vol_20d_avg, atr_pct ≤ 25%
+         to drop reverse-split artifacts), computes a linear-fit R² on each one's price
+         window on the fly, then spans clear-trend / choppy / volatile / calm.
+       - Shows detected swing highs/lows overlaid on the price chart, with Prev/Next
+         click-through at Frank's pace + a manual symbol box. Uses the SAME
+         technical.trend_signals(close, prominence, distance) the pipeline calls, so the
+         peaks shown are exactly what a run computes.
+       - Two sliders (PEAK_PROMINENCE, PEAK_DISTANCE) → Save writes both to
+         settings.local.json via settings_overrides.update_settings (same path the
+         Settings page uses). New values apply on the NEXT analysis run; existing rows
+         are not re-labelled.
+       - Shared ECharts dark theme/palette lifted into ui/chart_theme.py (was local to
+         charts.py) now that a 2nd chart view needs it.
      - `trend` column stored as text in analysis.db
 
      RSI:

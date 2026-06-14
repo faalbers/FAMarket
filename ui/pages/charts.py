@@ -28,18 +28,15 @@ from streamlit_echarts import st_echarts
 
 from config import settings
 from core.database import Database
+from ui.chart_theme import (
+    COLORWAY as _COLORWAY,
+    DARK_BG as _DARK_BG,
+    DARK_TEXT as _DARK_TEXT,
+    GRID_LINE as _GRID_LINE,
+    echarts_points as _echarts_points,
+)
 
-_GAP_DAYS = 7      # consecutive bars more than this many days apart → draw a line break
 _CHART_HEIGHT = 600  # px; the symbol list's scroll box is capped to this so they align
-
-# Dark chart theme + a bright, color-blind-safe line palette (Paul Tol's "vibrant"
-# scheme, brightest-first) — higher contrast on a dark background than the Okabe-Ito
-# set in settings.CHART_COLORWAY. (Local to the charts page; lift into settings when
-# the fundamentals/dividend chart views need the same theme.)
-_DARK_BG = "#0e1117"     # matches Streamlit's default dark theme background
-_DARK_TEXT = "#e6e6e6"
-_GRID_LINE = "rgba(255,255,255,0.14)"  # subtle gridlines on the dark background
-_COLORWAY = ("#33BBEE", "#EE7733", "#EE3377", "#009988", "#0077BB", "#CC3311", "#BBBBBB")
 
 
 @st.cache_data(show_spinner=False)
@@ -64,24 +61,6 @@ def _load_prices(symbols: tuple[str, ...], _mtime: float) -> pd.DataFrame:
     df["adj_close"] = pd.to_numeric(df["adj_close"], errors="coerce")
     return (df.dropna(subset=["date", "adj_close"])
               .sort_values(["symbol", "date"], kind="stable"))
-
-
-def _echarts_points(dates: pd.Series, values: pd.Series) -> list[list]:
-    """Build ECharts [date, value] points, inserting a null wherever consecutive
-    bars are >_GAP_DAYS apart.
-
-    With series `connectNulls=False`, ECharts renders the null as a break, so genuine
-    data gaps (missing fetch, trading halt) show as a discontinuity instead of a
-    straight-line interpolation. Normal weekend/holiday gaps stay under the threshold.
-    """
-    pts: list[list] = []
-    prev = None
-    for d, v in zip(dates, values):
-        if prev is not None and (d - prev).days > _GAP_DAYS:
-            pts.append([(prev + (d - prev) / 2).strftime("%Y-%m-%d"), None])
-        pts.append([d.strftime("%Y-%m-%d"), round(float(v), 2)])
-        prev = d
-    return pts
 
 
 # --------------------------------------------------------------------------- #

@@ -258,26 +258,60 @@ def relative_strength_raw(ohlcv: pd.DataFrame) -> float:
     return float(sum(w * (marks[i] / marks[i + 1]) for i, w in enumerate(weights)))
 
 
-def _trend(close: pd.Series) -> str:
-    """Peak-detection trend over the last year (HH/HL vs LL/LH on swing points)."""
+def trend_signals(
+    close: pd.Series, prominence: float, distance: int
+) -> tuple[np.ndarray, np.ndarray, str]:
+    """Swing-high / swing-low indices and the trend label for a price series.
+
+    Shared by the analysis pipeline (`_trend`) and the in-UI calibration tool so
+    both see the *identical* peaks for a given prominence/distance. `prominence` is
+    a fraction of the window's mean price (so it scales across price levels);
+    `distance` is the minimum trading days between peaks. The returned indices point
+    into `close.tail(_TREND_WINDOW)` — i.e. the same window the label is judged on,
+    so a caller can plot the peaks against that tail.
+    """
     win = close.tail(_TREND_WINDOW).to_numpy()
     if len(win) < _TREND_MIN:
-        return "sideways"
-    prom = settings.PEAK_PROMINENCE * float(np.mean(win))
-    highs, _ = find_peaks(win, prominence=prom, distance=settings.PEAK_DISTANCE)
-    lows, _ = find_peaks(-win, prominence=prom, distance=settings.PEAK_DISTANCE)
+        return np.array([], dtype=int), np.array([], dtype=int), "sideways"
+    prom = prominence * float(np.mean(win))
+    highs, _ = find_peaks(win, prominence=prom, distance=distance)
+    lows, _ = find_peaks(-win, prominence=prom, distance=distance)
+    return highs, lows, _classify(win, highs, lows)
+
+
+def _classify(win: np.ndarray, highs: np.ndarray, lows: np.ndarray) -> str:
+    """HH/HL vs LL/LH on the last two swing points -> trend label, gated by a
+    swing-break check on the price action *after* the last peak.
+
+    Dow-theory rule: a trend is only intact while price holds its last swing. If
+    the current price has dropped below the last swing low, an uptrend is broken;
+    if it has risen above the last swing high, a downtrend is broken. A broken
+    trend isn't yet a confirmed reverse (that needs a new swing) — it's `sideways`.
+    Without this, the label reflects only the swing history and ignores a sharp
+    reversal since the last peak (e.g. a stock that made higher highs/lows but has
+    since collapsed below the last low would still read `strong_uptrend`).
+    """
     if len(highs) < 2 or len(lows) < 2:
         return "sideways"
+    cur = win[-1]
     hh = win[highs[-1]] > win[highs[-2]]
     hl = win[lows[-1]] > win[lows[-2]]
     ll = win[lows[-1]] < win[lows[-2]]
     lh = win[highs[-1]] < win[highs[-2]]
-    if hh and hl:
+    broke_up = cur < win[lows[-1]]    # price below the last swing low -> uptrend broken
+    broke_down = cur > win[highs[-1]]  # price above the last swing high -> downtrend broken
+    if hh and hl and not broke_up:
         return "strong_uptrend"
-    if ll and lh:
+    if ll and lh and not broke_down:
         return "strong_downtrend"
-    if hh or hl:
+    if (hh or hl) and not broke_up:
         return "weak_uptrend"
-    if ll or lh:
+    if (ll or lh) and not broke_down:
         return "weak_downtrend"
     return "sideways"
+
+
+def _trend(close: pd.Series) -> str:
+    """Peak-detection trend over the last year (HH/HL vs LL/LH on swing points)."""
+    _, _, label = trend_signals(close, settings.PEAK_PROMINENCE, settings.PEAK_DISTANCE)
+    return label

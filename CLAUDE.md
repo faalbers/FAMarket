@@ -24,7 +24,12 @@ complete — `_periods`, `metrics`, `technical`, `intrinsic_value`, `_stats`,
 `analysis_layer/screen_type.py`, and a persisted `rs_raw` input column for
 subset-run re-ranking) and is wired into the orchestrator as Group 3
 after each fetch. The **UI** is being built page by page: Fetch Control, Settings,
-Filter and Output are functional; Calibration remains an `st.info` skeleton. The
+Filter, Output and Calibration are functional. Calibration
+(`ui/pages/calibration.py`) is the peak-detection tuning tool — sliders for
+`PEAK_PROMINENCE`/`PEAK_DISTANCE`, a price chart with detected swing highs/lows
+overlaid (via the shared `analysis_layer/technical.trend_signals`),
+price-behavior-picked sample stocks, and Save to `settings.local.json`. Shared
+ECharts dark theme/palette now live in `ui/chart_theme.py`. The
 Filter page (Topic 5) is backed by `ui/filter_registry.py` (per-`screen_type` metric
 applicability) + `ui/filter_engine.py` (block model + `.filt` JSON). Each Run Filter
 persists a run file (`ui/output_runs.py`: parquet+json in `results/`, newest
@@ -148,9 +153,10 @@ Three intentionally decoupled layers plus shared infrastructure:
 - **Charts** are rendered with **Apache ECharts** (`streamlit-echarts`, pinned
   `==0.4.0` — 0.7.0 uses `st.components.v2` and breaks on the current Streamlit).
   Use a color-blind-safe palette (no red/green; blue-to-orange for heatmaps); the
-  price chart's dark theme + bright palette live in `ui/pages/charts.py`
-  (`_COLORWAY`/`_DARK_*`) — lift them into shared config when more chart views are
-  built. `settings.CHART_COLORWAY` is the default palette for any other chart.
+  price chart's dark theme + bright palette + gap-break helper now live in
+  `ui/chart_theme.py` (`COLORWAY`/`DARK_*`/`echarts_points`), shared by the price
+  chart and the Calibration chart. `settings.CHART_COLORWAY` is the default palette
+  for any other chart.
 - **Streamlit live updates** use `st.fragment(run_every=…)`, never a
   `time.sleep() + st.rerun()` poll loop — the blocking sleep freezes the script
   between ticks and silently drops widget input (e.g. a Stop click). A button that
