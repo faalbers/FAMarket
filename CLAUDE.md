@@ -23,7 +23,15 @@ complete — `_periods`, `metrics`, `technical`, `intrinsic_value`, `_stats`,
 (126 cols — includes a sector/industry-derived `screen_type` column via
 `analysis_layer/screen_type.py`, and a persisted `rs_raw` input column for
 subset-run re-ranking) and is wired into the orchestrator as Group 3
-after each fetch. The **UI** is being built page by page: Fetch Control, Settings,
+after each fetch. On **full runs only** it also builds daily base-100 **sector &
+sub-industry index series** (`analysis_layer/sector_index.py`, SPDR Select Sector
+formula — float-MC weights, current capping, quarterly rebalance) and writes them to a
+dedicated `indices.db` (long/tidy `sector_industry_index` table; `sector_industry_index.py`
+at the repo root is the read-only spec prototype). Index history is **data-driven**
+(starts where `financials.db` share coverage broadens, `INDEX_START_MIN_REPORTERS`),
+read via a dedicated memory-efficient deep `adj_close` read of the liquid constituents
+only — decoupled from `ANALYSIS_OHLCV_LOOKBACK_DAYS`. Each run logs its peak RAM via
+`core/meminfo.py` (Win32 ctypes, no psutil). The **UI** is being built page by page: Fetch Control, Settings,
 Filter, Output and Calibration are functional. Calibration
 (`ui/pages/calibration.py`) is the peak-detection tuning tool — sliders for
 `PEAK_PROMINENCE`/`PEAK_DISTANCE`, a price chart with detected swing highs/lows
@@ -93,7 +101,7 @@ Three intentionally decoupled layers plus shared infrastructure:
 ### Conventions that cut across the codebase
 
 - **Separate SQLite DBs per data type** (`symbols`, `quotes`, `ohlcv`,
-  `financials`, `analysis`, `macro` — paths in `config/settings.py`). There are
+  `financials`, `analysis`, `macro`, `indices` — paths in `config/settings.py`). There are
   **no cross-database SQL joins**; merge in pandas instead.
 - **The SQLite wrapper is opinionated by design** (`core/database.py`): never a
   generic write. Use the verb that names the intent — `append` (add rows, e.g.

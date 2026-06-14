@@ -320,6 +320,55 @@
      - All weights adjustable via Settings page in Streamlit UI (sliders, saves to config automatically)
      - Settings page also covers category weights within Overall Score
 
+   - ✅ Subtopic 4.5 — Sector & sub-industry index series (added + IMPLEMENTED 2026-06-14)
+     - WHAT: a daily base-100 level series for every Yahoo sector and every
+       'sector | industry' group — a constructed index per group, so a sector's /
+       industry's price trend can be charted and compared, not just per-stock metrics.
+     - FORMULA (from a vetted standalone prototype, `sector_industry_index.py` at the
+       repo root — kept read-only as the spec): SPDR Select Sector method. Float-MC
+       weights (price × daily-interpolated shares × IWF) recomputed each quarter
+       (third-Friday rebalance), capped with the current/"new" (2024-09-23) Select
+       Sector diversification rules, held fixed between rebalances, chained to base 100.
+       The formula/capping/rebalance mechanics are copied VERBATIM — do not retune them.
+     - WHERE/HOW STORED: a NEW dedicated `databases/indices.db` (one-DB-per-data-type
+       convention), table `sector_industry_index` in LONG/tidy shape
+       (`kind`,`label`,`date`,`level`) + an `index_meta` row. `replace`d clean-slate
+       each full run, like analysis.db. Added to backup/restore scope.
+     - WHEN: inside `pipeline.run_analysis()`, FULL runs only (universe-wide; subset
+       runs lack the panel). Isolated in try/except AFTER the analysis.db write so an
+       index failure can't discard the main result. Module: `analysis_layer/sector_index.py`.
+     - DATE RANGE / EFFICIENCY (amended 2026-06-14, replaced the first cut): the index
+       history is DECOUPLED from `ANALYSIS_OHLCV_LOOKBACK_DAYS` (that ~2yr bound exists
+       only to cap the full-table read the per-symbol metrics need — wrong axis for the
+       indices). Start is DATA-DRIVEN: the earliest date by which >=
+       `INDEX_START_MIN_REPORTERS` (default 25) constituents have a share report in
+       financials.db (breadth guard against a lone deep-history outlier dragging the read
+       back decades). Prices come from a DEDICATED memory-efficient deep read
+       (`sector_index._deep_price_panel`): only `adj_close`, only the ~4.5k liquid
+       constituents (not the 38k universe), read in 500-symbol IN(...) chunks assembled
+       into one column per symbol. Quotes + full financials + the recent liquidity window
+       are still reused from what the pipeline already holds.
+       - MEASURED (2026-06-14, stdlib ctypes probe, 32GB machine): the index build's own
+         footprint is tiny — price panel ~38 MB, shares panel ~38 MB, ~8.5 MB per extra
+         YEAR of history, so deepening history is essentially free on RAM. Data-driven
+         start landed on 2021-12-31 (~4.5yr, ~144k rows). The big resident consumers are
+         pipeline-wide and pre-existing (730-day ohlcv_by, ~930 MB financials), not the
+         index. A permanent one-line peak-RAM log was added (`core/meminfo.py`, Win32 via
+         ctypes, no psutil) — `run_analysis()` logs "peak RAM X GB / Y GB system" each run.
+     - UNIVERSE / DISTORTION GUARD: the prototype warns illiquid/penny names can
+       dominate a group's index. Filter = active+validated → sector-tagged → LIQUIDITY
+       FLOOR (avg daily dollar volume ≥ `INDEX_MIN_AVG_DOLLAR_VOLUME`, default $1M, over
+       `INDEX_LIQUIDITY_WINDOW_DAYS`=63 bars; flat-NAV funds drop for free). Tiny
+       industries pruned via `INDEX_MIN_INDUSTRY_MEMBERS`. All in config/settings.py.
+     - UI consumption (charts off indices.db) is NOT built yet — data layer only.
+     - ⏭️ TODO — HOW TO USE THE INDICES IN THE APP IS NOT YET DESIGNED. The data layer
+       (indices.db) is done, but where/how this data surfaces to the user — charts,
+       which page(s), comparison vs a stock or vs other sectors/industries, sorting/
+       ranking sectors by trend, any derived metrics — is undecided. DO NOT start
+       building the consumption side until we BRAINSTORM the approach with the user
+       first (decided topic-by-topic, the usual working style). This is the next open
+       design question for the indices feature.
+
 ✅ Topic 5 — Filter Interface
    - KEY DESIGN DECISION: Single unified interface, dynamically adaptive
      - Security type is the first filter

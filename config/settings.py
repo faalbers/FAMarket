@@ -36,6 +36,7 @@ OHLCV_DB: Path = DB_DIR / "ohlcv.db"
 FINANCIALS_DB: Path = DB_DIR / "financials.db"
 ANALYSIS_DB: Path = DB_DIR / "analysis.db"
 MACRO_DB: Path = DB_DIR / "macro.db"
+INDICES_DB: Path = DB_DIR / "indices.db"  # sector / sub-industry index level series
 
 # Rotating backups of every .db file, taken before each fetch run.
 BACKUP_DIR: Path = BASE_DIR / "backups"
@@ -166,6 +167,22 @@ GROWTH_WINDOWS_YEARS: tuple[int, ...] = (1, 3, 5)
 # series is truncated to its last N years so the consistency measure reflects
 # recent behaviour rather than deep EDGAR history.
 GROWTH_TREND_YEARS: int = 5
+
+# Sector / sub-industry index (analysis_layer/sector_index.py) — daily base-100
+# level series per Yahoo sector and 'sector | industry', SPDR Select Sector formula.
+# Built on full analysis runs from the panels already loaded; written to INDICES_DB.
+INDEX_FIELD: str = "adj_close"            # 'adj_close' total return | 'close' price return
+# Liquidity floor: drop names whose average daily dollar volume (adj_close*volume)
+# over the trailing window is below this, so illiquid/penny names can't distort a
+# group's index (mutual-fund flat-NAV series are removed for free). Set 0 to disable.
+INDEX_MIN_AVG_DOLLAR_VOLUME: float = 1_000_000.0
+INDEX_LIQUIDITY_WINDOW_DAYS: int = 63     # trailing bars for the dollar-volume average
+INDEX_MIN_INDUSTRY_MEMBERS: int = 3       # skip 'sector | industry' groups smaller than this
+# Index history is read back to the earliest date by which this many constituents
+# have a share report in financials.db (data-driven start; a breadth guard so one
+# deep-history outlier can't drag the price read back decades). Prices for the index
+# come from a dedicated narrow deep read, NOT the bounded ANALYSIS_OHLCV_LOOKBACK_DAYS.
+INDEX_START_MIN_REPORTERS: int = 25
 
 # Compute-and-reconcile (Analysis): every fundamental ratio is computed from
 # financials.db; where yfinance (quotes.db) has the same ratio we cross-check and

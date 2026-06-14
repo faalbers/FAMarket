@@ -37,8 +37,10 @@ import pandas as pd
 from config import settings
 from core.database import Database
 from core.logging_config import get_logger
+from core import meminfo
 from analysis_layer import _periods as P
 from analysis_layer import metrics, technical, intrinsic_value, peers, scoring
+from analysis_layer import sector_index
 from analysis_layer.screen_type import classify as classify_screen_type
 
 log = get_logger("analysis")
@@ -259,8 +261,26 @@ def run_analysis(subset: list[str] | None = None) -> dict:
     _log_reconcile(reconcile, n_recomputed)
     log.info("analysis.db — %d symbols (%d recomputed), %d columns written",
              len(df), n_recomputed, df.shape[1])
+
+    # Sector / sub-industry index series — universe-wide, so full runs only. Built
+    # from the panels already in memory; isolated in try/except so a failure here
+    # never discards the analysis.db write that just succeeded.
+    index_summary: dict | None = None
+    if subset is None:
+        try:
+            log.info("Analysis — building sector/industry indices…")
+            index_summary = sector_index.build_and_write(
+                universe["symbol"].tolist(), quotes, financials, ohlcv_by, prices_as_of)
+        except Exception:
+            log.exception("Sector/industry index build failed; analysis.db is unaffected")
+
+    ram = meminfo.peak_ram_summary()
+    if ram:
+        log.info("Analysis — %s", ram)
+
     return {"symbols": len(df), "recomputed": n_recomputed, "columns": df.shape[1],
-            "reconcile_divergences": len(reconcile), "prices_as_of": prices_as_of}
+            "reconcile_divergences": len(reconcile), "prices_as_of": prices_as_of,
+            "indices": index_summary}
 
 
 def _merge_existing(df: pd.DataFrame, subset: list[str],

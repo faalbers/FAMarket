@@ -45,6 +45,7 @@ def database_paths() -> list[Path]:
         settings.FINANCIALS_DB,
         settings.ANALYSIS_DB,
         settings.MACRO_DB,
+        settings.INDICES_DB,
     ]
 
 
