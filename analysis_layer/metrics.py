@@ -83,6 +83,88 @@ def _qget(quote: pd.Series | None, key: str) -> float:
 
 
 # --------------------------------------------------------------------------- #
+# ratio formulas — the single definition of each statement ratio
+# --------------------------------------------------------------------------- #
+# compute() calls these with TTM/latest inputs (the snapshot stored in analysis.db);
+# the per-period fundamentals chart (ui) calls the SAME functions with each period's
+# reported inputs. One formula, two callers — so a ratio is never defined twice.
+# Only currency-neutral statement ratios live here (margins, returns, leverage);
+# price-based ratios (P/E, EV/EBITDA, …) need a price per period and are not
+# reconstructable from financials.db alone.
+def net_margin(ni: float, rev: float) -> float:
+    return _pct(_div(ni, rev))
+
+
+def gross_margin(gp: float, rev: float) -> float:
+    return _pct(_div(gp, rev))
+
+
+def operating_margin(ebit: float, rev: float) -> float:
+    return _pct(_div(ebit, rev))
+
+
+def fcf_margin(fcf: float, rev: float) -> float:
+    return _pct(_div(fcf, rev))
+
+
+def roe(ni: float, equity: float) -> float:
+    return _pct(_div(ni, equity))
+
+
+def roa(ni: float, total_assets: float) -> float:
+    return _pct(_div(ni, total_assets))
+
+
+def debt_to_equity(total_debt: float, equity: float) -> float:
+    return _div(total_debt, equity)
+
+
+def current_ratio(cur_assets: float, cur_liab: float) -> float:
+    return _div(cur_assets, cur_liab)
+
+
+def debt_to_ebitda(total_debt: float, ebitda: float) -> float:
+    return _div(total_debt, ebitda)
+
+
+def interest_coverage(ebit: float, interest_expense: float) -> float:
+    return _div(ebit, abs(interest_expense) if pd.notna(interest_expense) else float("nan"))
+
+
+# Per-period chart registry (canonical, lives in the analysis layer so the metric
+# definitions stay here, not in the UI). Each ratio maps to its formula function and
+# the financials.db fields it consumes IN ORDER; the chart reads those fields per
+# reported period and calls the function. Percent-valued ratios are flagged for the
+# chart's axis unit (these functions already return percent numbers, e.g. 12.5).
+RATIO_PERIOD_METRICS: dict[str, tuple] = {
+    "gross_margin": (gross_margin, ("gross_profit", "total_revenue"), "%"),
+    "operating_margin": (operating_margin, ("operating_income", "total_revenue"), "%"),
+    "net_margin": (net_margin, ("net_income", "total_revenue"), "%"),
+    "fcf_margin": (fcf_margin, ("free_cash_flow", "total_revenue"), "%"),
+    "roe": (roe, ("net_income", "stockholders_equity"), "%"),
+    "roa": (roa, ("net_income", "total_assets"), "%"),
+    "debt_to_equity": (debt_to_equity, ("total_debt", "stockholders_equity"), "x"),
+    "debt_to_ebitda": (debt_to_ebitda, ("total_debt", "ebitda"), "x"),
+    "current_ratio": (current_ratio, ("current_assets", "current_liabilities"), "x"),
+    "interest_coverage": (interest_coverage, ("operating_income", "interest_expense"), "x"),
+}
+
+# Raw statement line items the chart can plot directly (no formula) -> display label.
+RAW_PERIOD_FIELDS: dict[str, str] = {
+    "total_revenue": "Revenue",
+    "gross_profit": "Gross profit",
+    "operating_income": "Operating income",
+    "net_income": "Net income",
+    "ebitda": "EBITDA",
+    "free_cash_flow": "Free cash flow",
+    "diluted_eps": "Diluted EPS",
+    "stockholders_equity": "Stockholders' equity",
+    "total_assets": "Total assets",
+    "total_debt": "Total debt",
+}
+
+
+# --------------------------------------------------------------------------- #
 # free cash flow (shared with intrinsic_value)
 # --------------------------------------------------------------------------- #
 # yfinance only populates `free_cash_flow` for ~recent periods, while the EDGAR
@@ -165,8 +247,14 @@ def _yoy_latest(sq: pd.Series) -> float:
     return last / prior - 1
 
 
-def _split_adjust(s: pd.Series, splits: pd.Series | None) -> pd.Series:
-    """Per-share series rescaled to current-share terms using post-period splits."""
+def split_adjust(s: pd.Series, splits: pd.Series | None) -> pd.Series:
+    """Per-share series rescaled to current-share terms using post-period splits.
+
+    Public (shared): the analysis snapshot uses it for EPS growth, and the
+    fundamentals chart uses it so a plotted EPS-over-time series is split-consistent
+    with the snapshot — one adjustment, defined once. `splits` is a datetime-indexed
+    sparse series of split factors (from ohlcv.db).
+    """
     if splits is None or s.empty:
         return s
     real = splits[(splits != 0) & (splits != 1)]
@@ -271,24 +359,24 @@ def compute(
     m["forward_pe"] = _div(price, forward_eps)  # forward = analyst data, from quotes
 
     # -- profitability (currency-neutral) ----------------------------------- #
-    m["roe"] = _pct(_div(ni, equity))
-    m["roa"] = _pct(_div(ni, total_assets))
+    m["roe"] = roe(ni, equity)
+    m["roa"] = roa(ni, total_assets)
     tax_rate = _div(P.ttm(fin, "tax_provision"), P.ttm(fin, "pretax_income"))
     if pd.notna(tax_rate):
         tax_rate = min(max(tax_rate, 0.0), 1.0)
     nopat = ebit * (1 - tax_rate) if pd.notna(ebit) and pd.notna(tax_rate) else float("nan")
     m["roic"] = _pct(_div(nopat, P.latest(fin, "invested_capital")))
-    m["gross_margin"] = _pct(_div(gp, rev))
-    m["operating_margin"] = _pct(_div(ebit, rev))
-    m["net_margin"] = _pct(_div(ni, rev))
-    m["fcf_margin"] = _pct(_div(fcf, rev))
+    m["gross_margin"] = gross_margin(gp, rev)
+    m["operating_margin"] = operating_margin(ebit, rev)
+    m["net_margin"] = net_margin(ni, rev)
+    m["fcf_margin"] = fcf_margin(fcf, rev)
 
     # -- financial health --------------------------------------------------- #
     cur_assets = P.latest(fin, "current_assets")
     cur_liab = P.latest(fin, "current_liabilities")
     inventory = P.latest(fin, "inventory")
-    m["debt_to_equity"] = _div(total_debt, equity)
-    m["current_ratio"] = _div(cur_assets, cur_liab)
+    m["debt_to_equity"] = debt_to_equity(total_debt, equity)
+    m["current_ratio"] = current_ratio(cur_assets, cur_liab)
     # Acid test: liquid assets only (cash + ST investments + receivables). Prefer
     # the explicit liquid line; fall back to current-assets-minus-inventory.
     liquid = P.latest(fin, "cash_cash_equivalents_and_short_term_investments")
@@ -299,13 +387,13 @@ def compute(
         quick_num = (cur_assets - inventory) if pd.notna(inventory) else cur_assets
     m["quick_ratio"] = _div(quick_num, cur_liab)
     m["cash_ratio"] = _div(cash, cur_liab)
-    m["interest_coverage"] = _div(ebit, abs(P.ttm(fin, "interest_expense")))
-    m["debt_to_ebitda"] = _div(total_debt, ebitda)
+    m["interest_coverage"] = interest_coverage(ebit, P.ttm(fin, "interest_expense"))
+    m["debt_to_ebitda"] = debt_to_ebitda(total_debt, ebitda)
     m["altman_z"] = _altman_z(fin, ebit, rev, mktcap, total_assets, total_liab) if currency_ok else float("nan")
 
     # -- growth ------------------------------------------------------------- #
-    eps_a = _split_adjust(P.annual(fin, "diluted_eps"), splits)
-    eps_q = _split_adjust(P.quarterly(fin, "diluted_eps"), splits)
+    eps_a = split_adjust(P.annual(fin, "diluted_eps"), splits)
+    eps_q = split_adjust(P.quarterly(fin, "diluted_eps"), splits)
     m.update(_growth_block("revenue", P.annual(fin, "total_revenue"), P.quarterly(fin, "total_revenue")))
     m.update(_growth_block("eps", eps_a, eps_q))
     m.update(_growth_block("fcf", fcf_annual(fin), P.quarterly(fin, "free_cash_flow")))

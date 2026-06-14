@@ -506,9 +506,13 @@ with _act[0].popover(f"⚙ Action · {_n_sel}" if _n_sel else "⚙ Action", disa
     _preview = ", ".join(_selected[:10]) + ("…" if _n_sel > 10 else "")
     st.caption(f"{_n_sel} symbol{'' if _n_sel == 1 else 's'} selected: {_preview}")
     st.markdown("**Charts**")
-    st.link_button("📈 Normalized price chart ↗", _charts_url(_selected, "price"),
-                   width="stretch")
-    st.caption("Fundamentals & dividend charts are coming next.")
+    _ch = st.columns(2)
+    _ch[0].link_button("📈 Normalized price chart ↗", _charts_url(_selected, "price"),
+                       width="stretch")
+    _ch[1].link_button("📊 Fundamentals over time ↗",
+                       _charts_url(_selected, "fundamentals_bar"), width="stretch")
+    st.caption("Fundamentals: pick one symbol + one parameter, see it across periods. "
+               "Dividend charts coming next.")
     st.markdown("**Analyze on external site**")
     _ext = st.columns(2)
     _ext[0].link_button("Finviz ↗", _sites["finviz"].format(symbols=_syms_csv), width="stretch")

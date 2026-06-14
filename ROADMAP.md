@@ -445,11 +445,29 @@
        st.link_button; external URLs come from settings.EXTERNAL_SITES. Still to
        build: the Fundamentals + Dividends chart actions, and Koyfin (URL format
        still to be confirmed).
+     - ✅ IMPLEMENTED (2026-06-13): Fundamentals BAR chart (charts.py
+       view=fundamentals_bar). Design REVISED from the original "grouped by metric,
+       multi-symbol" note (see the action-menu structure below): the user wants to
+       watch ONE symbol's parameter change over time, so v1 is one-symbol ×
+       one-parameter × bars-over-periods, with an annual/quarterly toggle (symbol +
+       parameter are single-select dropdowns; the multi-symbol comparison is a
+       deliberate later step). Data comes from financials.db per period (read lazily
+       per symbol, cached) — NOT analysis.db, which only stores the current snapshot.
+       Ratios (margins/ROE/ROA/leverage) reuse the SAME formula functions as the
+       analysis snapshot: metrics.py now exposes them as named funcs +
+       RATIO_PERIOD_METRICS/RAW_PERIOD_FIELDS registries, so a ratio is defined ONCE
+       (verified 80/80 parity vs the stored snapshot after the extraction). Price-based
+       ratios (P/E, EV/EBITDA, yield) need a per-period price and are DEFERRED; growth
+       metrics + category scores are multi-period summaries and don't belong on a
+       per-period bar. Missing periods render as gaps.
      - [ Action ] button opens grouped dropdown, one action at a time, each opens a new browser tab
      - Action menu structure:
        - Normalized Charts
        - Fundamentals
-           - Parameter bar charts (grouped by metric, per share/ratio, time period selector)
+           - Parameter bar charts — ORIGINAL note: "grouped by metric, per share/ratio,
+             time period selector" (multi-symbol comparison on one period). REVISED
+             2026-06-13 (✅ shipped, see 6.2 above) to one-symbol × one-parameter ×
+             over-periods; the multi-symbol-comparison bar is a later step.
            - Parameter heat map charts (blue-to-orange scale, color-blind safe)
            - Radar chart (5 category scores: Value, Quality, Growth, Momentum, Income)
            - Parameter growth line charts (annual/quarterly selector, all periods, gaps shown as breaks)

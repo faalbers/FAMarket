@@ -29,7 +29,14 @@ Filter, Output and Calibration are functional. Calibration
 `PEAK_PROMINENCE`/`PEAK_DISTANCE`, a price chart with detected swing highs/lows
 overlaid (via the shared `analysis_layer/technical.trend_signals`),
 price-behavior-picked sample stocks, and Save to `settings.local.json`. Shared
-ECharts dark theme/palette now live in `ui/chart_theme.py`. The
+ECharts dark theme/palette now live in `ui/chart_theme.py`. The Output Action menu
+charts (`ui/pages/charts.py`, routed by `?view=`) now include the normalized price
+chart and a **Fundamentals bar chart** (`view=fundamentals_bar`): one symbol × one
+parameter over its reported periods (annual/quarterly), read per-symbol from
+`financials.db`. Its ratios reuse the **same formula functions as the analysis
+snapshot** — `metrics.py` exposes them as named funcs + `RATIO_PERIOD_METRICS` /
+`RAW_PERIOD_FIELDS` registries so a ratio is defined once, never duplicated in the UI.
+The
 Filter page (Topic 5) is backed by `ui/filter_registry.py` (per-`screen_type` metric
 applicability) + `ui/filter_engine.py` (block model + `.filt` JSON). Each Run Filter
 persists a run file (`ui/output_runs.py`: parquet+json in `results/`, newest
