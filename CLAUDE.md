@@ -181,6 +181,13 @@ Three intentionally decoupled layers plus shared infrastructure:
   between ticks and silently drops widget input (e.g. a Stop click). A button that
   must register during an auto-refreshing view uses an `on_click` callback, not its
   return value. `st.expander` cannot be nested (use `st.popover` inside an expander).
+- **Streamlit CSS** all lives in the single `app.py` `<style>` block — never per-page
+  (it's injected after `set_page_config` and `app.py` reruns on every navigation, so it
+  styles all pages). Two gotchas: selectbox/multiselect **dropdown menus render in a
+  popover portaled OUTSIDE `[data-testid="stMain"]`**, so style them with global
+  `li[role="option"]` selectors; to target one specific widget, wrap it in
+  `st.container(key=…)` and select `[class*="st-key-…"]` (sizing a button down needs
+  `!important` to beat Streamlit's own button rules).
 - **Backups**: `core/backup.py` keeps the newest 5 dated copies of every `.db`
   (`{stem}_{YYYY-MM-DD_HH-MM-SS}{suffix}`), taken before each fetch run; one run stamps
   all DBs with a single timestamp, so each stamp is one consistent snapshot.
