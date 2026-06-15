@@ -80,6 +80,23 @@ st.markdown(
         font-size: 0.9rem !important;
         display: flex !important; align-items: center !important; justify-content: center !important;
     }
+    /* Parameter Reference page (wrapped in st.container(key="paramref")): roomier,
+       dyslexia-friendlier reading — larger body text and generous line spacing. Uses a
+       DESCENDANT selector (the key class sits on an outer container; see the rmcol note
+       above and CLAUDE.md). Card names (#### → h4) get a touch more size + top space. */
+    [data-testid="stMain"] [class*="st-key-paramref"] p,
+    [data-testid="stMain"] [class*="st-key-paramref"] li {
+        font-size: 0.95rem !important; line-height: 1.7 !important;
+    }
+    [data-testid="stMain"] [class*="st-key-paramref"] h4 {
+        font-size: 1.15rem !important; margin: 0.1rem 0 0.2rem 0 !important;
+    }
+    [data-testid="stMain"] [class*="st-key-paramref"] li { margin-bottom: 0.25rem !important; }
+    /* Roomier gaps between the stacked parts of each card (name → info → bullets → peers)
+       — overrides the app-wide tight 0.3rem gap, scoped to this page by the extra class. */
+    [data-testid="stMain"] [class*="st-key-paramref"] [data-testid="stVerticalBlock"] {
+        gap: 0.7rem !important;
+    }
     /* Dropdown option rows (selectbox / multiselect popover menus). These render in a
        BaseWeb popover portaled OUTSIDE stMain, so they aren't covered by the rules
        above — target them globally. Halve the tall default vertical padding so the
@@ -116,6 +133,7 @@ nav = st.navigation(
         # (an Output Action link) — this URL is a contract, like /output above.
         st.Page("ui/pages/charts.py", title="Charts", icon="📈", url_path="charts"),
         st.Page("ui/pages/calibration.py", title="Calibration", icon="🎚️"),
+        st.Page("ui/pages/param_reference.py", title="Parameters", icon="📖"),
         st.Page("ui/pages/settings_page.py", title="Settings", icon="⚙️"),
     ]
 )

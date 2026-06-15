@@ -748,6 +748,120 @@ PARAM_HINTS: dict[str, dict] = {
         "vs_peers": "No — it is already a rank against the entire universe.",
     },
     # ------------------------------------------------------------------ #
+    # Statement items (raw financial-statement line items — charted over time on the
+    # Fundamentals view; not currently filter metrics. Add more here as needed.)
+    # ------------------------------------------------------------------ #
+    "total_revenue": {
+        "name": "Revenue",
+        "category": "Statement item",
+        "unit": "$",
+        "what_it_is": "Total sales (top line) for the period, before any costs.",
+        "how_to_use": [
+            "The base everything else is measured against — margins are a share of it.",
+            "Watch the trend: steady growth matters more than any single period.",
+        ],
+        "vs_peers": "No — an absolute dollar amount; compare growth rates and margins instead.",
+    },
+    "gross_profit": {
+        "name": "Gross profit",
+        "category": "Statement item",
+        "unit": "$",
+        "what_it_is": "Revenue minus the direct cost of goods sold.",
+        "how_to_use": [
+            "What's left to cover operating costs; ÷ revenue = gross margin.",
+            "Rising gross profit faster than revenue means widening margins.",
+        ],
+        "vs_peers": "No — compare the gross margin (a percent) across peers instead.",
+    },
+    "operating_income": {
+        "name": "Operating income",
+        "category": "Statement item",
+        "unit": "$",
+        "what_it_is": "Profit from core operations (EBIT) — after operating costs, before interest and tax.",
+        "how_to_use": [
+            "The cleanest read on the business itself, stripped of financing and tax.",
+            "÷ revenue = operating margin; feeds interest coverage.",
+        ],
+        "vs_peers": "No — compare the operating margin across peers instead.",
+    },
+    "net_income": {
+        "name": "Net income",
+        "category": "Statement item",
+        "unit": "$",
+        "what_it_is": "The bottom line — profit after every cost, including interest and tax.",
+        "how_to_use": [
+            "Drives EPS, ROE and the P/E multiple.",
+            "Can swing on one-off items — read alongside operating income and cash flow.",
+        ],
+        "vs_peers": "No — compare net margin / ROE across peers instead.",
+    },
+    "ebitda": {
+        "name": "EBITDA",
+        "category": "Statement item",
+        "unit": "$",
+        "what_it_is": "Earnings before interest, tax, depreciation and amortization — a rough cash-earnings proxy.",
+        "how_to_use": [
+            "Used in EV/EBITDA and the debt/EBITDA leverage check.",
+            "Ignores real capital costs — don't treat it as free cash flow.",
+        ],
+        "vs_peers": "No — compare via EV/EBITDA or debt/EBITDA (ratios) instead.",
+    },
+    "free_cash_flow": {
+        "name": "Free cash flow",
+        "category": "Statement item",
+        "unit": "$",
+        "what_it_is": "Operating cash flow minus capital expenditure — cash left after keeping the business running.",
+        "how_to_use": [
+            "The cash that funds dividends, buybacks and debt paydown.",
+            "Should roughly track net income over time; persistent gaps are a flag.",
+        ],
+        "vs_peers": "No — compare FCF margin or P/FCF across peers instead.",
+    },
+    "diluted_eps": {
+        "name": "Diluted EPS",
+        "category": "Statement item",
+        "unit": "$",
+        "what_it_is": "Net income per share, counting all dilutive shares. Charted split-adjusted to current shares.",
+        "how_to_use": [
+            "The per-share earnings behind P/E; growth here is what compounds for holders.",
+            "Negative EPS disables P/E, PEG and the Graham/Lynch values.",
+        ],
+        "vs_peers": "No — a per-share figure; compare EPS growth and P/E across peers.",
+    },
+    "stockholders_equity": {
+        "name": "Stockholders' equity",
+        "category": "Statement item",
+        "unit": "$",
+        "what_it_is": "Book value — total assets minus total liabilities, the owners' stake.",
+        "how_to_use": [
+            "The denominator of ROE and the basis of P/B.",
+            "Steady growth (earnings retained into book) is the financial-sector tell.",
+        ],
+        "vs_peers": "No — compare via P/B or ROE across peers instead.",
+    },
+    "total_assets": {
+        "name": "Total assets",
+        "category": "Statement item",
+        "unit": "$",
+        "what_it_is": "Everything the company owns — the size of the balance sheet.",
+        "how_to_use": [
+            "The denominator of ROA; scale context for debt and equity.",
+            "Fast asset growth without matching profit growth can signal empire-building.",
+        ],
+        "vs_peers": "No — compare via ROA (a ratio) across peers instead.",
+    },
+    "total_debt": {
+        "name": "Total debt",
+        "category": "Statement item",
+        "unit": "$",
+        "what_it_is": "All interest-bearing borrowings (short- plus long-term).",
+        "how_to_use": [
+            "Feeds debt/equity and debt/EBITDA — judge it against those, not alone.",
+            "Rising debt is fine if earnings/cash flow cover it comfortably.",
+        ],
+        "vs_peers": "No — compare leverage ratios (debt/equity, debt/EBITDA) across peers.",
+    },
+    # ------------------------------------------------------------------ #
     # Scores
     # ------------------------------------------------------------------ #
     "overall_score": {

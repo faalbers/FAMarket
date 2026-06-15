@@ -516,8 +516,11 @@ with _act[0].popover(f"⚙ Action · {_n_sel}" if _n_sel else "⚙ Action", disa
                        width="stretch")
     _ch[1].link_button("📊 Fundamentals over time ↗",
                        _charts_url(_selected, "fundamentals_bar"), width="stretch")
-    st.caption("Fundamentals: pick one symbol + one parameter, see it across periods. "
-               "Dividend charts coming next.")
+    _ch2 = st.columns(2)
+    _ch2[0].link_button("🎯 Category scores radar ↗", _charts_url(_selected, "radar"),
+                        width="stretch")
+    st.caption("Price/radar compare all selected symbols; Fundamentals picks one symbol + "
+               "one parameter across periods. Dividend charts coming next.")
     st.markdown("**Analyze on external site**")
     _ext = st.columns(2)
     _ext[0].link_button("Finviz ↗", _sites["finviz"].format(symbols=_syms_csv), width="stretch")

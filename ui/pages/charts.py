@@ -14,21 +14,28 @@ lines (so no separate symbol selector is needed).
 view=price: adjusted close, every symbol indexed to 100 at the window start. The Period
 presets (1Y/3Y/5Y) set the loaded data window; the ECharts dataZoom slider + wheel/drag
 pick sub-ranges (native arbitrary-range selector); the toolbox restore icon resets to
-the full view. Line breaks mark data gaps (no interpolation). Fundamentals and dividend
-chart views land here next.
+the full view. Line breaks mark data gaps (no interpolation).
+
+view=fundamentals_bar: one symbol × one parameter, across its reported periods.
+view=radar: the five 0-100 category scores (Value/Quality/Growth/Momentum/Income), one
+polygon per selected symbol, read from the analysis.db snapshot. The remaining
+fundamentals/dividend chart views land here next.
 """
 
 from __future__ import annotations
 
 from datetime import date
+from types import SimpleNamespace
 
 import pandas as pd
 import streamlit as st
-from streamlit_echarts import st_echarts
+from streamlit_echarts import JsCode, st_echarts
 
 from analysis_layer import metrics
 from config import settings
+from config.param_hints import PARAM_HINTS
 from core.database import Database
+from ui import param_picker as P
 from ui.chart_theme import (
     COLORWAY as _COLORWAY,
     DARK_BG as _DARK_BG,
@@ -50,6 +57,24 @@ _RATIO_LABELS = {
     "current_ratio": "Current ratio", "interest_coverage": "Interest coverage",
 }
 _FREQ = {"Annual": "annual", "Quarterly": "quarterly"}
+
+# Radar view (ROADMAP 6.2): the five 0-100 category scores per symbol, read straight
+# from the analysis.db snapshot (no recompute). (score column, axis label), in the
+# order they ring the radar.
+_RADAR_CATEGORIES = [
+    ("value_score", "Value"), ("quality_score", "Quality"), ("growth_score", "Growth"),
+    ("momentum_score", "Momentum"), ("income_score", "Income"),
+]
+
+def _score_help(col: str) -> str | None:
+    """The category-score hint for a *_score column, read from the canonical
+    config.param_hints registry (what_it_is + how_to_use), formatted as markdown for
+    the st.metric tooltip. One source of truth — never duplicated here."""
+    h = PARAM_HINTS.get(col)
+    if not h:
+        return None
+    lines = [h.get("what_it_is", "")] + [f"- {u}" for u in h.get("how_to_use", [])]
+    return "  \n".join(s for s in lines if s) or None
 
 
 @st.cache_data(show_spinner=False)
@@ -165,6 +190,25 @@ def _param_label(key: str) -> str:
     return metrics.RAW_PERIOD_FIELDS.get(key) or _RATIO_LABELS.get(key, key)
 
 
+def _fund_category(key: str) -> str:
+    """Group label for the shared param picker — ratios vs raw statement items."""
+    return "Ratios" if key in metrics.RATIO_PERIOD_METRICS else "Statement items"
+
+
+def _fund_info_html(key: str) -> str:
+    """Inline info HTML for a fundamentals parameter, reusing the picker's param_hints
+    renderer (a SimpleNamespace stands in for a filter_registry Base). Ratio keys have
+    real hints; raw statement items fall back to name · category."""
+    unit = metrics.RATIO_PERIOD_METRICS[key][2] if key in metrics.RATIO_PERIOD_METRICS else ""
+    shim = SimpleNamespace(key=key, name=_param_label(key), category=_fund_category(key),
+                           unit=unit)
+    return P.hint_html(shim)
+
+
+def _cb_fund_param(key: str) -> None:
+    st.session_state["fund_param"] = key
+
+
 def _render_fundamentals_bar(symbols: list[str]) -> None:
     """One symbol × one parameter, as bars across its reported periods (ROADMAP 6.2)."""
     st.subheader("Fundamentals over time")
@@ -172,17 +216,44 @@ def _render_fundamentals_bar(symbols: list[str]) -> None:
                "same formulas as the analysis snapshot; price-based ratios (P/E, yield) "
                "and growth/score metrics aren't shown here.")
 
-    _top = st.columns([2, 3, 2], vertical_alignment="bottom")
-    _symbol = _top[0].selectbox("Symbol", symbols, index=0)
     _options = list(metrics.RAW_PERIOD_FIELDS) + list(metrics.RATIO_PERIOD_METRICS)
-    _param = _top[1].selectbox("Parameter", _options, index=0, format_func=_param_label)
-    _freq_label = _top[2].radio("Period", list(_FREQ), index=0, horizontal=True)
+    _sel = st.session_state.setdefault("fund_param", _options[0])
+    if _sel not in _options:  # options are static, but guard anyway
+        _sel = st.session_state["fund_param"] = _options[0]
+
+    # Parameter selection uses the SAME popover browser as the Filter page (search box,
+    # category groups, per-row ▸ info from param_hints) — single-select (close on pick).
+    _top = st.columns([3, 2], vertical_alignment="bottom")
+    with _top[0]:
+        st.caption("Parameter")
+        P.render(
+            st.container(),
+            opt_keys=_options,
+            label=f"📊  {_param_label(_sel)}",
+            keyp="fundparam",
+            category_of=_fund_category,
+            name_of=_param_label,
+            info_html_of=_fund_info_html,
+            search_text_of=lambda k: f"{_param_label(k)} {k}".lower(),
+            is_selected=lambda k: k == st.session_state.get("fund_param"),
+            on_pick=_cb_fund_param,
+            close_on_pick=True,
+            exclude_selected=False,  # keep the full list visible, current row primary-styled
+        )
+        P.scroll_to_current()
+    _freq_label = _top[1].radio("Period", list(_FREQ), index=0, horizontal=True)
     _freq = _FREQ[_freq_label]
+    _param = st.session_state["fund_param"]
+
+    # Symbol list as a vertical single-select radio on the LEFT, chart on the right — only
+    # one symbol charts at a time, so no legend / All-Invert needed (unlike the other charts).
+    _left, _right = st.columns([1, 7], gap="medium")
+    _symbol = _left.radio("Symbol", symbols, index=0)
 
     _mtime = settings.FINANCIALS_DB.stat().st_mtime if settings.FINANCIALS_DB.exists() else 0.0
     _fin = _load_financials(_symbol, _freq, _mtime)
     if _fin.empty:
-        st.warning(f"No {_freq_label.lower()} financials found for **{_symbol}**.")
+        _right.warning(f"No {_freq_label.lower()} financials found for **{_symbol}**.")
         return
 
     _labels = [d.strftime("%Y") if _freq == "annual" else d.strftime("%Y-%m")
@@ -213,7 +284,7 @@ def _render_fundamentals_bar(symbols: list[str]) -> None:
         _yname = _param_label(_param) + (f" ({_suf})" if _suf else "")
 
     if not any(d is not None for d in _data):
-        st.info(f"No **{_param_label(_param)}** data reported for {_symbol}.")
+        _right.info(f"No **{_param_label(_param)}** data reported for {_symbol}.")
         return
 
     _rotate = 45 if (_freq == "quarterly" and len(_labels) > 8) else 0
@@ -239,10 +310,133 @@ def _render_fundamentals_bar(symbols: list[str]) -> None:
                       "position": "top", "color": _DARK_TEXT, "fontSize": 11},
         }],
     }
-    st_echarts(options=_options_ec, height="520px", key="fund_bar")
-    st.caption(f"**{_symbol}** · {_param_label(_param)} · {_freq_label.lower()} periods. "
-               "Missing bars = the metric wasn't reported (or its inputs were absent) "
-               "that period.")
+    with _right:
+        st_echarts(options=_options_ec, height="560px", key="fund_bar")
+        st.caption(f"**{_symbol}** · {_param_label(_param)} · {_freq_label.lower()} periods. "
+                   "Missing bars = the metric wasn't reported (or its inputs were absent) "
+                   "that period.")
+
+
+# --------------------------------------------------------------------------- #
+# Radar view (ROADMAP 6.2) — five category scores, one polygon per symbol
+# --------------------------------------------------------------------------- #
+@st.cache_data(show_spinner=False)
+def _load_scores(symbols: tuple[str, ...], _mtime: float) -> pd.DataFrame:
+    """The category-score columns for `symbols` from analysis.db, indexed by symbol.
+
+    `_mtime` (the db file's mtime) is part of the cache key so a fresh analysis run
+    invalidates the cache; it's otherwise unused.
+    """
+    if not symbols or not settings.ANALYSIS_DB.exists():
+        return pd.DataFrame()
+    with Database(settings.ANALYSIS_DB) as db:
+        if not db.table_exists("analysis"):
+            return pd.DataFrame()
+        ph = ",".join("?" * len(symbols))
+        df = db.read("analysis", where=f"symbol IN ({ph})", params=list(symbols))
+    if df.empty or "symbol" not in df.columns:
+        return pd.DataFrame()
+    return df.drop_duplicates("symbol").set_index("symbol")
+
+
+def _render_radar(symbols: list[str]) -> None:
+    """The five 0-100 category scores per symbol, one polygon each (ROADMAP 6.2)."""
+    st.subheader("Category scores — radar")
+    st.caption("Each symbol's five category scores (0-100, percentile-ranked vs the "
+               "universe) as one polygon — bigger/rounder is stronger overall. Click a "
+               "legend name to show/hide that symbol.")
+
+    _mtime = settings.ANALYSIS_DB.stat().st_mtime if settings.ANALYSIS_DB.exists() else 0.0
+    _df = _load_scores(tuple(symbols), _mtime)
+    if _df.empty:
+        st.warning("No analysis scores found — run an analysis first (Fetch Control).")
+        return
+
+    _missing = [s for s in symbols if s not in _df.index]
+    if _missing:
+        st.caption("No analysis row for: " + ", ".join(_missing))
+
+    # One radar datum per symbol; a category with no score becomes None (a gap in that
+    # symbol's polygon). Symbols whose every category is missing are skipped entirely.
+    _data = []
+    for _sym in [s for s in symbols if s in _df.index]:
+        _row = _df.loc[_sym]
+        _vals = []
+        for _col, _ in _RADAR_CATEGORIES:
+            _v = pd.to_numeric(_row.get(_col), errors="coerce")
+            _vals.append(round(float(_v), 1) if pd.notna(_v) else None)
+        if all(v is None for v in _vals):
+            continue
+        _data.append({"name": _sym, "value": _vals})
+    if not _data:
+        st.info("None of the selected symbols have category scores "
+                "(funds/ETFs often score only some categories).")
+        return
+
+    # Info row above the chart: one cell per category, each with a hover ⓘ hint
+    # explaining the score. With a single symbol plotted each cell shows that symbol's
+    # value; with several, the per-symbol numbers stay on the chart so the cells show
+    # just the category + hint (a dash placeholder, since no one value fits all).
+    _single = _data[0]["value"] if len(_data) == 1 else None
+    _info_cols = st.columns(len(_RADAR_CATEGORIES))
+    for _i, (_col_key, _lbl) in enumerate(_RADAR_CATEGORIES):
+        _v = _single[_i] if _single is not None else None
+        _info_cols[_i].metric(_lbl, f"{_v:.0f}" if _v is not None else "—",
+                              help=_score_help(_col_key))
+
+    _options_ec = {
+        "backgroundColor": _DARK_BG,
+        "color": list(_COLORWAY),
+        "textStyle": {"color": _DARK_TEXT},
+        "tooltip": {"trigger": "item",
+                    # Show ONLY the symbol name (not the per-category value list); airy
+                    # translucent box + 0.75-alpha text (#e6e6e6 @ 0.75).
+                    "formatter": JsCode("function(p){ return p.name; }").js_code,
+                    "backgroundColor": "rgba(15,18,25,0.28)",
+                    "borderColor": "rgba(255,255,255,0.20)",
+                    "textStyle": {"color": "rgba(230,230,230,0.75)"}},
+        "legend": {
+            # Vertical scroll list pinned to the left column (the radar is shifted right
+            # to make room); many symbols scroll with the page arrows.
+            "type": "scroll", "orient": "vertical", "left": 8, "top": "middle",
+            "data": [d["name"] for d in _data],
+            "textStyle": {"color": _DARK_TEXT},
+            "inactiveColor": "rgba(255,255,255,0.35)",
+            "pageTextStyle": {"color": _DARK_TEXT},
+            "selector": [{"type": "all", "title": "All"}, {"type": "inverse", "title": "Invert"}],
+            "selectorPosition": "end",
+            "selectorLabel": {"color": _DARK_TEXT, "borderColor": "rgba(255,255,255,0.30)",
+                              "backgroundColor": "rgba(255,255,255,0.05)"},
+        },
+        "radar": {
+            "indicator": [{"name": lbl, "max": 100} for _, lbl in _RADAR_CATEGORIES],
+            "shape": "polygon", "splitNumber": 5, "center": ["56%", "54%"], "radius": "78%",
+            "axisName": {"color": _DARK_TEXT},
+            "splitLine": {"lineStyle": {"color": _GRID_LINE}},
+            "splitArea": {"areaStyle": {"color": ["rgba(255,255,255,0.02)",
+                                                  "rgba(255,255,255,0.05)"]}},
+            "axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.25)"}},
+        },
+        "series": [{
+            "type": "radar", "data": _data, "symbolSize": 4,
+            # Dim by default so the hovered polygon pops; emphasis brightens it and
+            # `focus: self` fades the others (blur) while you hover one.
+            "lineStyle": {"width": 1.6, "opacity": 0.55},
+            "areaStyle": {"opacity": 0.03},
+            "itemStyle": {"opacity": 0.55},
+            "emphasis": {"focus": "self",
+                         "lineStyle": {"width": 3, "opacity": 1.0},
+                         "areaStyle": {"opacity": 0.18},
+                         "itemStyle": {"opacity": 1.0}},
+            "blur": {"lineStyle": {"opacity": 0.12}, "areaStyle": {"opacity": 0.0},
+                     "itemStyle": {"opacity": 0.12}},
+        }],
+    }
+    # Taller than the line charts so the radar fills the wide Category-scores screen.
+    st_echarts(options=_options_ec, height="760px", key="radar")
+    st.caption("Axes: Value, Quality, Growth, Momentum, Income — each 0-100. A blank "
+               "axis means that category wasn't scored for the symbol. Color-blind-safe "
+               "palette; overlay several to compare, or toggle via the legend.")
 
 
 # --------------------------------------------------------------------------- #
@@ -463,9 +657,13 @@ if view == "fundamentals_bar":
     _render_fundamentals_bar(symbols)
     st.stop()
 
+if view == "radar":
+    _render_radar(symbols)
+    st.stop()
+
 if view != "price":
-    st.info(f"Chart view '{view}' isn't built yet — the normalized price chart and "
-            "the fundamentals bar chart are available so far.")
+    st.info(f"Chart view '{view}' isn't built yet — the normalized price chart, the "
+            "fundamentals bar chart and the category-scores radar are available so far.")
     st.stop()
 
 _mtime = settings.OHLCV_DB.stat().st_mtime if settings.OHLCV_DB.exists() else 0.0
@@ -576,7 +774,9 @@ _options = {
         "textStyle": {"color": _DARK_TEXT},
     },
     "legend": {
-        "type": "scroll", "top": 4, "left": "center", "right": 90,
+        # Vertical scroll list pinned to the left column (grid.left is opened up to make
+        # room); many symbols scroll with the page arrows. Same layout as the radar.
+        "type": "scroll", "orient": "vertical", "left": 8, "top": "middle",
         "data": [s["name"] for s in _series_opt if not s["name"].startswith("_")],
         "textStyle": {"color": _DARK_TEXT},
         "inactiveColor": "rgba(255,255,255,0.35)",
@@ -598,7 +798,9 @@ _options = {
     },
     # Vertical + horizontal gridlines; ECharts time axis picks the tick granularity
     # (years / months / weeks) for the visible span and re-picks it on zoom.
-    "grid": {"left": 8, "right": 18, "top": 44, "bottom": 78, "containLabel": True},
+    # Left margin opened up for the vertical legend column; top tightened now that the
+    # legend no longer sits across the top.
+    "grid": {"left": 96, "right": 18, "top": 16, "bottom": 78, "containLabel": True},
     "xAxis": {
         "type": "time",
         "axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.35)"}},

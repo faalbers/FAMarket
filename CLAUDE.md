@@ -169,6 +169,14 @@ Three intentionally decoupled layers plus shared infrastructure:
   `valuation_basis="yfinance"`) only when inputs are missing or the reporting
   currency mismatches. Percentage-valued metrics are **stored as percent numbers**
   (`12.5`, not `0.125`), and every `config/param_hints.py` entry declares a `unit`.
+- **`config/param_hints.py` is the ONE canonical hint registry** — `name`, `category`,
+  `unit`, `what_it_is`, `how_to_use`, `vs_peers` per key. **System requirement: every
+  parameter exposed for filtering (every `ui/filter_registry.py` base metric) MUST have a
+  `param_hints.py` entry** — add the hint in the same change that adds the metric. The UI
+  reads hints ONLY from here (Filter picker ▸ info, Output column headers, the radar's
+  category info row, etc.) — never hardcode a description in a page. Category scores
+  (`*_score`) are registry keys too (`category: "Score"`). To verify nothing slipped:
+  cross-check `R.BASE_BY_KEY` against `PARAM_HINTS` (currently 69/69, 0 missing).
 - **Charts** are rendered with **Apache ECharts** (`streamlit-echarts`, pinned
   `==0.4.0` — 0.7.0 uses `st.components.v2` and breaks on the current Streamlit).
   Use a color-blind-safe palette (no red/green; blue-to-orange for heatmaps); the

@@ -520,6 +520,14 @@
        ratios (P/E, EV/EBITDA, yield) need a per-period price and are DEFERRED; growth
        metrics + category scores are multi-period summaries and don't belong on a
        per-period bar. Missing periods render as gaps.
+     - ✅ IMPLEMENTED (2026-06-15): RADAR chart (charts.py view=radar) — the five 0-100
+       category scores (Value/Quality/Growth/Momentum/Income) read straight from the
+       analysis.db snapshot (no recompute), one polygon per selected symbol, overlaid
+       for comparison. Dark ECharts theme + color-blind-safe palette; the scroll legend
+       toggles symbols on/off (all on by default — same pattern as the price chart's
+       legend, ROADMAP 6.3, rather than a separate checklist). A category with no score
+       leaves that axis blank for the symbol; symbols with no analysis row are listed and
+       skipped. Wired into the Output Action menu as "🎯 Category scores radar".
      - [ Action ] button opens grouped dropdown, one action at a time, each opens a new browser tab
      - Action menu structure:
        - Normalized Charts
@@ -529,7 +537,7 @@
              2026-06-13 (✅ shipped, see 6.2 above) to one-symbol × one-parameter ×
              over-periods; the multi-symbol-comparison bar is a later step.
            - Parameter heat map charts (blue-to-orange scale, color-blind safe)
-           - Radar chart (5 category scores: Value, Quality, Growth, Momentum, Income)
+           - ✅ Radar chart (5 category scores: Value, Quality, Growth, Momentum, Income) — shipped 2026-06-15, see 6.2 above
            - Parameter growth line charts (annual/quarterly selector, all periods, gaps shown as breaks)
        - Dividends
            - Yield bar chart
