@@ -69,13 +69,39 @@ st.markdown(
     }
     .fam-hi ul { margin: 0.3rem 0 0 1.1rem; padding: 0; }
     .fam-hi .fam-h-s { margin-top: 0.3rem; }
-    /* Output column list: render each ✕ delete button (st-key-rmcol…) as a small
-       square the same size/rounding as the checkbox box right next to it, so the
-       delete + active-toggle pair reads as one matched control. */
-    [data-testid="stMain"] [class*="st-key-rmcol"] .stButton > button {
-        width: 1rem; min-width: 1rem; height: 1rem; min-height: 1rem;
-        padding: 0; line-height: 1; border-radius: 0.25rem; font-size: 0.7rem;
+    /* Output parameter-columns list (inside the paramcolrows container): the ✕ delete
+       is a plain click-button sized to match the show/hide checkbox box beside it — a
+       small red square (white ✕), no button chrome. !important everywhere to beat
+       Streamlit's own button sizing (that was leaving it ~3× too big). */
+    [data-testid="stMain"] [class*="st-key-paramcolrows"] .stButton > button {
+        width: 1rem !important; min-width: 1rem !important;
+        height: 1rem !important; min-height: 1rem !important;
+        padding: 0 !important; line-height: 1 !important;
+        border: none !important; border-radius: 0.25rem !important;
+        background: #cc3311 !important; color: #fff !important;
+        font-size: 0.72rem !important;
+        display: flex !important; align-items: center !important; justify-content: center !important;
     }
+    /* Dropdown option rows (selectbox / multiselect popover menus). These render in a
+       BaseWeb popover portaled OUTSIDE stMain, so they aren't covered by the rules
+       above — target them globally. Halve the tall default vertical padding so the
+       option lists are more compact. */
+    ul[data-baseweb="menu"] li[role="option"],
+    ul[role="listbox"] li[role="option"] {
+        padding-top: 0.15rem !important;
+        padding-bottom: 0.15rem !important;
+        min-height: 0 !important;
+        font-size: 0.82rem;
+        line-height: 1.3;
+    }
+    /* Compact vertical option lists app-wide (stacked checkbox / radio rows, e.g. the
+       charts sector/industry selector). The tall look is the GAP between stacked rows
+       (Streamlit's ~1rem default) plus each row's own height — halve the gap and trim
+       the per-row footprint. */
+    [data-testid="stMain"] [data-testid="stVerticalBlock"] { gap: 0.45rem !important; }
+    [data-testid="stMain"] [role="radiogroup"] { gap: 0.1rem !important; }
+    [data-testid="stMain"] .stCheckbox { min-height: 0; }
+    [data-testid="stMain"] .stCheckbox label { min-height: 0; }
     </style>
     """,
     unsafe_allow_html=True,

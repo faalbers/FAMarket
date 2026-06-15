@@ -324,12 +324,12 @@
      - WHAT: a daily base-100 level series for every Yahoo sector and every
        'sector | industry' group — a constructed index per group, so a sector's /
        industry's price trend can be charted and compared, not just per-stock metrics.
-     - FORMULA (from a vetted standalone prototype, `sector_industry_index.py` at the
-       repo root — kept read-only as the spec): SPDR Select Sector method. Float-MC
-       weights (price × daily-interpolated shares × IWF) recomputed each quarter
-       (third-Friday rebalance), capped with the current/"new" (2024-09-23) Select
-       Sector diversification rules, held fixed between rebalances, chained to base 100.
-       The formula/capping/rebalance mechanics are copied VERBATIM — do not retune them.
+     - FORMULA (ported verbatim from a vetted standalone prototype the user supplied,
+       since removed from the repo): SPDR Select Sector method. Float-MC weights (price ×
+       daily-interpolated shares × IWF) recomputed each quarter (third-Friday rebalance),
+       capped with the current/"new" (2024-09-23) Select Sector diversification rules,
+       held fixed between rebalances, chained to base 100. The formula/capping/rebalance
+       mechanics live in `analysis_layer/sector_index.py` — do not retune them.
      - WHERE/HOW STORED: a NEW dedicated `databases/indices.db` (one-DB-per-data-type
        convention), table `sector_industry_index` in LONG/tidy shape
        (`kind`,`label`,`date`,`level`) + an `index_meta` row. `replace`d clean-slate
@@ -360,14 +360,25 @@
        FLOOR (avg daily dollar volume ≥ `INDEX_MIN_AVG_DOLLAR_VOLUME`, default $1M, over
        `INDEX_LIQUIDITY_WINDOW_DAYS`=63 bars; flat-NAV funds drop for free). Tiny
        industries pruned via `INDEX_MIN_INDUSTRY_MEMBERS`. All in config/settings.py.
-     - UI consumption (charts off indices.db) is NOT built yet — data layer only.
-     - ⏭️ TODO — HOW TO USE THE INDICES IN THE APP IS NOT YET DESIGNED. The data layer
-       (indices.db) is done, but where/how this data surfaces to the user — charts,
-       which page(s), comparison vs a stock or vs other sectors/industries, sorting/
-       ranking sectors by trend, any derived metrics — is undecided. DO NOT start
-       building the consumption side until we BRAINSTORM the approach with the user
-       first (decided topic-by-topic, the usual working style). This is the next open
-       design question for the indices feature.
+     - ✅ FIRST CONSUMER IMPLEMENTED (2026-06-14) — relative-strength view on the Charts
+       page (`ui/pages/charts.py`, `view=price`). A full-width selector ABOVE the chart
+       lists the charted symbols' sectors (collapsible via a ▸/▾ arrow) with a
+       non-collapsible industry sublist; each entry has a checkbox, single-select across
+       the whole tree (click the active one to clear). On select the chart REPLACES the
+       normal normalized view with only that group's symbols, each plotted as
+       `symbol_norm − index_norm + 100` over the period ∩ index window (both rebased to
+       100 at the line's first shared date — every line starts at 100; a literal
+       difference, so a big underperformer can dip below 0). The index series is read
+       from indices.db. Period (1Y/3Y/5Y) stays live: changing it recomputes the overlap.
+       A **3-way view toggle** (st.segmented_control above the chart) switches, at the
+       same window + base-100, between: Relative (symbol−index+100), Symbols (the same
+       names normalized, no subtraction), and Index (the group index alone). Identity:
+       Relative = Symbols − Index + 100. The legend's per-line on/off selection is
+       PRESERVED across the toggle/period reruns via a `legendselectchanged` event
+       round-trip stored in session_state and re-applied as `legend.selected`.
+     - ⏭️ STILL OPEN (brainstorm before building, topic-by-topic): other consumption —
+       ranking/sorting sectors by trend, standalone index charts, derived metrics, etc.
+       ([[indices-usage-needs-brainstorm]]).
 
 ✅ Topic 5 — Filter Interface
    - KEY DESIGN DECISION: Single unified interface, dynamically adaptive

@@ -246,6 +246,206 @@ def _render_fundamentals_bar(symbols: list[str]) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Sector / industry relative-strength selector (ROADMAP 4.5 — indices consumption)
+# --------------------------------------------------------------------------- #
+@st.cache_data(show_spinner=False)
+def _load_symbol_groups(symbols: tuple[str, ...], _mtime: float):
+    """From analysis.db, group the charted symbols by sector → industries.
+
+    Returns (tree, sym2sector, sym2industry):
+      tree         {sector: ['Sector | Industry', ...]} — sorted, sector-tagged only
+      sym2sector   {symbol: sector}
+      sym2industry {symbol: 'Sector | Industry'}   (matches indices.db labels)
+    """
+    empty: tuple[dict, dict, dict] = ({}, {}, {})
+    if not symbols or not settings.ANALYSIS_DB.exists():
+        return empty
+    with Database(settings.ANALYSIS_DB) as db:
+        if not db.table_exists("analysis"):
+            return empty
+        ph = ",".join("?" * len(symbols))
+        df = db.read("analysis", where=f"symbol IN ({ph})", params=list(symbols))
+    if df.empty or "sector" not in df.columns:
+        return empty
+    tree: dict[str, set] = {}
+    sym2sec: dict[str, str] = {}
+    sym2ind: dict[str, str] = {}
+    for r in df.itertuples(index=False):
+        sec, ind, sym = getattr(r, "sector", None), getattr(r, "industry", None), r.symbol
+        if not isinstance(sec, str) or not sec:
+            continue
+        sym2sec[sym] = sec
+        tree.setdefault(sec, set())
+        if isinstance(ind, str) and ind:
+            lbl = f"{sec} | {ind}"
+            tree[sec].add(lbl)
+            sym2ind[sym] = lbl
+    return {s: sorted(v) for s, v in sorted(tree.items())}, sym2sec, sym2ind
+
+
+@st.cache_data(show_spinner=False)
+def _load_index_series(kind: str, label: str, _mtime: float) -> pd.Series:
+    """One group's base-100 level series from indices.db, date-indexed; empty if absent."""
+    if not settings.INDICES_DB.exists():
+        return pd.Series(dtype=float)
+    with Database(settings.INDICES_DB) as db:
+        if not db.table_exists("sector_industry_index"):
+            return pd.Series(dtype=float)
+        df = db.read("sector_industry_index", where="kind = ? AND label = ?",
+                     params=[kind, label])
+    if df.empty:
+        return pd.Series(dtype=float)
+    s = pd.Series(pd.to_numeric(df["level"], errors="coerce").to_numpy(),
+                  index=pd.to_datetime(df["date"], errors="coerce").dt.normalize()).dropna()
+    return s[~s.index.duplicated(keep="last")].sort_index()
+
+
+_GRP_CB = "grpcb::"      # checkbox widget-key prefix
+_GRP_ARROW = "grparrow::"  # expand-arrow button-key prefix
+
+
+def _grp_toggle(key: str) -> None:
+    """Single-select + click-active-to-clear, from the just-clicked checkbox's state.
+
+    Flags `chart_grp_changed` so the selector fragment escalates to a full app rerun
+    (redrawing the chart). Expand/collapse does NOT set this, so it stays fragment-local.
+    """
+    on = st.session_state.get(_GRP_CB + key, False)
+    st.session_state["chart_grp_sel"] = key if on else None
+    st.session_state["chart_grp_changed"] = True
+
+
+def _grp_toggle_open(sector: str) -> None:
+    open_ = st.session_state.setdefault("chart_grp_open", set())
+    open_.discard(sector) if sector in open_ else open_.add(sector)
+
+
+@st.fragment
+def _render_group_selector(tree: dict) -> None:
+    """Collapsed-by-default expander with sectors (▸/▾ arrow) + non-collapsible industry
+    sublists, each a checkbox; single-select across the whole tree → session_state.
+
+    Runs as a FRAGMENT: expanding/collapsing a sector reruns only this fragment, so the
+    chart (built in the main script) is NOT recomputed/redrawn. A selection change sets
+    `chart_grp_changed` (via `_grp_toggle`), which escalates to a full app rerun here so
+    the chart updates. The selected key is the single source of truth; each checkbox's
+    state is synced to it before render, so turning one on clears the rest.
+    """
+    with st.expander("Compare to a sector / industry index", expanded=False):
+        sel = st.session_state.setdefault("chart_grp_sel", None)
+        st.session_state.setdefault("chart_grp_open", set())
+        open_ = st.session_state["chart_grp_open"]
+        st.caption("Pick one (click it again to clear). The chart then shows only that "
+                   "group's symbols, each relative to its index (the flat 100 line is it).")
+        with st.container(height=min(len(tree) * 36 + 80, 340)):
+            for sec in tree:
+                skey = f"S::{sec}"
+                is_open = sec in open_
+                row = st.columns([0.06, 0.94], vertical_alignment="center")
+                row[0].button("▾" if is_open else "▸", key=_GRP_ARROW + sec,
+                              on_click=_grp_toggle_open, args=(sec,))
+                st.session_state[_GRP_CB + skey] = (sel == skey)
+                row[1].checkbox(f"**{sec}**", key=_GRP_CB + skey,
+                                on_change=_grp_toggle, args=(skey,))
+                if is_open:
+                    for lbl in tree[sec]:
+                        ikey = f"I::{lbl}"
+                        sub = st.columns([0.12, 0.88], vertical_alignment="center")
+                        st.session_state[_GRP_CB + ikey] = (sel == ikey)
+                        sub[1].checkbox(lbl.split(" | ", 1)[1], key=_GRP_CB + ikey,
+                                        on_change=_grp_toggle, args=(ikey,))
+    # A selection (not an expand/collapse) escalates to a full app rerun → chart redraws.
+    if st.session_state.pop("chart_grp_changed", False):
+        st.rerun(scope="app")
+
+
+def _line(name: str, dates, values) -> dict:
+    """One ECharts line series with the shared style + gap-break points."""
+    return {"name": name, "type": "line", "showSymbol": False, "connectNulls": False,
+            "lineStyle": {"width": 1.5}, "emphasis": {"focus": "series"},
+            "data": _echarts_points(dates, values)}
+
+
+def _normalized_series(prices: pd.DataFrame, symbols: list[str], start, end) -> list[dict]:
+    """Each symbol's adj_close indexed to 100 at the window start (the default view)."""
+    win = prices[(prices["date"] >= start) & (prices["date"] <= end)]
+    out = []
+    for sym in symbols:
+        s = win[win["symbol"] == sym]
+        if s.empty:
+            continue
+        base = float(s["adj_close"].iloc[0])
+        if base == 0:
+            continue
+        out.append(_line(sym, s["date"], s["adj_close"] / base * 100.0))
+    return out
+
+
+def _group_symbol_lines(prices: pd.DataFrame, group: list[str], idx: pd.Series,
+                        start, end, relative: bool) -> list[dict]:
+    """In-group symbols over the period∩index window, rebased to 100 at each line's first
+    date shared with the index.
+
+    relative=True  → symbol_norm − index_norm + 100 (above 100 beats the group index).
+    relative=False → symbol_norm alone (the same symbols/anchor, without subtracting).
+    Both share the same window and anchor, so toggling between them keeps start points.
+    """
+    if not group or idx.empty:
+        return []
+    idx = idx[(idx.index >= start) & (idx.index <= end)]
+    if idx.empty:
+        return []
+    win = prices[(prices["date"] >= start) & (prices["date"] <= end)]
+    out = []
+    for sym in group:
+        s = win[win["symbol"] == sym]
+        if s.empty:
+            continue
+        ss = pd.Series(s["adj_close"].to_numpy(),
+                       index=pd.to_datetime(s["date"]).dt.normalize())
+        ss = ss[~ss.index.duplicated(keep="last")]
+        common = ss.index.intersection(idx.index).sort_values()
+        if len(common) < 2:
+            continue
+        s_base, i_base = ss.loc[common[0]], idx.loc[common[0]]
+        if s_base == 0 or i_base == 0:
+            continue
+        sym_norm = ss.loc[common] / s_base * 100.0
+        vals = sym_norm - (idx.loc[common] / i_base * 100.0) + 100.0 if relative else sym_norm
+        out.append(_line(sym, common, vals))
+    return out
+
+
+def _baseline_marker(value: float = 100.0) -> dict:
+    """A silent, legend-less series carrying a dashed horizontal reference line at `value`.
+
+    Used on every view (all base-100): the normal normalized chart, the group
+    Symbols/Index views, and Relative (where the 100 line is the index). Name starts with
+    '_' so it's filtered out of the legend (always shown, not toggleable).
+    """
+    return {
+        "name": "_baseline", "type": "line", "data": [], "showSymbol": False,
+        "silent": True, "tooltip": {"show": False},
+        "markLine": {
+            "silent": True, "symbol": "none", "label": {"show": False},
+            "lineStyle": {"type": "dashed", "color": "rgba(230,230,230,0.55)", "width": 1.5},
+            "data": [{"yAxis": value}],
+        },
+    }
+
+
+def _index_line(idx: pd.Series, start, end, label: str) -> list[dict]:
+    """The group index itself, normalized to 100 at the first date in the window."""
+    idx = idx[(idx.index >= start) & (idx.index <= end)]
+    if len(idx) < 2:
+        return []
+    base = idx.iloc[0]
+    if base == 0:
+        return []
+    return [_line(label, idx.index, idx / base * 100.0)]
+
+
+# --------------------------------------------------------------------------- #
 # page
 # --------------------------------------------------------------------------- #
 st.title("Charts")
@@ -280,16 +480,31 @@ _missing = [s for s in symbols if s not in _present]
 if _missing:
     st.caption("No price data for: " + ", ".join(_missing))
 
-st.caption("Normalized adjusted close — every line indexed to 100 at the window start.")
+# -- selector (above), then period row, then full-width chart ------------------ #
+# The sector/industry selector sits above everything; its selection
+# (st.session_state['chart_grp_sel']) switches the chart into relative-strength mode
+# and is re-read every rerun, so changing the Period below recomputes the relative view.
+_a_mtime = settings.ANALYSIS_DB.stat().st_mtime if settings.ANALYSIS_DB.exists() else 0.0
+_tree, _sym2sec, _sym2ind = _load_symbol_groups(tuple(_have), _a_mtime)
+# The selector renders BELOW the chart (further down), but its selection lives in
+# session_state, so the chart can read it here (set by last run's checkbox callbacks).
+_sel = st.session_state.get("chart_grp_sel")
 
-# -- layout: period row on top, full-width chart below it ---------------------- #
+# Changing the selected group starts the legend fresh (all symbols on); the per-line
+# on/off state is only meant to persist across the view toggle / period, not across a
+# different sector/industry. (A mode or period change leaves _sel unchanged, so this
+# doesn't fire then.)
+if _sel != st.session_state.get("chart_grp_last"):
+    st.session_state["chart_grp_last"] = _sel
+    st.session_state.pop("chart_legend_sel", None)
+
 # The ECharts legend (click a name to show/hide a line) replaces a separate symbol
-# selector, so every symbol with data is plotted and toggled from the legend. The
-# period container is created first (renders above the chart); its widgets are read
-# before the chart is built, which renders into the chart container below.
+# selector. Containers render in creation order: period row, then the (group-only) view
+# toggle, then the chart — all read before the chart is built below.
 _period_host = st.container()
+_toggle_host = st.container()
 _chart_host = st.container()
-_checked = _have
+_selector_host = st.container()  # sector/industry selector renders here, below the chart
 
 # Period control (above the chart): "Period:" label + preset buttons on one row. The
 # presets set the data window loaded; arbitrary sub-ranges are handled inside the chart
@@ -299,38 +514,56 @@ _today = pd.Timestamp(date.today())
 with _period_host:
     _pr = st.columns([0.5, 6], vertical_alignment="center")
     _pr[0].markdown("**Period:**")
-    _period = _pr[1].radio("Period", ["1Y", "3Y", "5Y"], index=2,
+    _period = _pr[1].radio("Period", ["1Y", "3Y", "5Y"], index=1,
                            horizontal=True, label_visibility="collapsed")
 _years = {"1Y": 1, "3Y": 3, "5Y": 5}[_period]
 _start, _end = _today - pd.DateOffset(years=_years), _today
 
-# -- build the chart (Apache ECharts via streamlit-echarts) ------------------- #
-# Same inputs as the Plotly version (data reader, selector, period window); only the
-# render differs. tooltip trigger="axis" gives the unified hover (every symbol named,
-# colored, with its value at the cursor); the legend is a clickable name+color key.
-_win = prices[(prices["date"] >= _start) & (prices["date"] <= _end)]
-_series_opt: list[dict] = []
-for _sym in _checked:
-    _s = _win[_win["symbol"] == _sym]
-    if _s.empty:
-        continue
-    _base = float(_s["adj_close"].iloc[0])
-    if _base == 0:
-        continue
-    _norm = _s["adj_close"] / _base * 100.0
-    _series_opt.append({
-        "name": _sym,
-        "type": "line",
-        "showSymbol": False,
-        "connectNulls": False,
-        "lineStyle": {"width": 1.5},
-        "emphasis": {"focus": "series"},
-        "data": _echarts_points(_s["date"], _norm),
-    })
+# -- build the series: relative-to-index when a group is selected, else normalized -
+# Relative mode plots only the in-group symbols as (symbol_norm − index_norm + 100) over
+# the period ∩ index window (see _relative_series); deselecting returns the normal view.
+if _sel:
+    _kind = "sector" if _sel.startswith("S::") else "industry"
+    _label = _sel[3:]
+    _group = [s for s in _have
+              if (_sym2sec if _kind == "sector" else _sym2ind).get(s) == _label]
+    _i_mtime = settings.INDICES_DB.stat().st_mtime if settings.INDICES_DB.exists() else 0.0
+    _idx = _load_index_series(_kind, _label, _i_mtime)
+    # 3-way view toggle (above the chart): same window + base-100, only content changes.
+    with _toggle_host:
+        _mode = st.segmented_control(
+            "View", ["Relative", "Symbols", "Index"], default="Relative",
+            key="chart_grp_mode", label_visibility="collapsed") or "Relative"
+    if _mode == "Index":
+        _series_opt = _index_line(_idx, _start, _end, _label)
+        _yaxis_name = "Indexed (100)"
+        _head = f"**{_label}** index — normalized to 100 at the window start."
+    else:
+        _relative = _mode == "Relative"
+        _series_opt = _group_symbol_lines(prices, _group, _idx, _start, _end, _relative)
+        _yaxis_name = "Relative to index (100)" if _relative else "Indexed (100)"
+        _head = (f"**{_label}** — each symbol relative to its index (symbol − index + 100). "
+                 "Above 100 beats the group, below lags; the flat 100 line is the index."
+                 if _relative else
+                 f"**{_label}** symbols — normalized to 100 at the window start "
+                 "(not relative to the index).")
+    if not _series_opt:
+        _chart_host.info(
+            f"Nothing to plot for **{_label}**: no charted symbols in this group, or no "
+            "overlapping dates between them and the group's index history.")
+        st.stop()
+else:
+    _series_opt = _normalized_series(prices, _have, _start, _end)
+    _yaxis_name = "Indexed (100)"
+    _head = "Normalized adjusted close — every line indexed to 100 at the window start."
+    if not _series_opt:
+        _chart_host.info("No data in the selected window.")
+        st.stop()
 
-if not _series_opt:
-    _chart_host.info("No data in the selected window.")
-    st.stop()
+# Dashed horizontal baseline at 100 — every view is base-100 (the normal normalized
+# chart, the group Symbols/Index views, and Relative where the 100 line is the index).
+# Excluded from the legend (name starts with "_") so it's always shown.
+_series_opt = [*_series_opt, _baseline_marker(100.0)]
 
 _options = {
     "backgroundColor": _DARK_BG,
@@ -344,7 +577,7 @@ _options = {
     },
     "legend": {
         "type": "scroll", "top": 4, "left": "center", "right": 90,
-        "data": [s["name"] for s in _series_opt],
+        "data": [s["name"] for s in _series_opt if not s["name"].startswith("_")],
         "textStyle": {"color": _DARK_TEXT},
         "inactiveColor": "rgba(255,255,255,0.35)",
         "pageTextStyle": {"color": _DARK_TEXT},
@@ -373,7 +606,7 @@ _options = {
         "splitLine": {"show": True, "lineStyle": {"color": _GRID_LINE}},
     },
     "yAxis": {
-        "type": "value", "name": "Indexed (100)", "scale": True,
+        "type": "value", "name": _yaxis_name, "scale": True,
         "nameTextStyle": {"color": _DARK_TEXT},
         "axisLabel": {"color": _DARK_TEXT},
         "splitLine": {"show": True, "lineStyle": {"color": _GRID_LINE}},
@@ -398,8 +631,33 @@ _options = {
     ],
     "series": _series_opt,
 }
+# Persist which legend lines are toggled on/off across reruns (mode/period switches): the
+# chart reports legendselectchanged back to Python, we remember it, and re-apply it as
+# legend.selected. Names absent from the stored map default to shown, so a different
+# series set (e.g. the Index view) is unaffected.
+_legend_sel = st.session_state.get("chart_legend_sel")
+if _legend_sel:
+    _options["legend"]["selected"] = _legend_sel
+
 with _chart_host:
-    st_echarts(options=_options, height=f"{_CHART_HEIGHT}px", key="echarts_price")
-    st.caption("Apache ECharts (dark theme). Click a legend name to show/hide that line; "
-               "hover shows every symbol's value at the cursor. Zoom with the wheel or the "
-               "bottom slider; the ⟳ restore icon (top-right) resets to the full chart.")
+    st.caption(_head)
+    _ret = st_echarts(
+        options=_options,
+        events={"legendselectchanged": "function(p){ return p.selected; }"},
+        height=f"{_CHART_HEIGHT}px", key="echarts_price")
+    if isinstance(_ret, dict) and _ret:
+        _cur = st.session_state.get("chart_legend_sel") or {}
+        _merged = {**_cur, **_ret}
+        if _merged != _cur:  # store the new on/off state and redraw with it applied
+            st.session_state["chart_legend_sel"] = _merged
+            st.rerun()
+    st.caption("Apache ECharts (dark theme). Click a legend name to show/hide that line "
+               "(kept across the view toggle); hover shows every symbol's value at the "
+               "cursor. Zoom with the wheel or the bottom slider; the ⟳ restore icon "
+               "(top-right) resets to the full chart.")
+
+# Sector/industry selector — below the chart, collapsed by default, and a FRAGMENT:
+# expand/collapse reruns only it (chart untouched), a selection triggers a full rerun.
+if _tree:
+    with _selector_host:
+        _render_group_selector(_tree)

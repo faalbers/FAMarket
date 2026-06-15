@@ -26,8 +26,7 @@ subset-run re-ranking) and is wired into the orchestrator as Group 3
 after each fetch. On **full runs only** it also builds daily base-100 **sector &
 sub-industry index series** (`analysis_layer/sector_index.py`, SPDR Select Sector
 formula — float-MC weights, current capping, quarterly rebalance) and writes them to a
-dedicated `indices.db` (long/tidy `sector_industry_index` table; `sector_industry_index.py`
-at the repo root is the read-only spec prototype). Index history is **data-driven**
+dedicated `indices.db` (long/tidy `sector_industry_index` table). Index history is **data-driven**
 (starts where `financials.db` share coverage broadens, `INDEX_START_MIN_REPORTERS`),
 read via a dedicated memory-efficient deep `adj_close` read of the liquid constituents
 only — decoupled from `ANALYSIS_OHLCV_LOOKBACK_DAYS`. Each run logs its peak RAM via
@@ -44,6 +43,11 @@ parameter over its reported periods (annual/quarterly), read per-symbol from
 `financials.db`. Its ratios reuse the **same formula functions as the analysis
 snapshot** — `metrics.py` exposes them as named funcs + `RATIO_PERIOD_METRICS` /
 `RAW_PERIOD_FIELDS` registries so a ratio is defined once, never duplicated in the UI.
+The price view also has a **sector/industry relative-strength** selector (the first
+`indices.db` consumer): a single-select tree of the charted symbols' sectors/industries
+that, when one is picked, replaces the chart with each in-group symbol plotted as
+`symbol_norm − index_norm + 100` against that group's index — with a 3-way toggle
+(Relative / Symbols / Index) that swaps content at the same window + base-100.
 The
 Filter page (Topic 5) is backed by `ui/filter_registry.py` (per-`screen_type` metric
 applicability) + `ui/filter_engine.py` (block model + `.filt` JSON). Each Run Filter

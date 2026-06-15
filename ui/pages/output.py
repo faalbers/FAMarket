@@ -289,28 +289,9 @@ def _col_info_html(col: str) -> str:
     return P.hint_html(parsed[0]) if parsed else html.escape(col)
 
 
-_pick_host = st.columns([2, 5], gap="small")[0]
-P.render(
-    _pick_host,
-    opt_keys=list(opts),
-    label="➕  Add / remove columns",
-    keyp="outcol",
-    # opts labels are "Category · Name[ · Window]"; split on " · " to separate the
-    # category caption (grouping) from the row's name-only button text.
-    category_of=lambda k: opts[k].split(" · ")[0],
-    name_of=lambda k: " · ".join(opts[k].split(" · ")[1:]) or opts[k],
-    info_html_of=_col_info_html,
-    search_text_of=lambda k: f"{opts[k]} {k}".lower(),
-    is_selected=lambda k: k in st.session_state["output_columns"],
-    on_pick=_cb_toggle_column,
-    close_on_pick=False,
-)
-st.caption("Columns shown after Symbol / Company / Sector / Industry. Starts as the "
-           "parameters your filter used. Pick more from the browser (same search + "
-           "info toggles as the Filter page); manage them in the list below.")
-P.scroll_to_current()
-
-
+# The ➕ Add / remove columns picker now lives INSIDE the Parameter-columns list (at
+# its top), built below once the list is open.
+#
 # Current columns: a collapsible list, one entry each with an active checkmark and a
 # delete ✕. Unchecking keeps the column in the set but drops it from the table;
 # deleting removes it entirely. The active state is read straight from each checkbox
@@ -338,12 +319,35 @@ st.button(f"{'▾' if _open else '▸'}  Parameter columns — {_n_active} shown
           f"{len(_cols_list)} total", key="output_cols_toggle",
           on_click=_cb_toggle_cols, width="stretch")
 if _open:
+    # Add / remove columns picker at the TOP of the list (same searchable, category-
+    # grouped popover browser as the Filter page; the list is a self-managed collapse,
+    # NOT st.expander, so a popover inside it is allowed).
+    P.render(
+        st.container(),
+        opt_keys=list(opts),
+        label="➕  Add columns",
+        keyp="outcol",
+        # opts labels are "Category · Name[ · Window]"; split on " · " to separate the
+        # category caption (grouping) from the row's name-only button text.
+        category_of=lambda k: opts[k].split(" · ")[0],
+        name_of=lambda k: " · ".join(opts[k].split(" · ")[1:]) or opts[k],
+        info_html_of=_col_info_html,
+        search_text_of=lambda k: f"{opts[k]} {k}".lower(),
+        is_selected=lambda k: k in st.session_state["output_columns"],
+        on_pick=_cb_toggle_column,
+        close_on_pick=False,
+    )
+    P.scroll_to_current()
     if not _cols_list:
-        st.caption("No parameter columns yet — add some from the browser above.")
+        st.caption("No parameter columns yet — add some with **➕ Add columns** above.")
+    # Wrap the rows in a keyed container so the per-row ✕ delete buttons can be reliably
+    # styled (app.py, via st-key-paramcolrows) into a small red square matching the
+    # checkbox box. The narrow first column keeps the ✕ tight against the checkbox.
+    _rows_box = st.container(key="paramcolrows")
     for _col in _cols_list:
-        # ✕ delete sits immediately left of the active checkbox; CSS in app.py
-        # (the st-key-rmcol class) makes it a small square that mirrors the box.
-        _row = st.columns([1, 24], gap="small", vertical_alignment="center")
+        # ✕ delete = plain click-button; the checkbox on the right carries the column
+        # name and toggles show/hide (checked = shown in the table).
+        _row = _rows_box.columns([1, 30], gap="small", vertical_alignment="center")
         _row[0].button("✕", key=f"rmcol:{_col}", on_click=_cb_remove_col, args=(_col,),
                        help="Remove this column")
         _on = _row[1].checkbox(_short_label(_col), value=_col not in _inactive,
