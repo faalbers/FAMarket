@@ -24,12 +24,11 @@ Two selection modes via ``close_on_pick``:
 
 from __future__ import annotations
 
-import html
 from typing import Callable
 
 import streamlit as st
 
-from config.param_hints import PARAM_HINTS
+from config import param_hints
 from ui import filter_registry as R
 
 
@@ -41,24 +40,14 @@ def hint_html(base: R.Base) -> str:
 
     Streamlit's own tooltips proved uncontrollable inside a popover (position
     flips per option, offsets ignored), so each param row carries a ▸ toggle
-    that expands this HTML in-flow below the row instead.
+    that expands this HTML in-flow below the row instead. The formatting itself
+    lives in `config.param_hints.hint_html` — this just supplies the picker's
+    Base as the fallback label for keys with no hint yet.
     """
-    h = PARAM_HINTS.get(base.key)
-    e = html.escape
-    if not h:
-        unit = f" (unit: {base.unit})" if base.unit else ""
-        return e(f"{base.name} — {base.category}{unit}")
-    parts = [f"<b>{e(h['name'])}</b> · {e(h['category'])}"
-             + (f" · unit: {e(h['unit'])}" if h.get("unit") else "")]
-    if h.get("what_it_is"):
-        parts.append(f"<div class='fam-h-s'>{e(h['what_it_is'])}</div>")
-    how = h.get("how_to_use")
-    if how:
-        items = how if isinstance(how, list) else [str(how)]
-        parts.append("<ul>" + "".join(f"<li>{e(x)}</li>" for x in items) + "</ul>")
-    if h.get("vs_peers"):
-        parts.append(f"<div class='fam-h-s'><i>Peers:</i> {e(h['vs_peers'])}</div>")
-    return "".join(parts)
+    return param_hints.hint_html(
+        base.key,
+        fallback={"name": base.name, "category": base.category, "unit": base.unit},
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -91,6 +80,7 @@ def render(
     on_pick: Callable[[str], None],
     close_on_pick: bool,
     exclude_selected: bool = True,
+    trigger_width: str = "stretch",
 ) -> None:
     """Render the popover param browser inside ``container``.
 
@@ -99,11 +89,16 @@ def render(
     concrete-column Output picker. ``exclude_selected`` (default) hides any option
     `is_selected` reports as already chosen — so the Filter picker drops the block's
     current metric and the Output picker drops columns already in the set.
+
+    ``trigger_width`` is the popover button's width ("stretch" to fill its column —
+    the default, used where pickers sit in an aligned grid; "content" to hug the
+    selected-param label, e.g. the standalone Fundamentals picker). The open panel
+    itself is always sized to its content via CSS (see app.py), independent of this.
     """
     nonce_key = f"{keyp}:nonce"
     wrap = container.container(key=f"{keyp}:wrap{st.session_state.get(nonce_key, 0)}")
     # No help= on the trigger: the hint is browsable via each row's ▸ toggle.
-    with wrap.popover(label, width="stretch"):
+    with wrap.popover(label, width=trigger_width):
         q = st.text_input("search", key=f"{keyp}:q", placeholder="🔍 search…",
                           label_visibility="collapsed").strip().lower()
         info_key = f"{keyp}:info"

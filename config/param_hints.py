@@ -28,9 +28,19 @@ The UI renders titles bold with indented body text; use a list for body when
 multiple points need explaining. Growth bases (revenue/eps/fcf/book_value) carry
 ONE hint each — it covers all their windows (CAGR 1/3/5y, YoY quarter, trend
 stats); the R² window is the only unitless one in an otherwise "%" family.
+
+How the hint is turned into on-screen TEXT lives here too, in ONE place:
+`hint_markdown()` (for Streamlit `help=` tooltips, the Parameter Reference page,
+any `st.markdown`) and `hint_html()` (for the picker's inline info panel). Both
+apply the same dyslexia-friendly shape — bold title line, a short "what it is"
+sentence, bulleted "how to use", a "Peers:" line, generous white space. Pages
+MUST call these rather than re-formatting the dict, so the style is defined once
+and never re-commented per page.
 """
 
 from __future__ import annotations
+
+import html as _html
 
 # param_key -> {"name": short label, "category": group, + 3 hint sections}
 PARAM_HINTS: dict[str, dict] = {
@@ -921,3 +931,95 @@ PARAM_HINTS: dict[str, dict] = {
 def get_hint(param_key: str) -> dict | None:
     """Return the hint dict for a parameter, or None if undefined yet."""
     return PARAM_HINTS.get(param_key)
+
+
+# --------------------------------------------------------------------------- #
+# Rendering — the ONE place the hint's on-screen style is defined.
+#
+# Both renderers take the same args so call sites are interchangeable:
+#   - param_key : the registry key.
+#   - fallback  : {"name", "category", "unit"} used when the key has no hint
+#                 yet (e.g. raw statement items browsed in the fundamentals
+#                 picker). Yields a single "Name — Category (unit: x)" label.
+#   - header    : include the bold "Name · Category · unit: x" title line.
+#                 Turn OFF where the surrounding UI already shows the name
+#                 (column-header tooltips, the Reference page's own heading).
+#   - sections  : which body parts to include, in display order.
+# --------------------------------------------------------------------------- #
+_SECTIONS = ("what_it_is", "how_to_use", "vs_peers")
+
+
+def _resolve(param_key: str, fallback: dict | None) -> tuple[dict, bool]:
+    """(hint, is_registered). When unknown, synthesize a minimal hint from
+    `fallback` so un-registered keys still render with a consistent label."""
+    h = PARAM_HINTS.get(param_key)
+    if h:
+        return h, True
+    fb = fallback or {}
+    return {"name": fb.get("name", param_key),
+            "category": fb.get("category", ""),
+            "unit": fb.get("unit", "")}, False
+
+
+def hint_markdown(
+    param_key: str,
+    *,
+    fallback: dict | None = None,
+    header: bool = True,
+    sections: tuple[str, ...] = _SECTIONS,
+) -> str:
+    """The param's hint as dyslexia-friendly Markdown (blank-line spacing, a
+    bulleted "how to use"). For Streamlit `help=` tooltips, the Parameter
+    Reference page, or any `st.markdown`. Empty string when nothing to show."""
+    h, registered = _resolve(param_key, fallback)
+    parts: list[str] = []
+    if header:
+        head = f"**{h.get('name', param_key)}**"
+        if h.get("category"):
+            head += f" · {h['category']}"
+        if h.get("unit"):
+            head += f" · unit: {h['unit']}"
+        parts.append(head)
+    if not registered:
+        if not header:
+            label = h.get("name", param_key)
+            if h.get("category"):
+                label += f" — {h['category']}"
+            parts.append(label)
+        return "\n\n".join(parts)
+    if "what_it_is" in sections and h.get("what_it_is"):
+        parts.append(h["what_it_is"])
+    if "how_to_use" in sections and h.get("how_to_use"):
+        how = h["how_to_use"]
+        items = how if isinstance(how, list) else [str(how)]
+        parts.append("\n".join(f"- {x}" for x in items))
+    if "vs_peers" in sections and h.get("vs_peers"):
+        parts.append(f"**Peers:** {h['vs_peers']}")
+    return "\n\n".join(parts)
+
+
+def hint_html(
+    param_key: str,
+    *,
+    fallback: dict | None = None,
+    sections: tuple[str, ...] = _SECTIONS,
+) -> str:
+    """The param's hint as escaped HTML for the picker's inline info panel
+    (`.fam-hi`/`.fam-h-s` in app.py). Same shape as `hint_markdown`, expressed
+    in the markup the popover needs (Streamlit tooltips misbehave there)."""
+    h, registered = _resolve(param_key, fallback)
+    e = _html.escape
+    if not registered:
+        unit = f" (unit: {h['unit']})" if h.get("unit") else ""
+        return e(f"{h.get('name', param_key)} — {h.get('category', '')}{unit}")
+    parts = [f"<b>{e(h['name'])}</b> · {e(h['category'])}"
+             + (f" · unit: {e(h['unit'])}" if h.get("unit") else "")]
+    if "what_it_is" in sections and h.get("what_it_is"):
+        parts.append(f"<div class='fam-h-s'>{e(h['what_it_is'])}</div>")
+    if "how_to_use" in sections and h.get("how_to_use"):
+        how = h["how_to_use"]
+        items = how if isinstance(how, list) else [str(how)]
+        parts.append("<ul>" + "".join(f"<li>{e(x)}</li>" for x in items) + "</ul>")
+    if "vs_peers" in sections and h.get("vs_peers"):
+        parts.append(f"<div class='fam-h-s'><i>Peers:</i> {e(h['vs_peers'])}</div>")
+    return "".join(parts)

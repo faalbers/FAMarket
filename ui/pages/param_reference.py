@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from config.param_hints import PARAM_HINTS
+from config.param_hints import PARAM_HINTS, hint_markdown
 
 # Group keys by category, preserving the registry's insertion order within each group
 # (and the order categories first appear, which is already the logical reading order).
@@ -55,17 +55,13 @@ with st.container(key="paramref"):
             with st.expander(f"{_cat}   ({len(_shown)})", expanded=bool(_q)):
                 for _key, _h in _shown:
                     with st.container(border=True):
+                        # The name + key/unit are this page's own chrome; the hint body
+                        # (what it is / how to use / Peers) is rendered through the one
+                        # canonical formatter so its style is never re-coded here.
                         st.markdown(f"#### {_h.get('name', _key)}")
                         _unit = _h.get("unit")
                         st.caption(f"key  `{_key}`" + (f"  ·  unit  `{_unit}`" if _unit else ""))
-                        if _h.get("what_it_is"):
-                            st.markdown(_h["what_it_is"])
-                        _how = _h.get("how_to_use")
-                        if _how:
-                            _lines = _how if isinstance(_how, list) else [str(_how)]
-                            st.markdown("\n".join(f"- {x}" for x in _lines))
-                        if _h.get("vs_peers"):
-                            st.caption(f"**Peers:**  {_h['vs_peers']}")
+                        st.markdown(hint_markdown(_key, header=False))
 
         if not _any:
             st.info("No parameters match your search.")

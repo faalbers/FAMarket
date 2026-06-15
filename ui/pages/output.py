@@ -36,7 +36,7 @@ import pandas as pd
 import streamlit as st
 
 from config import settings
-from config.param_hints import PARAM_HINTS
+from config import param_hints
 from ui import filter_engine as E
 from ui import filter_registry as R
 from ui import output_runs
@@ -73,12 +73,13 @@ def _short_label(col: str) -> str:
 
 
 def _help(col: str) -> str | None:
-    """Hover help for a column header, from param_hints (base-level)."""
+    """Hover help for a column header, from param_hints (base-level). The header
+    already shows the name, so drop the title line; formatting lives in
+    config.param_hints (one source of truth for the hint style)."""
     parsed = _parse(col)
-    if not parsed:
+    if not parsed or param_hints.get_hint(parsed[0].key) is None:
         return None
-    hint = PARAM_HINTS.get(parsed[0].key)
-    return hint.get("what_it_is") if hint else None
+    return param_hints.hint_markdown(parsed[0].key, header=False) or None
 
 
 def _column_options(types: set[str], result: pd.DataFrame, current: list[str]) -> dict[str, str]:

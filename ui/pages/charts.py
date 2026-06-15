@@ -33,7 +33,7 @@ from streamlit_echarts import JsCode, st_echarts
 
 from analysis_layer import metrics
 from config import settings
-from config.param_hints import PARAM_HINTS
+from config import param_hints
 from core.database import Database
 from ui import param_picker as P
 from ui.chart_theme import (
@@ -67,14 +67,13 @@ _RADAR_CATEGORIES = [
 ]
 
 def _score_help(col: str) -> str | None:
-    """The category-score hint for a *_score column, read from the canonical
-    config.param_hints registry (what_it_is + how_to_use), formatted as markdown for
-    the st.metric tooltip. One source of truth — never duplicated here."""
-    h = PARAM_HINTS.get(col)
-    if not h:
+    """The category-score hint for a *_score column, as markdown for the st.metric
+    tooltip — the column name is already the metric label, so drop the header and
+    Peers line. Formatting lives in config.param_hints; one source of truth."""
+    if param_hints.get_hint(col) is None:
         return None
-    lines = [h.get("what_it_is", "")] + [f"- {u}" for u in h.get("how_to_use", [])]
-    return "  \n".join(s for s in lines if s) or None
+    return param_hints.hint_markdown(
+        col, header=False, sections=("what_it_is", "how_to_use")) or None
 
 
 @st.cache_data(show_spinner=False)
@@ -221,10 +220,18 @@ def _render_fundamentals_bar(symbols: list[str]) -> None:
     if _sel not in _options:  # options are static, but guard anyway
         _sel = st.session_state["fund_param"] = _options[0]
 
+    # Period on the LEFT (fixed), parameter picker on the RIGHT — the picker's box
+    # hugs its selected-param label and so resizes, which would otherwise shove the
+    # Period radio around; keeping it left of the growing box pins it in place.
     # Parameter selection uses the SAME popover browser as the Filter page (search box,
     # category groups, per-row ▸ info from param_hints) — single-select (close on pick).
-    _top = st.columns([3, 2], vertical_alignment="bottom")
-    with _top[0]:
+    _top = st.columns([1, 4], vertical_alignment="bottom")
+    # Right-align the radio inside its column (keyed "fundperiod" → CSS in app.py) so it
+    # abuts the parameter box rather than leaving a wide gap, whatever the column width.
+    _freq_label = _top[0].container(key="fundperiod").radio(
+        "Period", list(_FREQ), index=0, horizontal=True)
+    _freq = _FREQ[_freq_label]
+    with _top[1]:
         st.caption("Parameter")
         P.render(
             st.container(),
@@ -239,10 +246,9 @@ def _render_fundamentals_bar(symbols: list[str]) -> None:
             on_pick=_cb_fund_param,
             close_on_pick=True,
             exclude_selected=False,  # keep the full list visible, current row primary-styled
+            trigger_width="content",  # hug the selected-param label instead of filling the column
         )
         P.scroll_to_current()
-    _freq_label = _top[1].radio("Period", list(_FREQ), index=0, horizontal=True)
-    _freq = _FREQ[_freq_label]
     _param = st.session_state["fund_param"]
 
     # Symbol list as a vertical single-select radio on the LEFT, chart on the right — only

@@ -14,6 +14,8 @@ Page bodies are Phase 3 skeletons under ui/pages/.
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 import streamlit as st
 
 from config import settings
@@ -65,6 +67,24 @@ st.markdown(
     }
     .fam-hi ul { margin: 0.3rem 0 0 1.1rem; padding: 0; }
     .fam-hi .fam-h-s { margin-top: 0.3rem; }
+    /* Param-picker popovers (Filter / Output / Charts): shrink the open panel to its
+       content — only as wide as the longest parameter name — instead of matching the
+       stretched trigger button (BaseWeb pins the panel's min-width to the trigger when
+       width="stretch"). The popover body is portaled OUTSIDE stMain, so it can't be
+       reached by an st-key wrapper; scope it with :has() to the body that holds the
+       picker's search box (placeholder "🔍 search…"), which is unique to these pickers
+       and absent from the app's other popovers (Action, Load/Add/Save, Reset/Revert). */
+    [data-testid="stPopoverBody"]:has(input[placeholder*="search"]) {
+        min-width: max-content !important;
+        width: max-content !important;
+    }
+    /* Fundamentals chart Period radio (wrapped in st.container(key="fundperiod")):
+       shrink it to its content and push it to the right edge of its column so it sits
+       right next to the (content-width, resizable) parameter picker beside it. */
+    [data-testid="stMain"] [class*="st-key-fundperiod"] [data-testid="stRadio"] {
+        width: fit-content;
+        margin-left: auto;
+    }
     /* Output parameter-columns list: the ✕ delete (key="rmcol:<col>") is a plain
        click-button shrunk to a small red square (white ✕) that hugs the glyph, no
        button chrome. Target it by its OWN key class (st-key-rmcol…) with a DESCENDANT
@@ -122,20 +142,25 @@ st.markdown(
 )
 
 # st.navigation lets pages live under ui/pages/ rather than a top-level pages/ dir.
-nav = st.navigation(
-    [
-        st.Page("ui/pages/fetch_control.py", title="Fetch Control", icon="⬇️"),
-        st.Page("ui/pages/filter.py", title="Filter", icon="🔎"),
-        # url_path pinned: filter runs open in their own tabs at /output?run=<id>,
-        # so this URL is a contract (rename-proof) — see ui/output_runs.py.
-        st.Page("ui/pages/output.py", title="Output", icon="📊", url_path="output"),
-        # url_path pinned: chart actions open in their own tab at /charts?view=…&symbols=…
-        # (an Output Action link) — this URL is a contract, like /output above.
-        st.Page("ui/pages/charts.py", title="Charts", icon="📈", url_path="charts"),
-        st.Page("ui/pages/calibration.py", title="Calibration", icon="🎚️"),
-        st.Page("ui/pages/param_reference.py", title="Parameters", icon="📖"),
-        st.Page("ui/pages/settings_page.py", title="Settings", icon="⚙️"),
-    ]
-)
+pages = [
+    st.Page("ui/pages/fetch_control.py", title="Fetch Control", icon="⬇️"),
+    st.Page("ui/pages/filter.py", title="Filter", icon="🔎"),
+    # url_path pinned: filter runs open in their own tabs at /output?run=<id>,
+    # so this URL is a contract (rename-proof) — see ui/output_runs.py.
+    st.Page("ui/pages/output.py", title="Output", icon="📊", url_path="output"),
+    st.Page("ui/pages/calibration.py", title="Calibration", icon="🎚️"),
+    st.Page("ui/pages/param_reference.py", title="Parameters", icon="📖"),
+    st.Page("ui/pages/settings_page.py", title="Settings", icon="⚙️"),
+]
 
+# Charts is never a sidebar destination — it's only ever opened in its own tab by an
+# Output action link (/charts?view=…&symbols=…; the url_path is a contract, like
+# /output above). st.navigation (1.58) has no per-page "hidden" flag, so we keep it
+# OFF the menu by registering it ONLY on the request that is actually viewing it —
+# recognised by the /charts path or the action link's `view` query param.
+_on_charts = urlparse(st.context.url or "").path.rstrip("/").rsplit("/", 1)[-1] == "charts"
+if _on_charts or "view" in st.query_params:
+    pages.append(st.Page("ui/pages/charts.py", title="Charts", icon="📈", url_path="charts"))
+
+nav = st.navigation(pages)
 nav.run()
