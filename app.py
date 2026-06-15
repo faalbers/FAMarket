@@ -42,20 +42,16 @@ st.markdown(
     [data-testid="stMain"] .stSelectbox div[data-baseweb="select"] > div,
     [data-testid="stMain"] .stTextInput input,
     [data-testid="stMain"] .stNumberInput input {
-        font-size: 0.82rem; min-height: 1.9rem;
+        min-height: 1.55rem;
     }
-    [data-testid="stMain"] .stSelectbox div[data-baseweb="select"] { min-height: 1.9rem; }
+    [data-testid="stMain"] .stSelectbox div[data-baseweb="select"] { min-height: 1.55rem; }
     [data-testid="stMain"] .stButton > button {
-        font-size: 0.82rem; padding: 0.1rem 0.3rem; min-height: 1.9rem; min-width: 0;
+        padding: 0.05rem 0.3rem; min-height: 1.55rem; min-width: 0;
     }
-    [data-testid="stMain"] label p,
-    [data-testid="stMain"] .stCheckbox label p,
-    [data-testid="stMain"] .stRadio label p { font-size: 0.84rem; }
     [data-testid="stMain"] [data-testid="stHorizontalBlock"] { gap: 0.3rem; }
     [data-testid="stMain"] [data-testid="stHorizontalBlock"] [data-testid="column"] {
         padding: 0 0.1rem;
     }
-    [data-testid="stMain"] [data-testid="stCaptionContainer"] p { font-size: 0.72rem; }
     /* Param-picker inline info panels (.fam-hi): each option row in the picker
        has a ▸ toggle that expands the param's info in-flow below the row
        (collapsed by default), so it never covers the list. Theme-neutral
@@ -69,17 +65,19 @@ st.markdown(
     }
     .fam-hi ul { margin: 0.3rem 0 0 1.1rem; padding: 0; }
     .fam-hi .fam-h-s { margin-top: 0.3rem; }
-    /* Output parameter-columns list (inside the paramcolrows container): the ✕ delete
-       is a plain click-button sized to match the show/hide checkbox box beside it — a
-       small red square (white ✕), no button chrome. !important everywhere to beat
-       Streamlit's own button sizing (that was leaving it ~3× too big). */
-    [data-testid="stMain"] [class*="st-key-paramcolrows"] .stButton > button {
-        width: 1rem !important; min-width: 1rem !important;
-        height: 1rem !important; min-height: 1rem !important;
-        padding: 0 !important; line-height: 1 !important;
+    /* Output parameter-columns list: the ✕ delete (key="rmcol:<col>") is a plain
+       click-button shrunk to a small red square (white ✕) that hugs the glyph, no
+       button chrome. Target it by its OWN key class (st-key-rmcol…) with a DESCENDANT
+       selector — in Streamlit 1.58 the st-key-<key> class sits on an outer container
+       and the <button> is nested below .stButton, so `> button` (direct child) misses
+       it; ` button` (descendant) is required. !important beats Streamlit's own sizing. */
+    [data-testid="stMain"] [class*="st-key-rmcol"] button {
+        width: auto !important; min-width: 0 !important;
+        height: auto !important; min-height: 0 !important;
+        padding: 0.05rem 0.2rem !important; line-height: 1 !important;
         border: none !important; border-radius: 0.25rem !important;
         background: #cc3311 !important; color: #fff !important;
-        font-size: 0.72rem !important;
+        font-size: 0.9rem !important;
         display: flex !important; align-items: center !important; justify-content: center !important;
     }
     /* Dropdown option rows (selectbox / multiselect popover menus). These render in a
@@ -91,14 +89,13 @@ st.markdown(
         padding-top: 0.15rem !important;
         padding-bottom: 0.15rem !important;
         min-height: 0 !important;
-        font-size: 0.82rem;
         line-height: 1.3;
     }
     /* Compact vertical option lists app-wide (stacked checkbox / radio rows, e.g. the
        charts sector/industry selector). The tall look is the GAP between stacked rows
        (Streamlit's ~1rem default) plus each row's own height — halve the gap and trim
        the per-row footprint. */
-    [data-testid="stMain"] [data-testid="stVerticalBlock"] { gap: 0.45rem !important; }
+    [data-testid="stMain"] [data-testid="stVerticalBlock"] { gap: 0.3rem !important; }
     [data-testid="stMain"] [role="radiogroup"] { gap: 0.1rem !important; }
     [data-testid="stMain"] .stCheckbox { min-height: 0; }
     [data-testid="stMain"] .stCheckbox label { min-height: 0; }

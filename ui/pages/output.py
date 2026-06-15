@@ -340,9 +340,10 @@ if _open:
     P.scroll_to_current()
     if not _cols_list:
         st.caption("No parameter columns yet — add some with **➕ Add columns** above.")
-    # Wrap the rows in a keyed container so the per-row ✕ delete buttons can be reliably
-    # styled (app.py, via st-key-paramcolrows) into a small red square matching the
-    # checkbox box. The narrow first column keeps the ✕ tight against the checkbox.
+    # The per-row ✕ delete buttons are styled in app.py into a small red square that
+    # hugs the glyph — targeted by each button's OWN key class (st-key-rmcol…) with a
+    # DESCENDANT selector (the <button> is nested below the keyed wrapper in Streamlit
+    # 1.58). The narrow first column keeps the ✕ tight against the checkbox.
     _rows_box = st.container(key="paramcolrows")
     for _col in _cols_list:
         # ✕ delete = plain click-button; the checkbox on the right carries the column
