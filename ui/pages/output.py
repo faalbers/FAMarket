@@ -8,6 +8,8 @@ Two modes, switched on the `?run=<id>` query param:
     tab. Rows are multi-selectable (shift-click for a range) with a Delete-
     selected button above. Each tab is its own Streamlit session, so several
     output screens can be open side by side with independent column selections.
+    Above the list, a "Quick actions" box runs the same Action menu (charts +
+    external links) on a hand-typed symbol list — no filter run required.
   * WITH it: that run's results table (ROADMAP 6.1, table basics) —
     lead columns Symbol ("AAPL (standard)"), Company, Sector, Industry, then
     parameter columns seeded from the run's filter, add/remove via the same
@@ -110,6 +112,53 @@ def _column_options(types: set[str], result: pd.DataFrame, current: list[str]) -
 # the query string. Koyfin is intentionally absent until its URL format is confirmed.
 def _charts_url(symbols: list[str], view: str) -> str:
     return f"/charts?view={view}&symbols=" + quote(",".join(symbols))
+
+
+def _parse_symbols(raw: str) -> list[str]:
+    """Comma/space/newline-separated tickers -> upper-cased list (mirrors
+    fetch_control._parse_subset). Charts uppercase on read too, so this matches."""
+    parts = [p.strip().upper() for p in raw.replace("\n", ",").replace(" ", ",").split(",")]
+    return [p for p in parts if p]
+
+
+def _render_actions(symbols: list[str]) -> None:
+    """Render the Action-menu body (charts + external links) for `symbols`. Shared by the
+    run-results selection popover and the launcher's quick-actions box — keep it body-only
+    (no popover wrapper) so each caller decides how to host it."""
+    n = len(symbols)
+    sites = settings.EXTERNAL_SITES
+    syms_csv = ",".join(symbols)
+    preview = ", ".join(symbols[:10]) + ("…" if n > 10 else "")
+    st.caption(f"{n} symbol{'' if n == 1 else 's'}: {preview}")
+    st.markdown("**Charts**")
+    _ch = st.columns(2)
+    _ch[0].link_button("📈 Normalized price chart ↗", _charts_url(symbols, "price"),
+                       width="stretch")
+    _ch[1].link_button("📊 Fundamentals over time ↗",
+                       _charts_url(symbols, "fundamentals_bar"), width="stretch")
+    _ch2 = st.columns(2)
+    _ch2[0].link_button("📉 Fundamentals growth lines ↗",
+                        _charts_url(symbols, "fundamentals_line"), width="stretch")
+    _ch2[1].link_button("🎯 Category scores radar ↗", _charts_url(symbols, "radar"),
+                        width="stretch")
+    st.caption("Price / growth-lines / radar compare all selected symbols; the Fundamentals "
+               "bar picks one symbol + one parameter across periods.")
+    st.markdown("**Dividends**")
+    _dv = st.columns(2)
+    _dv[0].link_button("💰 Dividend yield ↗",
+                       _charts_url(symbols, "dividend_line"), width="stretch")
+    st.caption("Dividend yield per calendar period (annual/quarterly), one line per symbol, "
+               "Actual or Normalized to 100. Yield heat-map chart coming next.")
+    st.markdown("**Analyze on external site**")
+    _ext = st.columns(2)
+    _ext[0].link_button("Finviz ↗", sites["finviz"].format(symbols=syms_csv), width="stretch")
+    _ext[1].link_button("Yahoo Finance ↗", sites["yahoo"].format(symbols=syms_csv),
+                        width="stretch")
+    st.caption("TradingView — one tab per symbol:")
+    for _i in range(0, n, 4):
+        for _cell, _sym in zip(st.columns(4), symbols[_i:_i + 4]):
+            _cell.link_button(f"{_sym} ↗", sites["tradingview"].format(symbol=_sym),
+                              width="stretch")
 
 
 # --------------------------------------------------------------------------- #
@@ -222,6 +271,25 @@ def _render_launcher() -> None:
     )
 
 
+def _render_quick_actions() -> None:
+    """Type symbols by hand and run the same Action menu on them — charts + external
+    links without first building a filter run. Mirrors the run-results selection
+    Action menu; symbols parse like the Fetch Dev subset (comma/space/newline)."""
+    st.subheader("Quick actions — type symbols")
+    raw = st.text_input(
+        "Symbols (comma / space / newline separated)",
+        key="quick_actions_symbols", placeholder="AAPL, MSFT, KO",
+        help="Run charts and external-site links on any tickers you type — "
+             "the same Action menu as a run's row selection.")
+    syms = _parse_symbols(raw)
+    n = len(syms)
+    cols = st.columns([1.6, 5], vertical_alignment="center")
+    with cols[0].popover(f"⚙ Action · {n}" if n else "⚙ Action", disabled=n == 0):
+        _render_actions(syms)
+    cols[1].caption("Type tickers above, then open **Action** — no filter run needed.")
+    st.divider()
+
+
 # --------------------------------------------------------------------------- #
 # page
 # --------------------------------------------------------------------------- #
@@ -229,6 +297,7 @@ st.title("Output")
 
 run_id = st.query_params.get("run")
 if not run_id:
+    _render_quick_actions()
     _render_launcher()
     st.stop()
 
@@ -503,35 +572,12 @@ def _cb_reset_grid() -> None:
 # -- Action bar (above the table): act on the selected rows ------------------- #
 # Reads `_selected` (the prior render's grid selection, computed above). The Action
 # menu is disabled until at least one row is selected. One action at a time, each a
-# link that opens in a new browser tab (ROADMAP 6.2). Chart actions land here next.
+# link that opens in a new browser tab (ROADMAP 6.2). Body lives in _render_actions,
+# shared with the launcher's quick-actions box.
 _n_sel = len(_selected)
-_sites = settings.EXTERNAL_SITES
-_syms_csv = ",".join(_selected)
 _act = st.columns([1.6, 5], vertical_alignment="center")
 with _act[0].popover(f"⚙ Action · {_n_sel}" if _n_sel else "⚙ Action", disabled=_n_sel == 0):
-    _preview = ", ".join(_selected[:10]) + ("…" if _n_sel > 10 else "")
-    st.caption(f"{_n_sel} symbol{'' if _n_sel == 1 else 's'} selected: {_preview}")
-    st.markdown("**Charts**")
-    _ch = st.columns(2)
-    _ch[0].link_button("📈 Normalized price chart ↗", _charts_url(_selected, "price"),
-                       width="stretch")
-    _ch[1].link_button("📊 Fundamentals over time ↗",
-                       _charts_url(_selected, "fundamentals_bar"), width="stretch")
-    _ch2 = st.columns(2)
-    _ch2[0].link_button("🎯 Category scores radar ↗", _charts_url(_selected, "radar"),
-                        width="stretch")
-    st.caption("Price/radar compare all selected symbols; Fundamentals picks one symbol + "
-               "one parameter across periods. Dividend charts coming next.")
-    st.markdown("**Analyze on external site**")
-    _ext = st.columns(2)
-    _ext[0].link_button("Finviz ↗", _sites["finviz"].format(symbols=_syms_csv), width="stretch")
-    _ext[1].link_button("Yahoo Finance ↗", _sites["yahoo"].format(symbols=_syms_csv),
-                        width="stretch")
-    st.caption("TradingView — one tab per symbol:")
-    for _i in range(0, _n_sel, 4):
-        for _cell, _sym in zip(st.columns(4), _selected[_i:_i + 4]):
-            _cell.link_button(f"{_sym} ↗", _sites["tradingview"].format(symbol=_sym),
-                              width="stretch")
+    _render_actions(_selected)
 _act[1].caption("Select rows in the table — click, **Shift-click** for a range, "
                 "**Ctrl/Cmd-click** to add — then open **Action**.")
 

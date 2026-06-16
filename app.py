@@ -85,6 +85,33 @@ st.markdown(
         width: fit-content;
         margin-left: auto;
     }
+    /* Growth-line Scale toggles (segmented_control key="fundline_mode" on the Fundamentals
+       chart, key="divline_mode" on the Dividend yield chart; Actual / Normalized): show the
+       selection through BACKGROUND only. By default the active segment turns the theme
+       primary (red) text+border; here both segments keep the same text + border and only the
+       filled background differs. Verified selectors against the frontend JS: active button =
+       stBaseButton-segmented_controlActive, inactive = stBaseButton-segmented_control.
+       Descendant selector (st-key sits on an outer container; see CLAUDE.md / the rmcol note
+       above). */
+    [data-testid="stMain"] [class*="st-key-fundline_mode"] button[data-testid="stBaseButton-segmented_control"],
+    [data-testid="stMain"] [class*="st-key-fundline_mode"] button[data-testid="stBaseButton-segmented_controlActive"],
+    [data-testid="stMain"] [class*="st-key-divline_mode"] button[data-testid="stBaseButton-segmented_control"],
+    [data-testid="stMain"] [class*="st-key-divline_mode"] button[data-testid="stBaseButton-segmented_controlActive"] {
+        color: inherit !important;
+        border-color: rgba(49, 51, 63, 0.2) !important;
+    }
+    [data-testid="stMain"] [class*="st-key-fundline_mode"] button[data-testid="stBaseButton-segmented_control"],
+    [data-testid="stMain"] [class*="st-key-fundline_mode"] button[data-testid="stBaseButton-segmented_control"]:is(:hover, :active, :focus, :focus-visible),
+    [data-testid="stMain"] [class*="st-key-divline_mode"] button[data-testid="stBaseButton-segmented_control"],
+    [data-testid="stMain"] [class*="st-key-divline_mode"] button[data-testid="stBaseButton-segmented_control"]:is(:hover, :active, :focus, :focus-visible) {
+        background: transparent !important;
+    }
+    [data-testid="stMain"] [class*="st-key-fundline_mode"] button[data-testid="stBaseButton-segmented_controlActive"],
+    [data-testid="stMain"] [class*="st-key-fundline_mode"] button[data-testid="stBaseButton-segmented_controlActive"]:is(:hover, :active, :focus, :focus-visible),
+    [data-testid="stMain"] [class*="st-key-divline_mode"] button[data-testid="stBaseButton-segmented_controlActive"],
+    [data-testid="stMain"] [class*="st-key-divline_mode"] button[data-testid="stBaseButton-segmented_controlActive"]:is(:hover, :active, :focus, :focus-visible) {
+        background: rgba(46, 160, 67, 0.30) !important;
+    }
     /* Output parameter-columns list: the ✕ delete (key="rmcol:<col>") is a plain
        click-button shrunk to a small red square (white ✕) that hugs the glyph, no
        button chrome. Target it by its OWN key class (st-key-rmcol…) with a DESCENDANT

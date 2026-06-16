@@ -505,6 +505,13 @@
        st.link_button; external URLs come from settings.EXTERNAL_SITES. Still to
        build: the Fundamentals + Dividends chart actions, and Koyfin (URL format
        still to be confirmed).
+     - ✅ IMPLEMENTED (2026-06-16): the SAME Action menu is also available on a
+       hand-typed symbol list. The Output launcher (no-`?run=` mode) now shows a
+       "Quick actions — type symbols" box above the recent-runs list: type tickers
+       (comma/space/newline, like the Fetch Dev subset) → the same `⚙ Action` popover
+       (charts + external links), no filter run required. The menu body was extracted
+       to `_render_actions(symbols)` and is shared by both the run-results selection
+       popover and this box.
      - ✅ IMPLEMENTED (2026-06-13): Fundamentals BAR chart (charts.py
        view=fundamentals_bar). Design REVISED from the original "grouped by metric,
        multi-symbol" note (see the action-menu structure below): the user wants to
@@ -528,6 +535,53 @@
        legend, ROADMAP 6.3, rather than a separate checklist). A category with no score
        leaves that axis blank for the symbol; symbols with no analysis row are listed and
        skipped. Wired into the Output Action menu as "🎯 Category scores radar".
+     - ✅ IMPLEMENTED (2026-06-15): Fundamentals GROWTH LINE chart (charts.py
+       view=fundamentals_line) — the multi-symbol comparison the bar chart deliberately
+       deferred. One parameter (shared param picker, same as the bar) across EVERY selected
+       symbol, one line each over its reported periods, annual/quarterly toggle. Uses a TIME
+       x-axis (not category) so symbols on different fiscal calendars align by date. A
+       Scale toggle: "Indexed (100)" rebases each symbol to 100 at its first POSITIVE period
+       (compare growth trajectories regardless of size; a ≤0 base can't be indexed → that
+       symbol is listed + skipped, flip to Actual), "Actual" shows reported values with ONE
+       shared B/M/K divisor across symbols. Missing periods break the line (period-aware gap,
+       NOT the price chart's 7-day threshold). Values reuse the SAME deriver as the bar
+       (metrics formulas for ratios, split-adjusted EPS) — extracted to a shared
+       `_period_values()` so a value is computed once. Legend = left vertical scroll +
+       All/Invert (same as price/radar). Wired into the Output Action menu as
+       "📉 Fundamentals growth lines".
+       - REFINED 2026-06-15: (1) the chart now TRIMS to the most recent unbroken run —
+         per symbol it finds the first date after its last gap (a skipped period OR a NaN
+         value, `_last_clean_run_start`), then cuts EVERY symbol at the LOWEST (earliest)
+         such date so they share one window (Indexed rebases to 100 there); a gap-free
+         param keeps full history. Caption shows "from <date> (after last gap)". (2) the
+         Scale toggle (Indexed/Actual) now signals selection by BACKGROUND only (soft
+         green active, transparent inactive) instead of the theme-red text/border —
+         scoped CSS in app.py (segmented-control `st-key-fundline_mode`).
+     - ✅ IMPLEMENTED (2026-06-15): Dividend yield chart (charts.py view=dividend_line) —
+       each selected symbol's dividend yield over CALENDAR periods (annual = calendar year,
+       quarterly = calendar quarter; TTM excluded from the growth view per the action-menu
+       spec), one line each. Yield per period = summed `dividends` ÷ the period-end RAW
+       `close` × 100 — divides the NOMINAL per-share cash by the contemporaneous (unadjusted)
+       close, NOT adj_close, so historical yields aren't inflated by back-adjustment
+       (`_load_div_prices` reads close+dividends from ohlcv.db full-history; `_period_yields`
+       resamples YE/QE). A period with no payout is a real 0%. Reuses the shared
+       `_growth_line_options` and the same last-gap trim. Wired into the Output Action menu
+       under a "Dividends" group as "💰 Dividend yield".
+       REFINED 2026-06-16: (1) the still-running current period is DROPPED — its
+       dividends/price aren't final (its period-end label falls past the last bar), so only
+       completed periods show. (2) Rendered on a CATEGORY x-axis labelled per period
+       ("2025" / "2025-Q3") via `_period_label`, since a time axis pushes a Dec-31 period-end
+       visually under the next year; quarterly thins labels to Q1-only (full label still in
+       the tooltip) at a smaller font. (3) Gained the Actual/Normalized scale toggle (default
+       Actual; Normalized rebases each symbol to 100 at its first positive period) — and the
+       Fundamentals line's old "Indexed (100)" toggle was RENAMED to "Normalized" with the
+       order reversed + Actual default to match. (4) Both growth-line charts now drop symbols
+       whose actual values are all 0, and PERSIST the legend show/hide selection across the
+       Actual/Normalized + period switches (legendselectchanged → session_state →
+       legend.selected, same pattern as the price chart).
+       Still pending in 6.2: the fundamentals/dividend HEAT MAP (new chart type, design TBD)
+       and the Koyfin link. (Dividend yield BAR dropped 2026-06-16 — practically identical to
+       the line, per the user.)
      - [ Action ] button opens grouped dropdown, one action at a time, each opens a new browser tab
      - Action menu structure:
        - Normalized Charts
@@ -538,11 +592,11 @@
              over-periods; the multi-symbol-comparison bar is a later step.
            - Parameter heat map charts (blue-to-orange scale, color-blind safe)
            - ✅ Radar chart (5 category scores: Value, Quality, Growth, Momentum, Income) — shipped 2026-06-15, see 6.2 above
-           - Parameter growth line charts (annual/quarterly selector, all periods, gaps shown as breaks)
+           - ✅ Parameter growth line charts (annual/quarterly selector, all periods, gaps shown as breaks) — shipped 2026-06-15, see 6.2 above (multi-symbol, Actual/Normalized scale toggle)
        - Dividends
-           - Yield bar chart
+           - ~~Yield bar chart~~ — DROPPED 2026-06-16 (practically identical to the line)
            - Yield heat map chart
-           - Yield growth line charts (annual and quarterly only — TTM excluded from growth chart)
+           - ✅ Yield line chart (annual and quarterly only — TTM excluded) — shipped 2026-06-15, refined 2026-06-16, see 6.2 above (multi-symbol, calendar-period yield, Actual/Normalized, view=dividend_line)
        - Analyze on external site
            - Finviz → https://finviz.com/screener?v=111&t=SYM1,SYM2,...
            - Yahoo Finance → https://finance.yahoo.com/quotes/SYM1,SYM2,.../

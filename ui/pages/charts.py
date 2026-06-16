@@ -17,9 +17,13 @@ pick sub-ranges (native arbitrary-range selector); the toolbox restore icon rese
 the full view. Line breaks mark data gaps (no interpolation).
 
 view=fundamentals_bar: one symbol × one parameter, across its reported periods.
+view=fundamentals_line: one parameter × every selected symbol, as lines over reported
+periods (Indexed-to-100 or Actual), on a time axis so different fiscal calendars align.
 view=radar: the five 0-100 category scores (Value/Quality/Growth/Momentum/Income), one
-polygon per selected symbol, read from the analysis.db snapshot. The remaining
-fundamentals/dividend chart views land here next.
+polygon per selected symbol, read from the analysis.db snapshot.
+view=dividend_line: dividend yield per calendar period (annual/quarterly), one line per
+selected symbol on a time axis. Yield = period dividends ÷ the period-end RAW close × 100
+(nominal divided by contemporaneous price). The dividend bar + heat-map views land next.
 """
 
 from __future__ import annotations
@@ -171,18 +175,72 @@ def _load_splits(symbol: str, _mtime: float) -> pd.Series:
     return s[(s != 0) & (s != 1)]
 
 
+@st.cache_data(show_spinner=False)
+def _load_div_prices(symbol: str, _mtime: float) -> pd.DataFrame:
+    """One symbol's full daily RAW close + dividend events from ohlcv.db, date-indexed.
+
+    Uses the raw `close`, NOT adj_close: the `dividends` column is the nominal per-share
+    cash paid at the time, so each period's yield must divide it by the contemporaneous
+    (unadjusted) close — back-adjusted prices would inflate historical yields. Full
+    history (not the analysis window) so every calendar period can form a yield.
+    """
+    if not settings.OHLCV_DB.exists():
+        return pd.DataFrame()
+    with Database(settings.OHLCV_DB) as db:
+        if not db.table_exists("ohlcv"):
+            return pd.DataFrame()
+        df = db.read("ohlcv", where="symbol = ?", params=[symbol])
+    if df.empty or "close" not in df.columns:
+        return pd.DataFrame()
+    df = df.copy()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["close"] = pd.to_numeric(df["close"], errors="coerce")
+    df["dividends"] = (pd.to_numeric(df["dividends"], errors="coerce")
+                       if "dividends" in df.columns else 0.0)
+    df = df.dropna(subset=["date", "close"])
+    df["dividends"] = df["dividends"].fillna(0.0)
+    return df.set_index("date").sort_index()[["close", "dividends"]]
+
+
+def _period_yields(df: pd.DataFrame, freq: str) -> tuple[list, list[float]]:
+    """Calendar-period dividend yields (%) from a _load_div_prices frame, oldest→newest.
+
+    Per period: summed dividends ÷ the period-end close × 100. `freq` is 'annual'
+    (calendar year) or 'quarterly' (calendar quarter); TTM is intentionally excluded from
+    the growth views. A period with a price but no payout yields a real 0%. The current,
+    still-running period is dropped — its dividends/price aren't final yet (its period-end
+    label falls past the last available bar), so only completed periods are returned.
+    Returns (period_end dates, yields) aligned to the price history's span.
+    """
+    if df.empty:
+        return [], []
+    rule = "YE" if freq == "annual" else "QE"
+    px_end = df["close"].resample(rule).last()
+    div_sum = df["dividends"].resample(rule).sum()
+    last_bar = df.index.max()
+    mask = px_end.notna() & (px_end > 0) & (px_end.index <= last_bar)
+    yld = div_sum[mask] / px_end[mask] * 100.0
+    return list(yld.index), [float(v) for v in yld.to_numpy()]
+
+
 def _num(v) -> float:
     n = pd.to_numeric(v, errors="coerce")
     return float(n) if pd.notna(n) else float("nan")
 
 
+def _scale_factor(maxabs: float) -> tuple[float, str]:
+    """Pick a B/M/K divisor + suffix for the largest magnitude on an axis (1, none)."""
+    for div, suf in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if maxabs >= div:
+            return div, suf
+    return 1.0, ""
+
+
 def _compact(values: list[float]) -> tuple[list, str]:
     """Scale raw money values to B/M/K for a readable axis; NaN -> None (a bar gap)."""
     mx = max((abs(v) for v in values if v == v), default=0.0)  # v==v skips NaN
-    for div, suf in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
-        if mx >= div:
-            return [v / div if v == v else None for v in values], suf
-    return [v if v == v else None for v in values], ""
+    _div, _suf = _scale_factor(mx)
+    return [v / _div if v == v else None for v in values], _suf
 
 
 def _param_label(key: str) -> str:
@@ -202,6 +260,30 @@ def _fund_info_html(key: str) -> str:
     shim = SimpleNamespace(key=key, name=_param_label(key), category=_fund_category(key),
                            unit=unit)
     return P.hint_html(shim)
+
+
+def _period_values(fin: pd.DataFrame, param: str, symbol: str,
+                   o_mtime: float) -> tuple[list[float], str, str]:
+    """Per-period values for `param` across `fin`'s rows (oldest→newest), with its kind.
+
+    Returns (values, kind, label): `kind` in {'ratio','eps','money'} tells the caller
+    whether to scale (money → B/M/K) or show as-is; `label` is the y-axis label without a
+    scale suffix. Ratios call the canonical metrics.py formulas (the SAME ones the
+    analysis snapshot uses); diluted EPS is split-adjusted to current shares; money is
+    raw native units. Shared by the fundamentals bar and growth-line views so a value is
+    derived once, never twice.
+    """
+    if param in metrics.RATIO_PERIOD_METRICS:
+        _fn, _fields, _unit = metrics.RATIO_PERIOD_METRICS[param]
+        _vals = [_fn(*[_num(r.get(f)) for f in _fields]) for _, r in fin.iterrows()]
+        return _vals, "ratio", f"{_param_label(param)} ({_unit})"
+    if param == "diluted_eps":
+        _eps = pd.Series([_num(r.get(param)) for _, r in fin.iterrows()],
+                         index=pd.to_datetime(fin["period_end"].values))
+        _eps = metrics.split_adjust(_eps, _load_splits(symbol, o_mtime))
+        return ([float(v) if pd.notna(v) else float("nan") for v in _eps.to_numpy()],
+                "eps", f"{_param_label(param)} (split-adjusted)")
+    return [_num(r.get(param)) for _, r in fin.iterrows()], "money", _param_label(param)
 
 
 def _cb_fund_param(key: str) -> None:
@@ -265,29 +347,18 @@ def _render_fundamentals_bar(symbols: list[str]) -> None:
     _labels = [d.strftime("%Y") if _freq == "annual" else d.strftime("%Y-%m")
                for d in _fin["period_end"]]
 
-    # Per-period values. Ratios call the canonical metrics.py functions with each
-    # period's reported inputs (one formula, shared with the snapshot); raw money
-    # figures are scaled to B/M/K, EPS and ratios are shown as-is.
-    if _param in metrics.RATIO_PERIOD_METRICS:
-        _fn, _fields, _unit = metrics.RATIO_PERIOD_METRICS[_param]
-        _vals = [_fn(*[_num(r.get(f)) for f in _fields]) for _, r in _fin.iterrows()]
-        _data = [round(v, 2) if v == v else None for v in _vals]
-        _yname = f"{_param_label(_param)} ({_unit})"
-    elif _param == "diluted_eps":
-        # EPS is per-share and stored split-UNADJUSTED, so a raw series jumps at a
-        # split. Rescale to current-share terms with the SAME function the analysis
-        # snapshot uses (one definition), feeding the symbol's full split history.
-        _eps = pd.Series([_num(r.get(_param)) for _, r in _fin.iterrows()],
-                         index=pd.to_datetime(_fin["period_end"].values))
-        _o_mtime = settings.OHLCV_DB.stat().st_mtime if settings.OHLCV_DB.exists() else 0.0
-        _eps = metrics.split_adjust(_eps, _load_splits(_symbol, _o_mtime))
-        _data = [round(float(v), 2) if pd.notna(v) else None for v in _eps.to_numpy()]
-        _yname = f"{_param_label(_param)} (split-adjusted)"
-    else:
-        _raw = [_num(r.get(_param)) for _, r in _fin.iterrows()]
-        _scaled, _suf = _compact(_raw)
+    # Per-period values via the shared deriver (ratios use the snapshot's formulas; EPS
+    # is split-adjusted). Raw money figures are then scaled to B/M/K for the axis; ratios
+    # and EPS are shown as-is.
+    _o_mtime = settings.OHLCV_DB.stat().st_mtime if settings.OHLCV_DB.exists() else 0.0
+    _vals, _kind, _yname = _period_values(_fin, _param, _symbol, _o_mtime)
+    if _kind == "money":
+        _scaled, _suf = _compact(_vals)
         _data = [round(v, 2) if v is not None else None for v in _scaled]
-        _yname = _param_label(_param) + (f" ({_suf})" if _suf else "")
+        if _suf:
+            _yname += f" ({_suf})"
+    else:
+        _data = [round(v, 2) if v == v else None for v in _vals]
 
     if not any(d is not None for d in _data):
         _right.info(f"No **{_param_label(_param)}** data reported for {_symbol}.")
@@ -321,6 +392,412 @@ def _render_fundamentals_bar(symbols: list[str]) -> None:
         st.caption(f"**{_symbol}** · {_param_label(_param)} · {_freq_label.lower()} periods. "
                    "Missing bars = the metric wasn't reported (or its inputs were absent) "
                    "that period.")
+
+
+# --------------------------------------------------------------------------- #
+# Fundamentals growth-line view (ROADMAP 6.2) — one parameter, many symbols, lines
+# --------------------------------------------------------------------------- #
+# A period-aware gap break. chart_theme.echarts_points uses a 7-day threshold (built for
+# daily prices); reporting periods sit a quarter/year apart, so a *missing* period is a
+# much wider hole — break the line only when more than one period is skipped.
+_PERIOD_GAP_DAYS = {"annual": 550, "quarterly": 135}
+
+
+def _period_label(d, freq: str) -> str:
+    """Calendar-period label naming the period a value was computed FOR: "2025" (annual)
+    or "2025-Q3" (quarterly). Period-ends are Dec-31 / quarter-ends, so a Dec-31 close
+    belongs to its own year, not the next one a time axis would visually push it toward."""
+    ts = pd.Timestamp(d)
+    if freq == "annual":
+        return f"{ts.year}"
+    return f"{ts.year}-Q{(ts.month - 1) // 3 + 1}"
+
+
+def _period_points(dates, values, freq: str) -> list[list]:
+    """ECharts [date, value] points for one symbol's periods, with a null inserted where
+    a reporting period is missing (>1 period gap) so the line breaks there instead of
+    interpolating across the hole. NaN values pass through as nulls (also breaks)."""
+    gap = _PERIOD_GAP_DAYS.get(freq, 135)
+    pts: list[list] = []
+    prev = None
+    for d, v in zip(dates, values):
+        val = round(float(v), 2) if (v is not None and v == v) else None
+        if prev is not None and (d - prev).days > gap:
+            pts.append([(prev + (d - prev) / 2).strftime("%Y-%m-%d"), None])
+        pts.append([d.strftime("%Y-%m-%d"), val])
+        prev = d
+    return pts
+
+
+def _last_clean_run_start(dates, values, gap: int) -> int:
+    """Index where the most recent unbroken run of periods begins.
+
+    A break is a NaN/None value or a period spaced more than `gap` days from the
+    previous one — the same conditions that break the rendered line in
+    _period_points. Returns len(dates) if even the newest period is a break.
+    """
+    start = 0
+    prev = None
+    for i, (d, v) in enumerate(zip(dates, values)):
+        valid = v is not None and v == v
+        if prev is not None and (d - prev).days > gap:
+            start = i        # time gap before i -> run restarts at i
+        if not valid:
+            start = i + 1    # NaN at i -> run restarts after i
+        prev = d
+    return start
+
+
+def _line_series(name: str, points: list[list]) -> dict:
+    """One ECharts line series for the growth-line view. Markers shown (periods are
+    sparse, so each reported point is worth seeing); nulls break the line."""
+    return {"name": name, "type": "line", "showSymbol": True, "symbolSize": 5,
+            "connectNulls": False, "lineStyle": {"width": 1.8},
+            "emphasis": {"focus": "series"}, "data": points}
+
+
+def _growth_line_options(series: list[dict], yname: str,
+                         x_categories: list[str] | None = None,
+                         x_label_formatter: str | None = None) -> dict:
+    """Shared ECharts options for the growth-line charts (fundamentals growth + dividend
+    yield): dark theme, unified axis tooltip, a left vertical scroll legend with All/Invert,
+    and a dataZoom slider + restore. The y-axis name and series differ between callers.
+    Series whose name starts with "_" (e.g. a baseline marker) stay off the legend but are
+    always drawn. By default the x-axis is a TIME axis (aligns differing fiscal calendars by
+    date); pass `x_categories` to instead use a CATEGORY axis whose ticks/labels name each
+    calendar period (dividend yield) — series data must then be values aligned to it.
+    `x_label_formatter` is a JS function body (str) applied to the category axis labels — used
+    to thin crowded labels (e.g. show only Q1) while leaving the full category for tooltips."""
+    _xaxis = ({"type": "category", "data": x_categories, "boundaryGap": False}
+              if x_categories is not None else {"type": "time"})
+    _axislabel = {"color": _DARK_TEXT}
+    if x_categories is not None:
+        _axislabel["fontSize"] = 10
+    if x_label_formatter is not None:
+        _axislabel.update({"interval": 0, "formatter": JsCode(x_label_formatter).js_code})
+    _xaxis.update({"axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.35)"}},
+                   "axisLabel": _axislabel,
+                   "splitLine": {"show": True, "lineStyle": {"color": _GRID_LINE}}})
+    return {
+        "backgroundColor": _DARK_BG,
+        "color": list(_COLORWAY),
+        "textStyle": {"color": _DARK_TEXT},
+        "tooltip": {"trigger": "axis", "order": "valueDesc",
+                    "backgroundColor": "rgba(15,18,25,0.92)",
+                    "borderColor": "rgba(255,255,255,0.20)",
+                    "textStyle": {"color": _DARK_TEXT}},
+        "legend": {
+            "type": "scroll", "orient": "vertical", "left": 8, "top": "middle",
+            "data": [s["name"] for s in series if not s["name"].startswith("_")],
+            "textStyle": {"color": _DARK_TEXT},
+            "inactiveColor": "rgba(255,255,255,0.35)",
+            "pageTextStyle": {"color": _DARK_TEXT},
+            "selector": [{"type": "all", "title": "All"}, {"type": "inverse", "title": "Invert"}],
+            "selectorPosition": "end",
+            "selectorLabel": {"color": _DARK_TEXT, "borderColor": "rgba(255,255,255,0.30)",
+                              "backgroundColor": "rgba(255,255,255,0.05)"},
+        },
+        "toolbox": {"right": 10, "top": 2, "iconStyle": {"borderColor": _DARK_TEXT},
+                    "emphasis": {"iconStyle": {"borderColor": "#33BBEE"}},
+                    "feature": {"dataZoom": {"yAxisIndex": "none"}, "restore": {}}},
+        "grid": {"left": 96, "right": 18, "top": 16, "bottom": 78, "containLabel": True},
+        "xAxis": _xaxis,
+        "yAxis": {"type": "value", "name": yname, "scale": True,
+                  "nameTextStyle": {"color": _DARK_TEXT},
+                  "axisLabel": {"color": _DARK_TEXT},
+                  "splitLine": {"show": True, "lineStyle": {"color": _GRID_LINE}}},
+        "dataZoom": [
+            {"type": "inside"},
+            {"type": "slider", "bottom": 8, "height": 38,
+             "borderColor": "rgba(255,255,255,0.18)",
+             "fillerColor": "rgba(51,187,238,0.18)",
+             "handleStyle": {"color": "#33BBEE"}, "moveHandleStyle": {"color": "#33BBEE"},
+             "textStyle": {"color": _DARK_TEXT},
+             "dataBackground": {"lineStyle": {"color": "rgba(255,255,255,0.25)"},
+                                "areaStyle": {"color": "rgba(255,255,255,0.06)"}},
+             "selectedDataBackground": {"lineStyle": {"color": "#33BBEE"},
+                                        "areaStyle": {"color": "rgba(51,187,238,0.12)"}}},
+        ],
+        "series": series,
+    }
+
+
+def _cb_fundline_param(key: str) -> None:
+    st.session_state["fundline_param"] = key
+
+
+def _render_fundamentals_line(symbols: list[str]) -> None:
+    """One parameter across all selected symbols, as lines over reported periods (ROADMAP
+    6.2 — Fundamentals growth line). A TIME x-axis lets symbols on different fiscal
+    calendars align by date; missing periods break the line (no interpolation)."""
+    st.subheader("Fundamentals growth — over time")
+    st.caption("One parameter, every selected symbol, across its reported periods. "
+               "**Normalized** rebases each symbol to 100 to compare growth trajectories "
+               "regardless of size; **Actual** shows reported values on a shared axis. "
+               "Ratios use the same "
+               "formulas as the analysis snapshot. Click a legend name to show/hide a line.")
+
+    _opts = list(metrics.RAW_PERIOD_FIELDS) + list(metrics.RATIO_PERIOD_METRICS)
+    _sel = st.session_state.setdefault("fundline_param", _opts[0])
+    if _sel not in _opts:  # options are static, but guard anyway
+        _sel = st.session_state["fundline_param"] = _opts[0]
+
+    # Period radio (left, fixed) + parameter picker (right, content-width) — same layout
+    # and shared "fundperiod" CSS hook as the bar view, so the picker box can grow without
+    # shoving the radio. The picker is the SAME popover browser as the Filter page.
+    _top = st.columns([1, 4], vertical_alignment="bottom")
+    _freq_label = _top[0].container(key="fundperiod").radio(
+        "Period", list(_FREQ), index=0, horizontal=True)
+    _freq = _FREQ[_freq_label]
+    with _top[1]:
+        st.caption("Parameter")
+        P.render(
+            st.container(),
+            opt_keys=_opts,
+            label=f"📊  {_param_label(_sel)}",
+            keyp="fundlineparam",
+            category_of=_fund_category,
+            name_of=_param_label,
+            info_html_of=_fund_info_html,
+            search_text_of=lambda k: f"{_param_label(k)} {k}".lower(),
+            is_selected=lambda k: k == st.session_state.get("fundline_param"),
+            on_pick=_cb_fundline_param,
+            close_on_pick=True,
+            exclude_selected=False,
+            trigger_width="content",
+        )
+        P.scroll_to_current()
+    _param = st.session_state["fundline_param"]
+
+    _mode = st.segmented_control(
+        "Scale", ["Actual", "Normalized"], default="Actual",
+        key="fundline_mode", label_visibility="collapsed") or "Actual"
+    _indexed = _mode == "Normalized"
+
+    _f_mtime = settings.FINANCIALS_DB.stat().st_mtime if settings.FINANCIALS_DB.exists() else 0.0
+    _o_mtime = settings.OHLCV_DB.stat().st_mtime if settings.OHLCV_DB.exists() else 0.0
+
+    # Gather each symbol's (period_end dates, values) for the chosen parameter. The kind
+    # and y-axis label are the same for every symbol (one parameter), so the last set wins.
+    _per_symbol: list[tuple[str, list, list[float]]] = []
+    _kind, _ylabel = "money", _param_label(_param)
+    _no_data: list[str] = []
+    for _sym in symbols:
+        _fin = _load_financials(_sym, _freq, _f_mtime)
+        if _fin.empty:
+            _no_data.append(_sym)
+            continue
+        _vals, _kind, _ylabel = _period_values(_fin, _param, _sym, _o_mtime)
+        if not any(v == v and v != 0 for v in _vals):  # all-NaN or all-zero for this param
+            _no_data.append(_sym)
+            continue
+        _per_symbol.append((_sym, list(_fin["period_end"]), _vals))
+
+    if not _per_symbol:
+        st.warning(f"No {_freq_label.lower()} **{_param_label(_param)}** data reported for "
+                   "any selected symbol.")
+        return
+
+    # Trim to the most recent unbroken run. Per symbol find where its last gap (a missing
+    # period OR a NaN value) ends; cut every symbol at the LOWEST (earliest) such start so
+    # they share one window. A gap-free parameter keeps full history (cut = earliest period).
+    _gap = _PERIOD_GAP_DAYS.get(_freq, 135)
+    _starts = [d[si] for _, d, v in _per_symbol
+               if (si := _last_clean_run_start(d, v, _gap)) < len(d)]
+    _cut = min(_starts) if _starts else None
+    if _cut is not None:
+        _trimmed: list[tuple[str, list, list[float]]] = []
+        for _sym, _dates, _vals in _per_symbol:
+            _keep = [(d, v) for d, v in zip(_dates, _vals) if d >= _cut]
+            if _keep and any(v == v for _, v in _keep):
+                _ds, _vs = map(list, zip(*_keep))
+                _trimmed.append((_sym, _ds, _vs))
+            else:
+                _no_data.append(_sym)
+        _per_symbol = _trimmed
+
+    # Build the lines. Indexed: rebase each symbol to 100 at its first POSITIVE period (a
+    # negative/zero base can't be indexed meaningfully → skip with a note). Actual: pick
+    # ONE B/M/K divisor across every symbol's money values so the lines share a readable
+    # axis (ratios/EPS need no scaling).
+    _series: list[dict] = []
+    _skipped: list[str] = []
+    if _indexed:
+        _yname = f"{_ylabel} — normalized to 100"
+        for _sym, _dates, _vals in _per_symbol:
+            _base = next((v for v in _vals if v == v and v > 0), None)
+            if _base is None:
+                _skipped.append(_sym)
+                continue
+            _norm = [v / _base * 100.0 if v == v else float("nan") for v in _vals]
+            _series.append(_line_series(_sym, _period_points(_dates, _norm, _freq)))
+    else:
+        if _kind == "money":
+            _mx = max((abs(v) for _, _, _vs in _per_symbol for v in _vs if v == v),
+                      default=0.0)
+            _div, _suf = _scale_factor(_mx)
+            _yname = _ylabel + (f" ({_suf})" if _suf else "")
+        else:
+            _div, _yname = 1.0, _ylabel
+        for _sym, _dates, _vals in _per_symbol:
+            _scaled = [v / _div if v == v else float("nan") for v in _vals]
+            _series.append(_line_series(_sym, _period_points(_dates, _scaled, _freq)))
+
+    if _no_data:
+        st.caption("No data for: " + ", ".join(_no_data))
+    if _skipped:
+        st.caption("Can't normalize (first value ≤ 0) — switch to **Actual** to see: "
+                   + ", ".join(_skipped))
+    if not _series:
+        st.info("Nothing to plot in **Normalized** mode (every symbol's first value is ≤ 0). "
+                "Switch to **Actual**.")
+        return
+
+    if _indexed:  # dashed reference line at 100 (the index base)
+        _series = [*_series, _baseline_marker(100.0)]
+
+    _options_ec = _growth_line_options(_series, _yname)
+    # Keep the legend show/hide selection across the Actual/Normalized + period switches:
+    # the chart reports legendselectchanged, we remember it, and re-apply it as
+    # legend.selected (names absent from the map default to shown).
+    _legend_sel = st.session_state.get("fundline_legend_sel")
+    if _legend_sel:
+        _options_ec["legend"]["selected"] = _legend_sel
+    _ret = st_echarts(
+        options=_options_ec,
+        events={"legendselectchanged": "function(p){ return p.selected; }"},
+        height=f"{_CHART_HEIGHT}px", key="fund_line")
+    if isinstance(_ret, dict) and _ret:
+        _cur = st.session_state.get("fundline_legend_sel") or {}
+        _merged = {**_cur, **_ret}
+        if _merged != _cur:
+            st.session_state["fundline_legend_sel"] = _merged
+            st.rerun()
+    _scale_note = ("normalized to 100 at the shared start" if _indexed
+                   else "actual reported values")
+    _cut_note = f" · from {_cut:%Y-%m-%d} (after last gap)" if _cut is not None else ""
+    st.caption(f"{_param_label(_param)} · {_freq_label.lower()} periods · {_scale_note}"
+               f"{_cut_note}. Line breaks mark missing periods. Zoom with the wheel or the "
+               "bottom slider; the ⟳ restore icon resets the view.")
+
+
+# --------------------------------------------------------------------------- #
+# Dividend-yield growth-line view (ROADMAP 6.2) — yield over calendar periods
+# --------------------------------------------------------------------------- #
+def _render_dividend_line(symbols: list[str]) -> None:
+    """Dividend yield across all selected symbols, one line each over calendar periods
+    (ROADMAP 6.2 — dividend yield growth line). Yield per period = summed dividends ÷ the
+    period-end close × 100; annual = calendar year, quarterly = calendar quarter (TTM is
+    excluded from the growth view by design). TIME x-axis so symbols align by date."""
+    st.subheader("Dividend yield — over time")
+    st.caption("Each selected symbol's dividend yield, per calendar period. Yield = "
+               "dividends paid in the period ÷ the period-end price. A period with no "
+               "payout shows 0%. **Actual** shows the yield %; **Normalized** rebases each "
+               "symbol to 100 to compare trajectories. Click a legend name to show/hide a line.")
+
+    _freq_label = st.container(key="fundperiod").radio(
+        "Period", list(_FREQ), index=0, horizontal=True)
+    _freq = _FREQ[_freq_label]
+    _mode = st.segmented_control(
+        "Scale", ["Actual", "Normalized"], default="Actual",
+        key="divline_mode", label_visibility="collapsed") or "Actual"
+    _normalized = _mode == "Normalized"
+    _o_mtime = settings.OHLCV_DB.stat().st_mtime if settings.OHLCV_DB.exists() else 0.0
+
+    _per_symbol: list[tuple[str, list, list[float]]] = []
+    _no_data: list[str] = []
+    for _sym in symbols:
+        _df = _load_div_prices(_sym, _o_mtime)
+        _dates, _vals = _period_yields(_df, _freq) if not _df.empty else ([], [])
+        if not _dates or not any(v == v and v != 0 for v in _vals):  # never paid → all-zero
+            _no_data.append(_sym)
+            continue
+        _per_symbol.append((_sym, _dates, _vals))
+
+    if _no_data:
+        st.caption("No price/dividend data for: " + ", ".join(_no_data))
+    if not _per_symbol:
+        st.warning("No dividend/price history for any selected symbol.")
+        return
+
+    # Trim to the most recent unbroken run, same rule as the fundamentals growth line: cut
+    # every symbol at the LOWEST first-date-after-its-last-gap so they share one window.
+    # (Yields rarely gap — a non-payment is a real 0%, not a hole — so this mostly no-ops.)
+    _gap = _PERIOD_GAP_DAYS.get(_freq, 135)
+    _starts = [d[si] for _, d, v in _per_symbol
+               if (si := _last_clean_run_start(d, v, _gap)) < len(d)]
+    _cut = min(_starts) if _starts else None
+    if _cut is not None:
+        _trimmed: list[tuple[str, list, list[float]]] = []
+        for _sym, _dates, _vals in _per_symbol:
+            _keep = [(d, v) for d, v in zip(_dates, _vals) if d >= _cut]
+            if _keep and any(v == v for _, v in _keep):
+                _ds, _vs = map(list, zip(*_keep))
+                _trimmed.append((_sym, _ds, _vs))
+            else:
+                _no_data.append(_sym)
+        _per_symbol = _trimmed
+
+    # Render on a CATEGORY x-axis labelled per calendar period ("2025" / "2025-Q3") so each
+    # tick names the period the yield was computed FOR — a time axis pushes a Dec-31
+    # period-end visually under the next year. Calendar periods are shared across symbols, so
+    # build one sorted category list and align each symbol to it (None where it has no period,
+    # which breaks the line the same way the time-axis gap markers did).
+    _all_dates = sorted({d for _, ds, _ in _per_symbol for d in ds})
+    _cats = [_period_label(d, _freq) for d in _all_dates]
+    _pos = {d: i for i, d in enumerate(_all_dates)}
+    # Normalized: rebase each symbol's yield series to 100 at its first POSITIVE period (same
+    # rule as the fundamentals growth line); a symbol that never paid has no base → skip it.
+    _series = []
+    _skipped: list[str] = []
+    for _sym, _dates, _vals in _per_symbol:
+        if _normalized:
+            _base = next((v for v in _vals if v == v and v > 0), None)
+            if _base is None:
+                _skipped.append(_sym)
+                continue
+            _vals = [v / _base * 100.0 if v == v else float("nan") for v in _vals]
+        _data: list = [None] * len(_all_dates)
+        for d, v in zip(_dates, _vals):
+            _data[_pos[d]] = round(float(v), 2) if (v is not None and v == v) else None
+        _series.append(_line_series(_sym, _data))
+
+    if _skipped:
+        st.caption("Never paid a dividend (can't normalize) — switch to **Actual** to see: "
+                   + ", ".join(_skipped))
+    if not _series:
+        st.info("Nothing to plot in **Normalized** mode (no symbol has a positive yield). "
+                "Switch to **Actual**.")
+        return
+    if _normalized:  # dashed reference line at the 100 base
+        _series.append(_baseline_marker(100.0))
+
+    # Quarterly axes get crowded — label only Q1 of each year (full "YYYY-Qn" still shows in
+    # the tooltip); annual labels every tick.
+    _xfmt = ("function(v){ return v.indexOf('-Q1') >= 0 ? v : ''; }"
+             if _freq == "quarterly" else None)
+    _yname = "Dividend yield — normalized to 100" if _normalized else "Dividend yield (%)"
+    _options_ec = _growth_line_options(_series, _yname,
+                                        x_categories=_cats, x_label_formatter=_xfmt)
+    # Keep the legend show/hide selection across the Actual/Normalized + period switches.
+    _legend_sel = st.session_state.get("divline_legend_sel")
+    if _legend_sel:
+        _options_ec["legend"]["selected"] = _legend_sel
+    _ret = st_echarts(
+        options=_options_ec,
+        events={"legendselectchanged": "function(p){ return p.selected; }"},
+        height=f"{_CHART_HEIGHT}px", key="div_line")
+    if isinstance(_ret, dict) and _ret:
+        _cur = st.session_state.get("divline_legend_sel") or {}
+        _merged = {**_cur, **_ret}
+        if _merged != _cur:
+            st.session_state["divline_legend_sel"] = _merged
+            st.rerun()
+    _scale_note = "normalized to 100" if _normalized else "actual yield"
+    _cut_note = f" · from {_cut:%Y-%m-%d} (after last gap)" if _cut is not None else ""
+    st.caption(f"Dividend yield · {_freq_label.lower()} periods · {_scale_note}{_cut_note}. "
+               "Line breaks mark gaps. Zoom with the wheel or the bottom slider; the ⟳ "
+               "restore icon resets the view.")
 
 
 # --------------------------------------------------------------------------- #
@@ -663,13 +1140,22 @@ if view == "fundamentals_bar":
     _render_fundamentals_bar(symbols)
     st.stop()
 
+if view == "fundamentals_line":
+    _render_fundamentals_line(symbols)
+    st.stop()
+
 if view == "radar":
     _render_radar(symbols)
     st.stop()
 
+if view == "dividend_line":
+    _render_dividend_line(symbols)
+    st.stop()
+
 if view != "price":
     st.info(f"Chart view '{view}' isn't built yet — the normalized price chart, the "
-            "fundamentals bar chart and the category-scores radar are available so far.")
+            "fundamentals bar + growth-line charts, the category-scores radar and the "
+            "dividend-yield growth line are available so far.")
     st.stop()
 
 _mtime = settings.OHLCV_DB.stat().st_mtime if settings.OHLCV_DB.exists() else 0.0
