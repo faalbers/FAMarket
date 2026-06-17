@@ -482,11 +482,11 @@
 
 ✅ Topic 6 — Output Interface (Streamlit)
    - ✅ Subtopic 6.1 — Results table & sorting
-     - (updated 2026-06-11) One browser tab per filter run: each tab shows one
-       run at /output?run=<id>, independent column selections per tab. The
-       sidebar Output page (no ?run param) is a recent-runs launcher: saved runs
-       listed with filter name / run time / row count / security types and an
-       "Open ↗" link each
+     - (updated 2026-06-11; 2026-06-16) One browser tab per output: each tab shows one
+       output at /output?run=<id>, independent column selections per tab. The
+       sidebar Output page (no ?run param) is a "Recent outputs" launcher: saved outputs
+       (filter runs AND custom symbol sets) listed with Name / Type / run time / Count /
+       security types and an "Open ↗" link each (see 6.2 for Custom Symbols)
      - Table columns: Symbol (AAPL (stock)), Company Name, Sector/Industry, then filter parameters
      - Add/remove parameter columns via same searchable dropdown as filter
      - Column selection saveable as .prms file; load with Swap or Add option
@@ -506,12 +506,28 @@
        build: the Fundamentals + Dividends chart actions, and Koyfin (URL format
        still to be confirmed).
      - ✅ IMPLEMENTED (2026-06-16): the SAME Action menu is also available on a
-       hand-typed symbol list. The Output launcher (no-`?run=` mode) now shows a
-       "Quick actions — type symbols" box above the recent-runs list: type tickers
-       (comma/space/newline, like the Fetch Dev subset) → the same `⚙ Action` popover
-       (charts + external links), no filter run required. The menu body was extracted
-       to `_render_actions(symbols)` and is shared by both the run-results selection
-       popover and this box.
+       hand-typed symbol list. The menu body was extracted to `_render_actions(symbols)`,
+       shared by the run-results selection popover and the launcher's typed-symbol box.
+       SUPERSEDED 2026-06-16 by Custom Symbols (below): the one-off "Quick actions" popover
+       was replaced — a typed symbol set is now a saved output you open into the full
+       results screen, where the same row-selection Action menu already lives.
+     - ✅ IMPLEMENTED (2026-06-16): CUSTOM SYMBOLS as saved outputs. An "output" is now
+       either a FILTER run or a CUSTOM symbol set; both persist identically via
+       `ui/output_runs.py` (parquet+json) with a `kind` field ("filter"/"custom"; runs
+       without it read as "filter"). `save_run` and new `save_custom_run` share a private
+       `_persist(df, meta_extra)`. The launcher (no-`?run=` mode) has a collapsible
+       "Custom Symbols" box: an Output **name** + a symbols field (comma/space/newline) and
+       a **Go** button (active only when BOTH are filled) that snapshots those symbols from
+       analysis.db (`_read_analysis_rows`, ordered to the typed order; symbols absent from
+       analysis.db are reported and dropped), saves a custom output, and opens it in a new
+       tab — exactly like the Filter page's Run Filter. Custom outputs open into the SAME
+       results screen with NO viewer rewrite (param_cols empty so the column set starts
+       blank; screen_types = the distinct types found, so the column picker still works).
+       The viewer header + summary branch on kind (a "Symbols in this output" list replaces
+       the filter-block summary). Launcher table renamed "Recent outputs"; columns are now
+       Open / **Name** / **Type** (Filter|Custom) / Run at / **Count** / Security types
+       (Security types shown for filter runs only). Custom outputs share the
+       OUTPUT_RUNS_KEEP retention pool.
      - ✅ IMPLEMENTED (2026-06-13): Fundamentals BAR chart (charts.py
        view=fundamentals_bar). Design REVISED from the original "grouped by metric,
        multi-symbol" note (see the action-menu structure below): the user wants to

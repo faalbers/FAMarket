@@ -52,6 +52,11 @@ def _analysis_df() -> pd.DataFrame:
 def _ensure_state() -> None:
     if "filter_types" not in st.session_state:
         st.session_state["filter_types"] = {R.STANDARD}
+    # The Security Type checkboxes are key-driven (sectype:<key>) so a Load can update them;
+    # seed each key once from the default selection. (A keyed checkbox ignores its `value=`
+    # after first render, which is why Load can't just set filter_types — see _apply_pending.)
+    for k in R.SCREEN_TYPES:
+        st.session_state.setdefault(f"sectype:{k}", k in st.session_state["filter_types"])
     if "filter_blocks" not in st.session_state:
         st.session_state["filter_blocks"] = [_with_id(E.new_block())]
     # Working name for the filter set, editable in the toolbar. Used as the .filt
@@ -298,6 +303,14 @@ if df.empty:
     st.info("No analysis data yet. Run a fetch on the **Fetch Control** page first.")
     st.stop()
 
+# A Load applies its saved security types HERE — before the checkboxes are instantiated,
+# since a widget's session_state key can't be modified after the widget renders in the same
+# run. The Load handler stashes the types under _pending_sectypes and reruns.
+_pending_types = st.session_state.pop("_pending_sectypes", None)
+if _pending_types is not None:
+    for k in R.SCREEN_TYPES:
+        st.session_state[f"sectype:{k}"] = k in set(_pending_types)
+
 # -- Security Type ---------------------------------------------------------- #
 with st.expander("Security Type", expanded=True):
     st.caption("Pick one or more. When several are selected, only metrics meaningful "
@@ -305,9 +318,9 @@ with st.expander("Security Type", expanded=True):
     cols = st.columns(3)
     selected: set[str] = set()
     for i, (key, meta) in enumerate(R.SCREEN_TYPES.items()):
-        on = cols[i % 3].checkbox(meta["label"], value=key in st.session_state["filter_types"],
-                                  key=f"sectype:{key}", help=meta["help"])
-        if on:
+        # Key-driven (no value=): the checkbox reads its own sectype:<key> state, which
+        # _ensure_state seeds and Load overwrites via _pending_sectypes above.
+        if cols[i % 3].checkbox(meta["label"], key=f"sectype:{key}", help=meta["help"]):
             selected.add(key)
     st.session_state["filter_types"] = selected
 
@@ -334,7 +347,8 @@ with st.expander("Filters", expanded=True):
                 data = E.load_filterset(pick)
                 st.session_state["filter_blocks"] = [_with_id(b) for b in data["blocks"]] or [_with_id(E.new_block())]
                 if data["selected_types"]:
-                    st.session_state["filter_types"] = set(data["selected_types"])
+                    # Applied at the top of the next run, before the checkboxes render.
+                    st.session_state["_pending_sectypes"] = list(data["selected_types"])
                 st.session_state["filter_name"] = pick
                 st.session_state["load_nonce"] = load_nonce + 1  # re-key wrapper -> popover closes
                 st.toast(f"Loaded {pick}")

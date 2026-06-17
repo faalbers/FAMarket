@@ -45,9 +45,9 @@ def _dir() -> Path:
     return settings.OUTPUT_RUNS_DIR
 
 
-def save_run(df: pd.DataFrame, *, screen_types: list[str], param_cols: list[str],
-             filter_name: str | None, blocks: list[dict]) -> str:
-    """Persist one filter run (rows + metadata); prune old runs; return its id."""
+def _persist(df: pd.DataFrame, meta_extra: dict) -> str:
+    """Write one output (parquet rows + json metadata), prune old ones, return its id.
+    Shared by save_run (filter runs) and save_custom_run (hand-entered symbol sets)."""
     # Microseconds included so same-second saves still sort chronologically by
     # name (prune/list rely on name order; the uuid tail is NOT a tiebreaker).
     run_id = f"{datetime.now().strftime('%Y-%m-%d_%H-%M-%S-%f')}_{uuid.uuid4().hex[:8]}"
@@ -65,17 +65,43 @@ def save_run(df: pd.DataFrame, *, screen_types: list[str], param_cols: list[str]
         "version": 1,
         "run_id": run_id,
         "created_at": datetime.now().isoformat(timespec="seconds"),
+        "row_count": int(len(df)),
+        **meta_extra,
+    }
+    (out / f"{run_id}.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    log.info("Saved %s output %s — %d rows (%s)", meta.get("kind", "filter"), run_id,
+             len(df), meta.get("filter_name") or "ad-hoc")
+    _prune()
+    return run_id
+
+
+def save_run(df: pd.DataFrame, *, screen_types: list[str], param_cols: list[str],
+             filter_name: str | None, blocks: list[dict]) -> str:
+    """Persist one filter run (rows + metadata); prune old runs; return its id."""
+    return _persist(df, {
+        "kind": "filter",
         "filter_name": filter_name,
         "screen_types": list(screen_types),
         "param_cols": list(param_cols),
-        "row_count": int(len(df)),
         "blocks": blocks,
-    }
-    (out / f"{run_id}.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
-    log.info("Saved filter run %s — %d rows (%s)", run_id, len(df),
-             filter_name or "ad-hoc")
-    _prune()
-    return run_id
+    })
+
+
+def save_custom_run(df: pd.DataFrame, *, name: str, symbols: list[str],
+                    screen_types: list[str]) -> str:
+    """Persist a hand-entered symbol set as a run-like output (kind='custom'); the
+    run-viewer renders it exactly like a filter run. `param_cols` is empty so the column
+    set starts blank (user adds columns); `screen_types` are the distinct types found
+    among the symbols so the column picker still has options. Shares the OUTPUT_RUNS_KEEP
+    retention pool with filter runs."""
+    return _persist(df, {
+        "kind": "custom",
+        "filter_name": name,
+        "screen_types": list(screen_types),
+        "param_cols": [],
+        "blocks": [],
+        "symbols": list(symbols),
+    })
 
 
 def load_run(run_id: str) -> tuple[pd.DataFrame, dict] | None:

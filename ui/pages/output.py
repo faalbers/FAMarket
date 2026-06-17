@@ -1,19 +1,23 @@
 """
-Output page (Topic 6) — filter-run results, one browser tab per run.
+Output page (Topic 6) — saved-output results, one browser tab per output.
+
+An "output" is either a FILTER run (from the Filter page) or a CUSTOM symbol set
+(hand-entered here); both persist the same way (ui/output_runs.py, kind="filter"/
+"custom") and open into the same results screen.
 
 Two modes, switched on the `?run=<id>` query param:
-  * WITHOUT it (sidebar click): a recent-runs launcher — every saved run
-    (ui/output_runs.py) listed in a selectable table with name / time / row
-    count / types and an "Open ↗" link that opens that run in its own browser
-    tab. Rows are multi-selectable (shift-click for a range) with a Delete-
-    selected button above. Each tab is its own Streamlit session, so several
-    output screens can be open side by side with independent column selections.
-    Above the list, a "Quick actions" box runs the same Action menu (charts +
-    external links) on a hand-typed symbol list — no filter run required.
-  * WITH it: that run's results table (ROADMAP 6.1, table basics) —
+  * WITHOUT it (sidebar click): a "Recent outputs" launcher — every saved output
+    listed in a selectable table (Name — itself the "↗" open link — Type, Run at,
+    Count, and Security types, shown for filter runs only). Rows are multi-selectable
+    (shift-click for a range) with a Delete-selected button above. Each tab is its
+    own Streamlit session, so several output screens can be open side by side with
+    independent column selections. Above the list, a "Custom Symbols" box names a
+    hand-typed symbol set and the Go button opens it as a saved output — the same
+    results screen a filter run opens, snapshotting those symbols from analysis.db.
+  * WITH it: that output's results table (ROADMAP 6.1, table basics) —
     lead columns Symbol ("AAPL (standard)"), Company, Sector, Industry, then
-    parameter columns seeded from the run's filter, add/remove via the same
-    searchable category-grouped picker as the Filter page. Header click sorts.
+    parameter columns seeded from the run's filter (empty for custom; add via the
+    same searchable category-grouped picker as the Filter page). Header click sorts.
 
 Multi-column sort is built as an ordered Sort panel (primary → tie-breakers, each
 with a direction toggle), applied with pandas — st.dataframe's canvas headers can't
@@ -39,6 +43,7 @@ import streamlit as st
 
 from config import settings
 from config import param_hints
+from core.database import Database
 from ui import filter_engine as E
 from ui import filter_registry as R
 from ui import output_runs
@@ -205,7 +210,14 @@ def _describe_block(b: dict) -> str:
 
 
 def _render_filter_summary(meta: dict) -> None:
-    """Collapsed, read-only view of the filter that produced this run."""
+    """Collapsed, read-only view of what produced this output — the filter blocks for a
+    filter run, or the hand-entered symbol list for a custom output."""
+    if meta.get("kind") == "custom":
+        syms = meta.get("symbols", [])
+        with st.expander("Symbols in this output", expanded=False):
+            st.caption(f"{len(syms)} hand-entered symbol{'' if len(syms) == 1 else 's'}.")
+            st.markdown(", ".join(syms))
+        return
     with st.expander("Filter used for this run", expanded=False):
         st.caption(f"Security types: {_type_labels(meta.get('screen_types', []))}")
         enabled = [b for b in (meta.get("blocks") or []) if b.get("enabled", True)]
@@ -227,26 +239,34 @@ def _render_filter_summary(meta: dict) -> None:
 
 
 def _render_launcher() -> None:
-    """Recent saved runs as a selectable table: per-row Open ↗ link, multi-row
+    """Recent saved outputs as a selectable table: per-row Open ↗ link, multi-row
     selection (click / ctrl-click / shift-click range) and a Delete-selected
-    button above the list."""
+    button above the list. Lists both filter runs and custom symbol sets (Type column)."""
     runs = output_runs.list_runs()
     if not runs:
-        st.info("No results yet — build and run a screen on the **Filter** page first.")
+        st.info("No outputs yet — run a screen on the **Filter** page, or use "
+                "**Custom Symbols** above.")
         st.page_link("ui/pages/filter.py", label="Go to Filter", icon="🔎")
         return
 
     run_ids = [m["run_id"] for m in runs]
+    kinds = [m.get("kind", "filter") for m in runs]
+    names = [m.get("filter_name") or "(ad-hoc)" for m in runs]
+    # The Name IS the open link: the cell value is the /output?run=<id> URL with the display
+    # text appended as a fragment (ignored by routing); the LinkColumn's display_text regex
+    # below pulls that text back out, so each row shows "<name> ↗" and clicks open the output.
+    # Security types only mean something for a filter run; custom outputs leave it blank.
     table = pd.DataFrame({
-        "Open": [f"/output?run={rid}" for rid in run_ids],
-        "Filter": [m.get("filter_name") or "(ad-hoc)" for m in runs],
+        "Name": [f"/output?run={rid}#{nm} ↗" for rid, nm in zip(run_ids, names)],
+        "Type": ["Custom" if k == "custom" else "Filter" for k in kinds],
         "Run at": [str(m.get("created_at", "")).replace("T", " ") for m in runs],
-        "Rows": [m.get("row_count", None) for m in runs],
-        "Security types": [_type_labels(m.get("screen_types", [])) for m in runs],
+        "Count": [m.get("row_count", None) for m in runs],
+        "Security types": [_type_labels(m.get("screen_types", [])) if k == "filter" else ""
+                           for m, k in zip(runs, kinds)],
     })
 
-    st.caption(f"Recent filter runs (newest {settings.OUTPUT_RUNS_KEEP} kept). "
-               "Click **Open ↗** to open a run in its own browser tab. Select rows "
+    st.caption(f"Recent outputs (newest {settings.OUTPUT_RUNS_KEEP} kept). "
+               "Click a **name ↗** to open that output in its own browser tab. Select rows "
                "(Shift-click for a range) and use **Delete selected** to remove them.")
 
     # The Delete button sits ABOVE the table, so it reads the selection persisted
@@ -265,28 +285,67 @@ def _render_launcher() -> None:
         table, hide_index=True, width="stretch", key="launcher_select",
         on_select="rerun", selection_mode="multi-row",
         column_config={
-            "Open": st.column_config.LinkColumn("", display_text="Open ↗", width="small"),
-            "Rows": st.column_config.NumberColumn("Rows", width="small"),
+            "Name": st.column_config.LinkColumn("Name", display_text=r"#(.*)$"),
+            "Type": st.column_config.TextColumn("Type", width="small"),
+            "Count": st.column_config.NumberColumn("Count", width="small"),
         },
     )
 
 
-def _render_quick_actions() -> None:
-    """Type symbols by hand and run the same Action menu on them — charts + external
-    links without first building a filter run. Mirrors the run-results selection
-    Action menu; symbols parse like the Fetch Dev subset (comma/space/newline)."""
-    st.subheader("Quick actions — type symbols")
-    raw = st.text_input(
-        "Symbols (comma / space / newline separated)",
-        key="quick_actions_symbols", placeholder="AAPL, MSFT, KO",
-        help="Run charts and external-site links on any tickers you type — "
-             "the same Action menu as a run's row selection.")
-    syms = _parse_symbols(raw)
-    n = len(syms)
-    cols = st.columns([1.6, 5], vertical_alignment="center")
-    with cols[0].popover(f"⚙ Action · {n}" if n else "⚙ Action", disabled=n == 0):
-        _render_actions(syms)
-    cols[1].caption("Type tickers above, then open **Action** — no filter run needed.")
+def _read_analysis_rows(symbols: list[str]) -> pd.DataFrame:
+    """analysis.db rows for `symbols`, ordered to the typed order (mirrors the
+    charts.py analysis read). Symbols absent from analysis.db simply don't appear."""
+    if not symbols or not settings.ANALYSIS_DB.exists():
+        return pd.DataFrame()
+    with Database(settings.ANALYSIS_DB) as db:
+        if not db.table_exists("analysis"):
+            return pd.DataFrame()
+        ph = ",".join("?" * len(symbols))
+        df = db.read("analysis", where=f"symbol IN ({ph})", params=list(symbols))
+    if not df.empty:
+        order = {s: i for i, s in enumerate(symbols)}
+        df = (df.assign(_o=df["symbol"].map(order)).sort_values("_o")
+                .drop(columns="_o").reset_index(drop=True))
+    return df
+
+
+def _open_custom_output(name: str, symbols: list[str]) -> None:
+    """Snapshot the typed symbols from analysis.db, save as a custom output, and open it
+    in a new tab — same flow as the Filter page's Run Filter."""
+    df = _read_analysis_rows(symbols)
+    if df.empty:
+        st.warning("None of those symbols are in analysis.db — run analysis first, "
+                   "or check the tickers.")
+        return
+    found = set(df["symbol"].astype(str))
+    missing = [s for s in symbols if s not in found]
+    stypes = (sorted(map(str, df["screen_type"].dropna().unique()))
+              if "screen_type" in df.columns else [])
+    rid = output_runs.save_custom_run(df, name=name, symbols=symbols, screen_types=stypes)
+    _url = f"/output?run={rid}"
+    st.iframe(f"<script>window.parent.open('{_url}', '_blank');</script>", height=1)
+    note = (f" · {len(missing)} not in analysis.db: {', '.join(missing[:10])}"
+            if missing else "")
+    _n = len(found)
+    st.caption(f"Opened {_n} symbol{'' if _n == 1 else 's'} in a new tab{note}. "
+               f"No tab? Allow pop-ups for this site, or [open it here]({_url}).")
+
+
+def _render_custom_symbols() -> None:
+    """Name a hand-entered symbol set and open it as a saved Output (kind='custom') — the
+    same results screen a filter run opens. Go is active only when both fields are filled;
+    symbols parse like the Fetch Dev subset (comma/space/newline)."""
+    with st.expander("Custom Symbols", expanded=False):
+        name = st.text_input("Output name", key="custom_name", placeholder="My watchlist")
+        raw = st.text_input(
+            "Symbols (comma / space / newline separated)",
+            key="custom_symbols", placeholder="AAPL, MSFT, KO")
+        syms = _parse_symbols(raw)
+        ready = bool(name.strip()) and bool(syms)
+        if st.button("Go", type="primary", disabled=not ready):
+            _open_custom_output(name.strip(), syms)
+        st.caption("Name a set of symbols and **Go** to open them as an Output — "
+                   "the same results screen as a filter run.")
     st.divider()
 
 
@@ -297,7 +356,7 @@ st.title("Output")
 
 run_id = st.query_params.get("run")
 if not run_id:
-    _render_quick_actions()
+    _render_custom_symbols()
     _render_launcher()
     st.stop()
 
@@ -309,9 +368,14 @@ if _loaded is None:
     st.stop()
 
 result, meta = _loaded
-st.caption(f"{meta.get('filter_name') or 'Ad-hoc filter'} · run at "
-           f"{str(meta.get('created_at', '')).replace('T', ' ')} · "
-           f"{_type_labels(meta.get('screen_types', []))}")
+_created = str(meta.get("created_at", "")).replace("T", " ")
+if meta.get("kind") == "custom":
+    _nsym = len(meta.get("symbols", []))
+    st.caption(f"{meta.get('filter_name') or 'Custom symbols'} · created {_created} · "
+               f"Custom ({_nsym} symbol{'' if _nsym == 1 else 's'})")
+else:
+    st.caption(f"{meta.get('filter_name') or 'Ad-hoc filter'} · run at {_created} · "
+               f"{_type_labels(meta.get('screen_types', []))}")
 
 if result.empty:
     st.subheader("Results — 0 matches")

@@ -189,6 +189,12 @@ Three intentionally decoupled layers plus shared infrastructure:
   between ticks and silently drops widget input (e.g. a Stop click). A button that
   must register during an auto-refreshing view uses an `on_click` callback, not its
   return value. `st.expander` cannot be nested (use `st.popover` inside an expander).
+  **Keyed widgets ignore their `value=`/`index=` after the first render** (they read
+  their own session_state key thereafter), and a widget's own key **cannot be assigned
+  after that widget is instantiated in the same run**. So to repopulate widgets from a
+  Load/preset, drive them purely by key, stash the desired values in a NON-widget key,
+  and apply them at the TOP of the next run before the widgets render — never set the
+  widget keys inside the handler below them (see `ui/pages/filter.py` Security-Type load).
 - **Streamlit CSS** all lives in the single `app.py` `<style>` block — never per-page
   (it's injected after `set_page_config` and `app.py` reruns on every navigation, so it
   styles all pages). Two gotchas: selectbox/multiselect **dropdown menus render in a
