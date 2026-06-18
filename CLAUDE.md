@@ -31,8 +31,9 @@ dedicated `indices.db` (long/tidy `sector_industry_index` table). Index history 
 read via a dedicated memory-efficient deep `adj_close` read of the liquid constituents
 only — decoupled from `ANALYSIS_OHLCV_LOOKBACK_DAYS`. Each run logs its peak RAM via
 `core/meminfo.py` (Win32 ctypes, no psutil). The **UI** is being built page by page: Fetch Control, Settings,
-Filter, Output and Calibration are functional. Calibration
-(`ui/pages/calibration.py`) is the peak-detection tuning tool — sliders for
+Filter, Output and Sector Indices are functional. The peak-detection calibration tuner
+(`ui/calibration.py`, exposing `render()`) is **a section inside the Settings page**
+(no longer its own sidebar page) — sliders for
 `PEAK_PROMINENCE`/`PEAK_DISTANCE`, a price chart with detected swing highs/lows
 overlaid (via the shared `analysis_layer/technical.trend_signals`),
 price-behavior-picked sample stocks, and Save to `settings.local.json`. Shared
@@ -96,7 +97,8 @@ Three intentionally decoupled layers plus shared infrastructure:
   `is_validated=True`.
 - **`ui/`** + **`app.py`** — Streamlit multipage app (registered via
   `st.navigation` in `app.py`, pages under `ui/pages/`): Fetch Control, Filter,
-  Output, Calibration, Settings.
+  Output, Sector Indices, Parameters, Settings (Settings embeds the peak-detection
+  calibration tuner via `ui/calibration.render()`).
 - **`core/`** — `database.py` (the SQLite wrapper), `logging_config.py`,
   `backup.py`. Used by every layer.
 - **`config/`** — `settings.py` (all non-sensitive, UI-editable settings),
@@ -189,6 +191,12 @@ Three intentionally decoupled layers plus shared infrastructure:
   between ticks and silently drops widget input (e.g. a Stop click). A button that
   must register during an auto-refreshing view uses an `on_click` callback, not its
   return value. `st.expander` cannot be nested (use `st.popover` inside an expander).
+  **Never put an ECharts/iframe chart — or any widget that triggers a rerun — inside a
+  collapsed `st.expander`**: the expander re-applies `expanded=False` on every rerun
+  (snapping shut the moment a control inside it is touched) and the chart's iframe mounts
+  at 0-width (renders blank). Use the self-managed collapse pattern instead — a header
+  `st.button` toggling a session flag, body rendered under `if flag:` (as the Output
+  column list and the Settings calibration section do).
   **Keyed widgets ignore their `value=`/`index=` after the first render** (they read
   their own session_state key thereafter), and a widget's own key **cannot be assigned
   after that widget is instantiated in the same run**. So to repopulate widgets from a

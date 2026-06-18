@@ -646,7 +646,7 @@ PARAM_HINTS: dict[str, dict] = {
         "what_it_is": "Swing-point trend over the last year via peak detection: 'strong_uptrend', 'weak_uptrend', 'sideways', 'weak_downtrend', 'strong_downtrend'.",
         "how_to_use": [
             "Strong = higher highs AND higher lows (or lower/lower for down).",
-            "Tune the peak detection on the Calibration page if calls look off.",
+            "Tune the peak detection in Settings → Peak-detection calibration if calls look off.",
         ],
         "vs_peers": "No — it's a per-symbol classification.",
     },

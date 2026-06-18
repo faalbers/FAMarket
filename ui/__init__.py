@@ -7,6 +7,7 @@ Pages (see ui/pages/):
     each API runnable independently.
   * Filter — block-based AND/OR builder, security-type selector, .filt load/save.
   * Output — results table, multi-column sort, multi-select, grouped Action menu.
-  * Calibration — in-UI peak-detection tuning tool (saves PEAK_* to config).
-  * Settings — edits config/settings.py (grouped collapsible sections).
+  * Sector Indices — overlay sector / per-sector industry indices from indices.db.
+  * Settings — edits config/settings.py (grouped collapsible sections); includes the
+    in-UI peak-detection calibration tuner (ui/calibration.py, saves PEAK_* to config).
 """

@@ -233,8 +233,12 @@
        no MA/regression input (the MA-confirm alternative was considered and rejected
        to keep the label self-contained; price_vs_ma_50 remains a separate column).
        Measured ~13% of liquid-universe labels flip, all trend→sideways.
-     - ✅ IMPLEMENTED (2026-06-13): Calibration tool built into Streamlit UI
-       (ui/pages/calibration.py), not a separate script:
+     - ✅ IMPLEMENTED (2026-06-13): Calibration tool built into Streamlit UI, not a
+       separate script. MOVED 2026-06-18 from its own sidebar page into a **section of the
+       Settings page** (`ui/calibration.py` exposes `render()`, called inside a self-managed
+       collapsible section — NOT an st.expander, which would snap shut on the calibrator's
+       reruns and mount its ECharts iframe at 0-width while collapsed; `ui/pages/calibration.py`
+       removed) — it tunes two settings.py knobs, so it belongs with Settings:
        - Auto-selects representative stocks by PRICE behavior, not the stored
          fundamental-growth R² (amended from "highest/lowest R², most/least volatile":
          the stored R² measures revenue/EPS trend quality, the wrong axis for tuning
@@ -376,8 +380,27 @@
        Relative = Symbols − Index + 100. The legend's per-line on/off selection is
        PRESERVED across the toggle/period reruns via a `legendselectchanged` event
        round-trip stored in session_state and re-applied as `legend.selected`.
+     - ✅ SECOND CONSUMER IMPLEMENTED (2026-06-18) — standalone **Sector Indices** page
+       (`ui/pages/sector_index.py`), its OWN sidebar entry (registered in app.py, just above
+       Parameters), NOT a Charts `view=` / Output link — it's symbol-free, so it belongs in the
+       main nav rather than a per-run Action menu. A **View** toggle (default **Sectors**):
+       overlays all 11 sectors, each REBASED to 100 at the chosen period's start (1Y/3Y/5Y/Max)
+       so growth is directly comparable; dataZoom picks sub-ranges. Uses a 12-color CB-safe
+       palette (`_SECTOR_COLORWAY`, Tol bright+muted) since 11 sectors exceed the shared 7-color
+       COLORWAY.
+     - ✅ INDUSTRIES ADDED (2026-06-18) — the same page's **Industries** View mode: pick one
+       sector → overlay that sector's industries (6–24 each; legend shows the industry part
+       only) with a 2-way **Relative / Absolute** toggle. Relative (default) =
+       `industry_norm − sector_norm + 100`, both rebased to 100 at their first shared date in
+       the window (flat 100 line = the parent sector; above beats it) — same idea as the price
+       chart's relative-strength view (`_relative_line` ports `charts.py::_group_symbol_lines`).
+       Absolute = each industry rebased to 100 at the window start. Legend show/hide persists
+       across period changes and resets when the view/sector/scale context changes. Big sectors
+       (Industrials = 24) cycle the 12-color palette tail — accepted (legend + hover name each
+       line). The chart render is factored into `_chart_options` + `_render_chart`, shared by
+       both modes.
      - ⏭️ STILL OPEN (brainstorm before building, topic-by-topic): other consumption —
-       ranking/sorting sectors by trend, standalone index charts, derived metrics, etc.
+       ranking/sorting sectors by trend, industry presentation, derived metrics, etc.
        ([[indices-usage-needs-brainstorm]]).
 
 ✅ Topic 5 — Filter Interface

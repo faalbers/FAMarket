@@ -175,7 +175,7 @@ pages = [
     # url_path pinned: filter runs open in their own tabs at /output?run=<id>,
     # so this URL is a contract (rename-proof) — see ui/output_runs.py.
     st.Page("ui/pages/output.py", title="Output", icon="📊", url_path="output"),
-    st.Page("ui/pages/calibration.py", title="Calibration", icon="🎚️"),
+    st.Page("ui/pages/sector_index.py", title="Sector Indices", icon="📈"),
     st.Page("ui/pages/param_reference.py", title="Parameters", icon="📖"),
     st.Page("ui/pages/settings_page.py", title="Settings", icon="⚙️"),
 ]

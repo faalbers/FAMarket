@@ -19,6 +19,7 @@ import streamlit as st
 
 from config import settings
 from config.settings_overrides import SettingsWriteError, update_settings
+from ui import calibration
 
 # new_values accumulates every widget's current value, keyed by the dotted settings
 # path; Save diffs it against the live settings and writes only what changed.
@@ -196,6 +197,24 @@ with st.expander("Analysis — Indicator parameters"):
     st.markdown("**Growth trend** — fundamentals trend window")
     c1, c2, c3 = st.columns(3)
     _int(c1, "GROWTH_TREND_YEARS", "Trend window (years)", min_value=2, max_value=30)
+
+# -- Peak-detection calibration (visual tuner for the two knobs above) ------ #
+# The same PEAK_PROMINENCE / PEAK_DISTANCE knobs as the Indicator-parameters section, tuned
+# visually against real price charts (ui/calibration.py, self-contained Save). NOT an
+# st.expander: the calibrator's sliders/buttons rerun the page, and an expander both
+# re-applies expanded=False on every rerun (snapping shut) AND mounts the ECharts iframe at
+# 0-width while collapsed (blank chart). So use the self-managed collapse pattern (a header
+# button + session flag, like the Output column list) — the body then renders in a VISIBLE
+# container and survives reruns.
+def _cb_toggle_calib() -> None:
+    st.session_state["calib_open"] = not st.session_state.get("calib_open", False)
+
+
+_calib_open = st.session_state.setdefault("calib_open", False)
+st.button(f"{'▾' if _calib_open else '▸'}  Analysis — Peak-detection calibration "
+          "(visual tuner)", key="calib_toggle", on_click=_cb_toggle_calib, width="stretch")
+if _calib_open:
+    calibration.render()
 
 # -- Fetch / abandonment (grouped by purpose) ------------------------------- #
 with st.expander("Fetch — behaviour & viability/abandonment"):
