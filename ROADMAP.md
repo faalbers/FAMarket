@@ -790,6 +790,20 @@
        `logs/famarket.log` for progress. Removed `cancel.stop_for_shutdown` /
        in-thread worker tracking. Standalone `python -m scripts.run_fetch` (now with
        `--analysis-only`) writes the same state file.
+     - ✅ 2026-06-19: hardened that detachment against the OS session ending.
+       Two follow-up fixes: (1) `data_layer/launcher.py` adds
+       `CREATE_BREAKAWAY_FROM_JOB` so the fetch escapes the parent (VS Code)
+       Windows **Job Object** — whose default policy was killing the "detached"
+       fetch the moment the editor closed (CREATE_NEW_PROCESS_GROUP only shields
+       console *signals*, not job membership); falls back to spawning without the
+       flag when a job forbids breakaway (OSError winerror 5). (2) `core/shutdown_guard.py`
+       (NEW) — a daemon thread with a hidden Win32 window that answers
+       WM_QUERYENDSESSION + calls ShutdownBlockReasonCreate, so a logoff / shutdown /
+       restart while a fetch runs raises a "wait?" warning instead of silently
+       killing it (started/stopped around the run in `scripts/run_fetch.py`).
+       Tested: closing VS Code mid-fetch now survives; logoff + shutdown both warn.
+       Forced "shut down anyway" is a deliberate HARD KILL (the run is resumable
+       from its last committed batch, and Windows only grants a ~5s block window).
      - Each API can be run independently (e.g. re-run just yfinance after a failure)
 
    - FRED DATA:
