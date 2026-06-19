@@ -33,7 +33,10 @@ from analysis_layer.technical import _TREND_WINDOW, trend_signals
 from config import settings
 from config import settings_overrides
 from core.database import Database
-from ui.chart_theme import DARK_BG, DARK_TEXT, GRID_LINE, echarts_points
+from ui.chart_theme import (
+    DARK_BG, DARK_TEXT, GRID_LINE, echarts_points,
+    LEGEND_ICON, LEGEND_ITEM_W, LEGEND_ITEM_H, LEGEND_INACTIVE,
+)
 
 _POOL_LIQUID = 300   # most-liquid equities to consider (avoids gappy penny names)
 _POOL_FIT = 120      # of those, how many get a price-fit R² computed
@@ -246,6 +249,11 @@ def render() -> None:
                     "borderColor": "rgba(255,255,255,0.20)",
                     "textStyle": {"color": DARK_TEXT}},
         "legend": {"top": 4, "data": ["Adj close", "Swing high", "Swing low"],
+                   # Filled swatch + dimmed inactive so the on/off state is easy to read
+                   # (matches ui.chart_theme.legend_style; this legend is horizontal so it
+                   # can't use that vertical-scroll helper directly).
+                   "icon": LEGEND_ICON, "itemWidth": LEGEND_ITEM_W, "itemHeight": LEGEND_ITEM_H,
+                   "inactiveColor": LEGEND_INACTIVE, "inactiveBorderColor": LEGEND_INACTIVE,
                    "textStyle": {"color": DARK_TEXT}},
         "grid": {"left": 8, "right": 18, "top": 44, "bottom": 64, "containLabel": True},
         "xAxis": {"type": "time",

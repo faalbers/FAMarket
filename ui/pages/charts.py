@@ -46,6 +46,7 @@ from ui.chart_theme import (
     DARK_TEXT as _DARK_TEXT,
     GRID_LINE as _GRID_LINE,
     echarts_points as _echarts_points,
+    legend_style as _legend_style,
 )
 
 _CHART_HEIGHT = 600  # px; the symbol list's scroll box is capped to this so they align
@@ -486,17 +487,8 @@ def _growth_line_options(series: list[dict], yname: str,
                     "backgroundColor": "rgba(15,18,25,0.92)",
                     "borderColor": "rgba(255,255,255,0.20)",
                     "textStyle": {"color": _DARK_TEXT}},
-        "legend": {
-            "type": "scroll", "orient": "vertical", "left": 8, "top": "middle",
-            "data": [s["name"] for s in series if not s["name"].startswith("_")],
-            "textStyle": {"color": _DARK_TEXT},
-            "inactiveColor": "rgba(255,255,255,0.35)",
-            "pageTextStyle": {"color": _DARK_TEXT},
-            "selector": [{"type": "all", "title": "All"}, {"type": "inverse", "title": "Invert"}],
-            "selectorPosition": "end",
-            "selectorLabel": {"color": _DARK_TEXT, "borderColor": "rgba(255,255,255,0.30)",
-                              "backgroundColor": "rgba(255,255,255,0.05)"},
-        },
+        "legend": _legend_style(
+            [s["name"] for s in series if not s["name"].startswith("_")]),
         "toolbox": {"right": 10, "top": 2, "iconStyle": {"borderColor": _DARK_TEXT},
                     "emphasis": {"iconStyle": {"borderColor": "#33BBEE"}},
                     "feature": {"dataZoom": {"yAxisIndex": "none"}, "restore": {}}},
@@ -878,19 +870,9 @@ def _render_radar(symbols: list[str]) -> None:
                     "backgroundColor": "rgba(15,18,25,0.28)",
                     "borderColor": "rgba(255,255,255,0.20)",
                     "textStyle": {"color": "rgba(230,230,230,0.75)"}},
-        "legend": {
-            # Vertical scroll list pinned to the left column (the radar is shifted right
-            # to make room); many symbols scroll with the page arrows.
-            "type": "scroll", "orient": "vertical", "left": 8, "top": "middle",
-            "data": [d["name"] for d in _data],
-            "textStyle": {"color": _DARK_TEXT},
-            "inactiveColor": "rgba(255,255,255,0.35)",
-            "pageTextStyle": {"color": _DARK_TEXT},
-            "selector": [{"type": "all", "title": "All"}, {"type": "inverse", "title": "Invert"}],
-            "selectorPosition": "end",
-            "selectorLabel": {"color": _DARK_TEXT, "borderColor": "rgba(255,255,255,0.30)",
-                              "backgroundColor": "rgba(255,255,255,0.05)"},
-        },
+        # Vertical scroll list pinned to the left column (the radar is shifted right
+        # to make room); many symbols scroll with the page arrows.
+        "legend": _legend_style([d["name"] for d in _data]),
         "radar": {
             "indicator": [{"name": lbl, "max": 100} for _, lbl in _RADAR_CATEGORIES],
             "shape": "polygon", "splitNumber": 5, "center": ["56%", "54%"], "radius": "78%",
@@ -1265,21 +1247,12 @@ _options = {
         "borderColor": "rgba(255,255,255,0.20)",
         "textStyle": {"color": _DARK_TEXT},
     },
-    "legend": {
-        # Vertical scroll list pinned to the left column (grid.left is opened up to make
-        # room); many symbols scroll with the page arrows. Same layout as the radar.
-        "type": "scroll", "orient": "vertical", "left": 8, "top": "middle",
-        "data": [s["name"] for s in _series_opt if not s["name"].startswith("_")],
-        "textStyle": {"color": _DARK_TEXT},
-        "inactiveColor": "rgba(255,255,255,0.35)",
-        "pageTextStyle": {"color": _DARK_TEXT},
-        # "All" turns every line on; "Invert" flips the selection (all-on → all-off).
-        "selector": [{"type": "all", "title": "All"}, {"type": "inverse", "title": "Invert"}],
-        "selectorPosition": "end",
-        "selectorLabel": {"color": _DARK_TEXT, "borderColor": "rgba(255,255,255,0.30)",
-                          "backgroundColor": "rgba(255,255,255,0.05)"},
-        "selectorButtonGap": 8,
-    },
+    # Vertical scroll list pinned to the left column (grid.left is opened up to make
+    # room); many symbols scroll with the page arrows. Same layout as the radar.
+    # "All" turns every line on; "Invert" flips the selection (all-on -> all-off).
+    "legend": _legend_style(
+        [s["name"] for s in _series_opt if not s["name"].startswith("_")],
+        selectorButtonGap=8),
     # Native "reset to full chart": the toolbox restore icon (top-right) clears any
     # zoom/pan and returns to the full view — no custom button needed.
     "toolbox": {

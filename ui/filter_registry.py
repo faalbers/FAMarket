@@ -150,8 +150,11 @@ def _b(key, name, category, applies, growth=False) -> Base:
 # Categories in display order.
 CATEGORY_ORDER = [
     "Price", "Valuation", "Profitability", "Balance Sheet", "Growth", "Income",
-    "Technical", "Intrinsic Value", "Relative Strength", "Score",
+    "Technical", "Intrinsic Value", "Relative Strength", "Score", "Classification",
 ]
+
+# Fund types — for classification bases that only apply to funds.
+FUNDS = frozenset({ETF, CEF, MUTUAL_FUND})
 
 BASES: list[Base] = [
     # -- Price -------------------------------------------------------------- #
@@ -233,6 +236,10 @@ BASES: list[Base] = [
     _b("growth_score", "Growth", "Score", COMPANY),
     _b("momentum_score", "Momentum", "Score", ALL_TRADED),
     _b("income_score", "Income", "Score", DIVIDEND_PAYERS),
+    # -- Classification (text labels; filtered via the multi-pick value list) - #
+    _b("sector", "Sector", "Classification", COMPANY),
+    _b("industry", "Industry", "Classification", COMPANY),
+    _b("fund_family", "Fund family", "Classification", FUNDS),
 ]
 
 BASE_BY_KEY: dict[str, Base] = {b.key: b for b in BASES}

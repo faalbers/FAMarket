@@ -185,7 +185,9 @@ Three intentionally decoupled layers plus shared infrastructure:
   price chart's dark theme + bright palette + gap-break helper now live in
   `ui/chart_theme.py` (`COLORWAY`/`DARK_*`/`echarts_points`), shared by the price
   chart and the Calibration chart. `settings.CHART_COLORWAY` is the default palette
-  for any other chart.
+  for any other chart. Multi-series legends go through `ui/chart_theme.legend_style()`
+  (filled-swatch on/off icons + dimmed inactive color so toggled lines are readable) —
+  don't hand-roll a per-chart legend dict.
 - **Streamlit live updates** use `st.fragment(run_every=…)`, never a
   `time.sleep() + st.rerun()` poll loop — the blocking sleep freezes the script
   between ticks and silently drops widget input (e.g. a Stop click). A button that

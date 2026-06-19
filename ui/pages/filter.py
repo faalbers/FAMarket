@@ -49,6 +49,15 @@ def _analysis_df() -> pd.DataFrame:
     return _load_analysis(settings.ANALYSIS_DB.stat().st_mtime)
 
 
+@st.cache_data(show_spinner=False)
+def _categorical_map(mtime: float) -> dict[str, list]:
+    """{column: sorted distinct values} for every low-cardinality column, computed
+    once per analysis.db load (the value control offers these as a multi-pick list)."""
+    df = _load_analysis(mtime)
+    return {c: vals for c in df.columns
+            if (vals := E.categorical_values(df, c)) is not None}
+
+
 def _ensure_state() -> None:
     if "filter_types" not in st.session_state:
         st.session_state["filter_types"] = {R.STANDARD}
@@ -135,6 +144,21 @@ def _cb_set_field(bid: str, field: str, value) -> None:
         lst[i][field] = value
 
 
+def _cb_toggle_value(bid: str, value: str) -> None:
+    """Toggle one value in a categorical block's pick list (multi-select picker)."""
+    found = _find(st.session_state["filter_blocks"], bid)
+    if not found:
+        return
+    lst, i = found
+    cur = lst[i].get("value")
+    cur = list(cur) if isinstance(cur, (list, tuple)) else []
+    if value in cur:
+        cur.remove(value)
+    else:
+        cur.append(value)
+    lst[i]["value"] = cur
+
+
 # --------------------------------------------------------------------------- #
 # param picker helpers
 # --------------------------------------------------------------------------- #
@@ -174,11 +198,42 @@ def _param_picker(col, bid: str, field: str, current: str | None,
     )
 
 
+def _value_picker(col, bid: str, values: list, current, keyp: str) -> None:
+    """Multi-select popover of a categorical column's values (search-narrowed list).
+
+    Reuses the shared param picker in multi-select mode with categories/info off, so
+    it looks like the metric picker but lists plain values. Picks are stored as
+    strings on the block's `value` list (the engine coerces back per column dtype).
+    """
+    opts = [str(v) for v in values]
+    sel = [str(v) for v in current] if isinstance(current, (list, tuple)) else []
+    sel_set = set(sel)
+    label = ", ".join(sel) if sel else "— pick —"
+    if len(label) > 22:
+        label = f"{len(sel)} selected"
+    P.render(
+        col,
+        opt_keys=opts,
+        label=label,
+        keyp=keyp,
+        category_of=lambda k: "",
+        name_of=lambda k: k,
+        info_html_of=lambda k: "",
+        search_text_of=lambda k: k.lower(),
+        is_selected=lambda k: k in sel_set,
+        on_pick=lambda k: _cb_toggle_value(bid, k),
+        close_on_pick=False,
+        exclude_selected=False,
+        show_info=False,
+        show_categories=False,
+    )
+
+
 # --------------------------------------------------------------------------- #
 # render one block (or child)
 # --------------------------------------------------------------------------- #
 def _render_block(block: dict, selected: set[str], opt_keys: list[str], opt_labels: dict[str, str],
-                  *, is_child: bool, can_up: bool, can_down: bool) -> None:
+                  cat_map: dict[str, list], *, is_child: bool, can_up: bool, can_down: bool) -> None:
     bid = block["_id"]
     pfx = f"flt:{bid}"
 
@@ -191,9 +246,27 @@ def _render_block(block: dict, selected: set[str], opt_keys: list[str], opt_labe
     window = st.session_state.get(f"{pfx}:win", block.get("window")) if has_window else None
     peers = R.peer_columns(E.resolve_column(param, window, "value"))
     has_compare = bool(peers)
-    op = st.session_state.get(f"{pfx}:op", block.get("op", ">"))
+
+    # Categorical column? -> offer membership ops + a multi-pick value list instead
+    # of the numeric/text box. Detection is on the raw value column (categorical
+    # bases have no peer variants), so this is independent of the compare mode.
+    cat_values = cat_map.get(E.resolve_column(param, window, "value"))
+    is_cat = cat_values is not None
+
+    # Operator choices depend on the column kind. Membership ops appear ONLY for
+    # categorical columns; everything else keeps the numeric/text operator set.
+    op_choices = E.CATEGORICAL_OPS if is_cat else [o for o in E.OPERATORS if o not in E.MULTI_OPS]
+    # A keyed selectbox errors if its session_state value isn't in `options` (can
+    # happen when the param switches kind), so coerce it to a valid op BEFORE the
+    # widget renders — allowed only while the widget isn't yet instantiated.
+    opkey = f"{pfx}:op"
+    stored_op = st.session_state.get(opkey, block.get("op", op_choices[0]))
+    if stored_op not in op_choices:
+        stored_op = block.get("op") if block.get("op") in op_choices else op_choices[0]
+    st.session_state[opkey] = stored_op
+    op = stored_op
     needs_val, needs_two, _ = E.OPERATORS.get(op, (True, False, False))
-    show_vp = needs_val and op not in E.TEXT_OPS
+    show_vp = (not is_cat) and needs_val and op not in E.TEXT_OPS
 
     # Build only the columns this block actually needs — no empty placeholders. A
     # trailing spacer absorbs the leftover page width so the controls stay close to
@@ -244,10 +317,8 @@ def _render_block(block: dict, selected: set[str], opt_keys: list[str], opt_labe
     else:
         block["compare"] = "value"
 
-    # operator
-    ops = list(E.OPERATORS)
-    oi = ops.index(op) if op in ops else 0
-    block["op"] = C["op"].selectbox("operator", options=ops, index=oi, key=f"{pfx}:op",
+    # operator (options/value pre-seeded above so the keyed widget never errors)
+    block["op"] = C["op"].selectbox("operator", options=op_choices, key=opkey,
                                     label_visibility="collapsed")
 
     # V/P toggle + value
@@ -255,12 +326,19 @@ def _render_block(block: dict, selected: set[str], opt_keys: list[str], opt_labe
         C["vp"].button(block.get("vmode", "V"), key=f"{pfx}:vp", on_click=_cb_flip_vmode, args=(bid, "1"),
                        help="V = fixed value · P = compare to another parameter")
     if needs_val:
-        if block.get("vmode") == "P" and show_vp:
+        if is_cat:
+            _value_picker(C["val"], bid, cat_values, block.get("value"), f"{pfx}:vcat")
+        elif block.get("vmode") == "P" and show_vp:
             cur = block.get("value")
             _param_picker(C["val"], bid, "value", cur if cur in opt_keys else None,
                           opt_keys, opt_labels, f"{pfx}:v1p")
         else:
-            block["value"] = C["val"].text_input("value", value=str(block.get("value", "")), key=f"{pfx}:v1",
+            # A leftover list (param switched away from a categorical column) would
+            # render as its repr — blank it so the box starts empty instead.
+            cur_text = block.get("value", "")
+            if isinstance(cur_text, (list, tuple)):
+                cur_text = ""
+            block["value"] = C["val"].text_input("value", value=str(cur_text), key=f"{pfx}:v1",
                                                   label_visibility="collapsed",
                                                   placeholder="text…" if op in E.TEXT_OPS else "value")
 
@@ -329,6 +407,7 @@ if not selected:
     st.stop()
 
 opt_keys, opt_labels = _param_options(selected)
+cat_map = _categorical_map(settings.ANALYSIS_DB.stat().st_mtime)
 
 # -- Filters ---------------------------------------------------------------- #
 with st.expander("Filters", expanded=True):
@@ -396,7 +475,7 @@ with st.expander("Filters", expanded=True):
 
     blocks = st.session_state["filter_blocks"]
     for bi, block in enumerate(blocks):
-        _render_block(block, selected, opt_keys, opt_labels, is_child=False,
+        _render_block(block, selected, opt_keys, opt_labels, cat_map, is_child=False,
                       can_up=bi > 0, can_down=bi < len(blocks) - 1)
         children = block.get("or_children", [])
         if children:
@@ -404,7 +483,7 @@ with st.expander("Filters", expanded=True):
             with cwrap:
                 st.caption("OR — fallbacks (block passes if the main row **or** any of these match)")
                 for ci, child in enumerate(children):
-                    _render_block(child, selected, opt_keys, opt_labels, is_child=True,
+                    _render_block(child, selected, opt_keys, opt_labels, cat_map, is_child=True,
                                   can_up=ci > 0, can_down=ci < len(children) - 1)
         st.markdown("<hr style='margin:0.3rem 0;border:none;border-top:1px dashed rgba(128,128,128,.3)'>",
                     unsafe_allow_html=True)

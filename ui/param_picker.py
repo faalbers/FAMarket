@@ -81,6 +81,8 @@ def render(
     close_on_pick: bool,
     exclude_selected: bool = True,
     trigger_width: str = "stretch",
+    show_info: bool = True,
+    show_categories: bool = True,
 ) -> None:
     """Render the popover param browser inside ``container``.
 
@@ -94,6 +96,10 @@ def render(
     the default, used where pickers sit in an aligned grid; "content" to hug the
     selected-param label, e.g. the standalone Fundamentals picker). The open panel
     itself is always sized to its content via CSS (see app.py), independent of this.
+
+    ``show_info`` / ``show_categories`` (both default True) drop the per-row ▸ info
+    toggle and the category captions, so the same widget serves plain value lists
+    (the Filter page's categorical multi-pick) that have neither hints nor groups.
     """
     nonce_key = f"{keyp}:nonce"
     wrap = container.container(key=f"{keyp}:wrap{st.session_state.get(nonce_key, 0)}")
@@ -109,21 +115,28 @@ def render(
                 continue
             if q and q not in search_text_of(k):
                 continue
-            cat = category_of(k)
-            if cat != last_cat:
-                st.caption(cat)
-                last_cat = cat
+            if show_categories:
+                cat = category_of(k)
+                if cat != last_cat:
+                    st.caption(cat)
+                    last_cat = cat
             shown += 1
-            expanded = st.session_state.get(info_key) == k
-            row = st.columns([5, 1], gap="small")
-            row[0].button(name_of(k), key=f"{keyp}:opt:{k}",
+            btype = "primary" if is_selected(k) else "secondary"
+            if show_info:
+                expanded = st.session_state.get(info_key) == k
+                row = st.columns([5, 1], gap="small")
+                row[0].button(name_of(k), key=f"{keyp}:opt:{k}",
+                              on_click=_on_pick, args=(k, on_pick, nonce_key, close_on_pick),
+                              type=btype, width="stretch")
+                row[1].button("▾" if expanded else "▸", key=f"{keyp}:nfo:{k}",
+                              on_click=_toggle_info, args=(info_key, k),
+                              help="Show / hide info", width="stretch")
+                if expanded:
+                    st.markdown(f"<div class='fam-hi'>{info_html_of(k)}</div>", unsafe_allow_html=True)
+            else:
+                st.button(name_of(k), key=f"{keyp}:opt:{k}",
                           on_click=_on_pick, args=(k, on_pick, nonce_key, close_on_pick),
-                          type="primary" if is_selected(k) else "secondary", width="stretch")
-            row[1].button("▾" if expanded else "▸", key=f"{keyp}:nfo:{k}",
-                          on_click=_toggle_info, args=(info_key, k),
-                          help="Show / hide info", width="stretch")
-            if expanded:
-                st.markdown(f"<div class='fam-hi'>{info_html_of(k)}</div>", unsafe_allow_html=True)
+                          type=btype, width="stretch")
         if shown == 0:
             st.caption("Nothing matches your search." if q else "Nothing left to add.")
 

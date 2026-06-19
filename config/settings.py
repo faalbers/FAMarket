@@ -63,6 +63,15 @@ COLUMN_SETS_DIR: Path = BASE_DIR / "column_sets"  # .prms files (output column s
 OUTPUT_RUNS_DIR: Path = BASE_DIR / "results"
 OUTPUT_RUNS_KEEP: int = 20
 
+# Filter page — categorical multi-pick. A filter column with few distinct values is
+# offered as a searchable multi-pick list ("is any of" / "is none of") instead of a
+# free-text/number box. Two caps so continuous numerics stay range filters:
+#   - text/classification columns (sector, industry, fund_family, trend, …)
+#   - numeric columns — small, so 0-100 scores / 1-99 ranks keep >, <, between and
+#     only tiny numeric enums (e.g. bb_squeeze 0/1, 1-10 risk scores) become lists.
+FILTER_CATEGORICAL_MAX_UNIQUE: int = 100
+FILTER_CATEGORICAL_MAX_UNIQUE_NUMERIC: int = 12
+
 # UI-saved setting overrides (gitignored, machine-local). Holds ONLY the keys the
 # Settings page changed from the defaults above; applied on top at the bottom of
 # this module. Lives at the project root for now — the "Standalone executable"

@@ -20,6 +20,40 @@ COLORWAY = ("#33BBEE", "#EE7733", "#EE3377", "#009988", "#0077BB", "#CC3311", "#
 
 GAP_DAYS = 7  # consecutive bars more than this many days apart -> draw a line break
 
+# Legend on/off clarity. The ECharts default line-legend icon is a thin line with a
+# hollow circle; toggled off it only dims a little, so it was very hard to tell which
+# lines were on. A SOLID filled swatch (`roundRect`) reads as brightly-colored when on
+# and obviously greyed when off, and a bigger item makes the state easy to see.
+LEGEND_ICON = "roundRect"
+LEGEND_ITEM_W = 26
+LEGEND_ITEM_H = 14
+LEGEND_INACTIVE = "rgba(255,255,255,0.28)"  # greyed swatch + label for a hidden line
+
+
+def legend_style(data, **overrides):
+    """Shared vertical-scroll legend for the line/radar charts.
+
+    Centralizes the dark-theme legend so every chart's line-toggle list looks the same
+    and so the on/off state is clear at a glance (filled swatch icon + dimmed inactive
+    color). Pass per-chart extras (e.g. ``selectorButtonGap=8``) as keyword overrides.
+    """
+    legend = {
+        "type": "scroll", "orient": "vertical", "left": 8, "top": "middle",
+        "data": data,
+        "icon": LEGEND_ICON,
+        "itemWidth": LEGEND_ITEM_W, "itemHeight": LEGEND_ITEM_H,
+        "textStyle": {"color": DARK_TEXT},
+        "inactiveColor": LEGEND_INACTIVE,
+        "inactiveBorderColor": LEGEND_INACTIVE,
+        "pageTextStyle": {"color": DARK_TEXT},
+        "selector": [{"type": "all", "title": "All"}, {"type": "inverse", "title": "Invert"}],
+        "selectorPosition": "end",
+        "selectorLabel": {"color": DARK_TEXT, "borderColor": "rgba(255,255,255,0.30)",
+                          "backgroundColor": "rgba(255,255,255,0.05)"},
+    }
+    legend.update(overrides)
+    return legend
+
 
 def echarts_points(dates: pd.Series, values: pd.Series) -> list[list]:
     """Build ECharts [date, value] points, inserting a null wherever consecutive

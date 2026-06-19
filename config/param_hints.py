@@ -925,6 +925,34 @@ PARAM_HINTS: dict[str, dict] = {
         "how_to_use": ["Higher means a stronger, better-covered income profile; NaN for non-payers."],
         "vs_peers": "No — it is already a cross-universe percentile.",
     },
+    # ------------------------------------------------------------------ #
+    # Classification — text labels the company/fund carries, not metrics.
+    # Filtered by picking values from a list (is any of / is none of).
+    # ------------------------------------------------------------------ #
+    "sector": {
+        "name": "Sector",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "The broad economic sector (e.g. Technology, Healthcare) from the data provider.",
+        "how_to_use": ["Pick one or more sectors to include, or exclude sectors you don't want."],
+        "vs_peers": "No — it is the grouping label itself, not a value to compare.",
+    },
+    "industry": {
+        "name": "Industry",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "The narrower industry within a sector (e.g. Semiconductors, Banks — Regional).",
+        "how_to_use": ["Pick specific industries to focus a screen, or exclude ones you avoid."],
+        "vs_peers": "No — it is the grouping label itself, not a value to compare.",
+    },
+    "fund_family": {
+        "name": "Fund family",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "The fund's provider / sponsor (e.g. Vanguard, iShares). Funds only — blank for stocks.",
+        "how_to_use": ["Pick one or more providers to include, or exclude families you don't want."],
+        "vs_peers": "No — it is the grouping label itself, not a value to compare.",
+    },
 }
 
 

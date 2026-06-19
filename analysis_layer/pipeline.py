@@ -55,7 +55,8 @@ _PROGRESS_EVERY = 500
 # Identity columns carried alongside the computed metrics (symbol is the key).
 # `screen_type` is the sector/industry-derived filtering group (standard / bank /
 # insurance / reit / etf / …) — computed here so Filter/Output read one canonical value.
-_IDENTITY = ["symbol", "name", "security_type", "screen_type", "sector", "industry", "price"]
+_IDENTITY = ["symbol", "name", "security_type", "screen_type", "sector", "industry",
+             "fund_family", "price"]
 
 
 # Lower bound on the OHLCV window: rs_rank's 4 quarters × ~63 trading days + 1
@@ -226,6 +227,10 @@ def run_analysis(subset: list[str] | None = None) -> dict:
         iv = intrinsic_value.compute(sym, fsym, quote, price, m, risk_free)
         sec = quote.get("sector") if quote is not None else None
         ind = quote.get("industry") if quote is not None else None
+        # Fund provider/sponsor — funds only (NULL for stocks). Filtered as a
+        # classification value on the Filter page; lives only in quotes.db, so it
+        # must be copied into the analysis row to be screenable (no cross-DB joins).
+        fund_family = quote.get("fund_family") if quote is not None else None
         sec_type = getattr(rec, "security_type", None)
         rows.append({
             "symbol": sym,
@@ -234,6 +239,7 @@ def run_analysis(subset: list[str] | None = None) -> dict:
             "screen_type": classify_screen_type(sec_type, sec, ind),
             "sector": sec,
             "industry": ind,
+            "fund_family": fund_family,
             "price": price,
             # raw weighted return -> universe-ranked into rs_rank in scoring; kept
             # in the table so subset runs can re-rank the un-recomputed rows too

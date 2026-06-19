@@ -437,6 +437,22 @@
      - between (inclusive)
      - is null, is not null
      - starts_with, contains (text only, case-insensitive)
+     - ✅ IMPLEMENTED amendment (2026-06-18): membership operators `is any of` /
+       `is none of` for low-cardinality columns. A filter column whose distinct-value
+       count is within a cap is auto-detected (`filter_engine.categorical_values`) and
+       its value box is replaced by a SEARCH-NARROWED MULTI-PICK list (reuses
+       `ui/param_picker.render` in multi-select mode, categories/info off) — the user
+       picks values instead of typing exact strings; `value` is stored as a JSON list.
+       Two caps in settings: `FILTER_CATEGORICAL_MAX_UNIQUE` (100, text/classification)
+       and `FILTER_CATEGORICAL_MAX_UNIQUE_NUMERIC` (12, so 0-100 scores / 1-99 ranks
+       stay range filters; only tiny numeric enums like a 0/1 flag become lists). NULL
+       still fails both membership ops (mirrors `!=`). Existing enum metrics (`trend`,
+       `macd_crossover`, `bb_position`, `vol_trend`, `macd_hist_trend`) get this for free.
+     - ✅ IMPLEMENTED amendment (2026-06-18): new "Classification" base metrics
+       `sector`, `industry`, `fund_family` (filter on the company/fund's text labels).
+       sector/industry were already in analysis.db; `fund_family` is now copied into
+       analysis.db by `analysis_layer/pipeline.py` (funds only, NULL for stocks) — needs
+       an analysis re-run to populate. Each has a `config/param_hints.py` entry.
 
      PARAMETER SELECTION (first and third entries):
      - Searchable dropdown — type to filter, type beginning of name to jump to first match

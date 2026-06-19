@@ -31,6 +31,7 @@ from ui.chart_theme import (
     DARK_TEXT as _DARK_TEXT,
     GRID_LINE as _GRID_LINE,
     echarts_points as _echarts_points,
+    legend_style as _legend_style,
 )
 
 _CHART_HEIGHT = 600  # px
@@ -146,17 +147,8 @@ def _chart_options(series_opt: list[dict], yaxis_name: str) -> dict:
                     "backgroundColor": "rgba(15,18,25,0.92)",
                     "borderColor": "rgba(255,255,255,0.20)",
                     "textStyle": {"color": _DARK_TEXT}},
-        "legend": {
-            "type": "scroll", "orient": "vertical", "left": 8, "top": "middle",
-            "data": [s["name"] for s in series_opt if not s["name"].startswith("_")],
-            "textStyle": {"color": _DARK_TEXT},
-            "inactiveColor": "rgba(255,255,255,0.35)",
-            "pageTextStyle": {"color": _DARK_TEXT},
-            "selector": [{"type": "all", "title": "All"}, {"type": "inverse", "title": "Invert"}],
-            "selectorPosition": "end",
-            "selectorLabel": {"color": _DARK_TEXT, "borderColor": "rgba(255,255,255,0.30)",
-                              "backgroundColor": "rgba(255,255,255,0.05)"},
-        },
+        "legend": _legend_style(
+            [s["name"] for s in series_opt if not s["name"].startswith("_")]),
         "toolbox": {"right": 10, "top": 2, "iconStyle": {"borderColor": _DARK_TEXT},
                     "emphasis": {"iconStyle": {"borderColor": "#33BBEE"}},
                     "feature": {"dataZoom": {"yAxisIndex": "none"}, "restore": {}}},

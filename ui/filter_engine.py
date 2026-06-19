@@ -50,9 +50,17 @@ OPERATORS: dict[str, tuple[bool, bool, bool]] = {
     "is not null": (False, False, False),
     "starts_with": (True, False, True),
     "contains": (True, False, True),
+    # Membership over a low-cardinality column; `value` is a LIST of picks (not a
+    # scalar). Offered by the page only when the column is detected categorical.
+    "is any of": (True, False, False),
+    "is none of": (True, False, False),
 }
 TEXT_OPS = {op for op, (_, _, t) in OPERATORS.items() if t}
 NULL_OPS = {"is null", "is not null"}
+# Operators whose `value` is a list of picks (the V/P toggle is hidden for them).
+MULTI_OPS = {"is any of", "is none of"}
+# Operator choices for a categorical column (membership + null tests only).
+CATEGORICAL_OPS = ["is any of", "is none of", "is null", "is not null"]
 
 
 def new_block() -> dict:
@@ -74,6 +82,29 @@ def resolve_column(param: str, window: str | None, compare: str) -> str:
     if compare in ("vs_sector", "vs_industry"):
         return f"{col}_{compare}"
     return col
+
+
+def categorical_values(df: pd.DataFrame, column: str) -> list | None:
+    """Distinct values of `column` when it is low-cardinality enough to multi-pick.
+
+    Returns the sorted distinct non-null values when their count is within the cap
+    for the column's dtype, else None (caller keeps the normal value box). Two caps
+    so continuous numerics stay range filters: a generous one for text/classification
+    columns, a small one for numerics (0-100 scores / 1-99 ranks stay >, <, between;
+    only tiny numeric enums like a 0/1 flag become a pick list).
+    """
+    if column not in df.columns:
+        return None
+    s = df[column].dropna()
+    if s.empty:
+        return None
+    numeric = pd.api.types.is_numeric_dtype(s)
+    cap = (settings.FILTER_CATEGORICAL_MAX_UNIQUE_NUMERIC if numeric
+           else settings.FILTER_CATEGORICAL_MAX_UNIQUE)
+    uniq = s.unique().tolist()
+    if not (1 <= len(uniq) <= cap):
+        return None
+    return sorted(uniq)
 
 
 # --------------------------------------------------------------------------- #
@@ -105,6 +136,21 @@ def _condition(df: pd.DataFrame, block: dict) -> pd.Series:
         return series.isna()
     if op == "is not null":
         return series.notna()
+
+    if op in MULTI_OPS:
+        raw = block.get("value")
+        vals = list(raw) if isinstance(raw, (list, tuple)) else ([raw] if raw not in (None, "") else [])
+        if not vals:
+            return pd.Series(False, index=df.index)
+        if pd.api.types.is_numeric_dtype(series):
+            picks = {v for v in (pd.to_numeric(pd.Series(vals), errors="coerce")).tolist() if pd.notna(v)}
+            hit = _num(series).isin(picks)
+        else:
+            picks = {str(v).lower() for v in vals}
+            hit = series.astype("string").str.lower().isin(picks)
+        hit = hit.fillna(False)
+        # "is none of" excludes the picks but, like !=, NULLs still fail.
+        return hit if op == "is any of" else (~hit & series.notna())
 
     if op in TEXT_OPS:
         text = series.astype("string").str.lower()
@@ -148,6 +194,9 @@ def is_complete(block: dict) -> bool:
     block doesn't wipe the result set.
     """
     op = block.get("op", ">")
+    if op in MULTI_OPS:  # value is a list of picks; ready once at least one is chosen
+        v = block.get("value")
+        return isinstance(v, (list, tuple)) and len(v) > 0
     needs_val, needs_two, _ = OPERATORS.get(op, (True, False, False))
     if not needs_val:
         return True
