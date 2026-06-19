@@ -772,6 +772,24 @@
        `security_type == "index"` before any fetcher runs. Benchmark OHLCV, if
        ever needed, stays an analysis-layer concern.
      - Live log output shown in UI during fetch run
+     - ✅ 2026-06-19: the fetch now runs as its OWN detached OS process
+       (`data_layer/launcher.py` spawns `scripts/run_fetch.py` with Windows
+       CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP — no popup console window, and
+       Windows doesn't kill children when the parent exits), so it KEEPS RUNNING after the
+       app is closed. Replaces the previous in-Streamlit background *thread* +
+       stop-on-tab-close design (the auto-shutdown hook no longer kills the fetch —
+       it just prints a notice; `core/autoshutdown.py` + `app.py`). Cross-process
+       coordination: `data_layer/run_state.py` (a `state/fetch_run.json` lifecycle
+       file — launching → running → done/error/cancelled, with the worker's own PID
+       for liveness) is the single source of truth for "is a fetch running"; Stop is
+       a cross-process flag file (`settings.FETCH_STOP_FILE`, written/polled via
+       `data_layer/cancel.py`) that still unwinds at the next batch boundary. Because
+       the fetch is out-of-process, the **live log view was removed from the UI** —
+       the page is now a controller (run status banner + last-run summary, buttons
+       gated on `run_state.is_active()` so a second fetch can never start); watch
+       `logs/famarket.log` for progress. Removed `cancel.stop_for_shutdown` /
+       in-thread worker tracking. Standalone `python -m scripts.run_fetch` (now with
+       `--analysis-only`) writes the same state file.
      - Each API can be run independently (e.g. re-run just yfinance after a failure)
 
    - FRED DATA:

@@ -29,6 +29,9 @@ column_sets/*.prms
 results/*.parquet
 results/*.json
 
+# --- Detached-fetch control state (machine-local; see data_layer/run_state.py) ---
+state/
+
 # --- Python ---
 __pycache__/
 *.py[cod]

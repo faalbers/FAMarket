@@ -47,8 +47,26 @@ BACKUP_VERSIONS: int = 5  # keep _1 (newest) .. _5 (oldest); _5 is dropped each 
 # famarket_5.log, same scheme as the databases) — see roll_log(). Empty logs aren't
 # backed up.
 LOG_DIR: Path = BASE_DIR / "logs"
-LOG_FILE: Path = LOG_DIR / "famarket.log"
+LOG_FILE: Path = LOG_DIR / "famarket.log"   # the run log (fetch/analysis) — rolled per run
+# The Streamlit app logs HERE, never to the run log. The fetch runs as its own
+# detached process and owns famarket.log (it rolls it at the start of each run);
+# if the app also held famarket.log open, that roll's unlink() would fail on Windows
+# (WinError 32 — file in use). Keeping the app on its own file removes that conflict.
+APP_LOG_FILE: Path = LOG_DIR / "app.log"
 LOG_LEVEL: str = "INFO"
+
+# Detached-fetch lifecycle state (the fetch runs as its own OS process so it
+# survives closing the app — see data_layer/run_state.py + data_layer/launcher.py).
+# STATE_DIR holds tiny machine-local control files (gitignored):
+#   - fetch_run.json : run lifecycle + summary, the single source of truth for
+#     "is a fetch running" across processes/app restarts.
+#   - fetch_stop.flag: a cross-process Stop request (cancel.py writes/reads it).
+# FETCH_CONSOLE_LOG captures the detached process's stdout/stderr for the rare
+# crash that happens before logging is set up (the run itself logs to LOG_FILE).
+STATE_DIR: Path = BASE_DIR / "state"
+FETCH_RUN_STATE_FILE: Path = STATE_DIR / "fetch_run.json"
+FETCH_STOP_FILE: Path = STATE_DIR / "fetch_stop.flag"
+FETCH_CONSOLE_LOG: Path = LOG_DIR / "fetch_console.log"
 # Summary-level format; timestamp prefix on every entry (Topic 9.3).
 LOG_FORMAT: str = "%(asctime)s [%(name)s] %(levelname)s %(message)s"
 LOG_DATEFMT: str = "%Y-%m-%d %H:%M:%S"
@@ -307,7 +325,8 @@ FRED_SERIES: dict[str, str] = {
 
 def ensure_runtime_dirs() -> None:
     """Create the directories the app writes to. Safe to call on every startup."""
-    for path in (DB_DIR, BACKUP_DIR, LOG_DIR, FILTERS_DIR, COLUMN_SETS_DIR, OUTPUT_RUNS_DIR):
+    for path in (DB_DIR, BACKUP_DIR, LOG_DIR, FILTERS_DIR, COLUMN_SETS_DIR, OUTPUT_RUNS_DIR,
+                 STATE_DIR):
         path.mkdir(parents=True, exist_ok=True)
 
 

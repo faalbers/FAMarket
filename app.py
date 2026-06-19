@@ -22,16 +22,19 @@ from config import settings
 from core.autoshutdown import enable_autoshutdown
 from core.logging_config import setup_logging
 from core.net import configure_tls
-from data_layer import cancel
+from data_layer import run_state
 
 settings.ensure_runtime_dirs()
 configure_tls()
-setup_logging()
+# The app logs to its OWN file (app.log), never the run log (famarket.log). The
+# detached fetch process owns + rolls famarket.log; if the app held it open too, the
+# roll's unlink() would fail on Windows (WinError 32 — file in use by this app).
+setup_logging(settings.APP_LOG_FILE)
 # Stop the server when the browser tab is closed (local single-user app). Idempotent
-# across reruns. Before exiting, gracefully unwind any in-flight fetch (finish the
-# current batch, skip analysis) so the databases aren't left mid-write — with CLI
-# notices about what it's doing (cancel.stop_for_shutdown prints to stdout).
-enable_autoshutdown(grace=4.0, on_shutdown=cancel.stop_for_shutdown)
+# across reruns. The fetch now runs as its OWN detached process, so closing the app
+# no longer touches it — the shutdown hook just prints a terminal notice saying
+# whether a background fetch is still running (it will keep going to completion).
+enable_autoshutdown(grace=4.0, on_shutdown=run_state.announce_on_shutdown)
 
 st.set_page_config(page_title="FAMarket — Stock Screener", layout="wide")
 

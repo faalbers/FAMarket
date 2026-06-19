@@ -50,8 +50,8 @@ def _make_formatter() -> logging.Formatter:
     return _StampedFormatter(settings.LOG_FORMAT, datefmt=settings.LOG_DATEFMT)
 
 
-def _make_file_handler() -> logging.FileHandler:
-    handler = logging.FileHandler(settings.LOG_FILE, encoding="utf-8")
+def _make_file_handler(log_file: Path | None = None) -> logging.FileHandler:
+    handler = logging.FileHandler(log_file or settings.LOG_FILE, encoding="utf-8")
     handler.setFormatter(_make_formatter())
     return handler
 
@@ -71,6 +71,14 @@ def roll_log() -> None:
     log_file = settings.LOG_FILE
     settings.LOG_DIR.mkdir(parents=True, exist_ok=True)
 
+    # Import the backup helper BEFORE closing handlers: importing core.backup runs its
+    # module-level get_logger("backup"), which (on first import in this process — e.g.
+    # a fresh fetch subprocess) calls setup_logging() and opens a FileHandler on the
+    # run log. Doing it now means that handler is present for — and closed by — the
+    # loop below; if we imported it later (after the close loop) it would re-open the
+    # file and the unlink() would fail trying to delete a file THIS process holds open.
+    from core.backup import backup_file  # lazy: avoid backup<->logging import cycle
+
     root = logging.getLogger()
     had_file_handler = False
     for h in list(root.handlers):
@@ -81,15 +89,21 @@ def roll_log() -> None:
 
     # Only back up a non-empty log (skip when missing or empty), then start fresh.
     if log_file.exists() and log_file.stat().st_size > 0:
-        from core.backup import backup_file  # lazy: avoid backup<->logging import cycle
+        try:
+            backup_file(log_file)  # dated copy into BACKUP_DIR (famarket_<stamp>.log)
+            log_file.unlink()      # fresh start; recreated below / by setup_logging
+        except OSError as exc:
+            # Another process (the app on its own app.log shouldn't, but a SQLite-style
+            # viewer or a leftover handle might) holds the run log open, so it can't be
+            # archived/removed right now. A log-rotation hiccup must never abort the
+            # run — keep appending to the existing log instead.
+            print(f"[FAMarket] Could not roll the run log ({exc}); appending instead.",
+                  flush=True)
 
-        backup_file(log_file)  # dated copy into BACKUP_DIR (famarket_<stamp>.log)
-        log_file.unlink()      # fresh start; recreated below / by setup_logging
-
-    # If logging was already running, re-attach a handler on the fresh file so
-    # subsequent log lines flow to it. Otherwise setup_logging adds it later.
+    # If logging was already running, re-attach a handler on the (possibly fresh) file
+    # so subsequent log lines flow to it. Otherwise setup_logging adds it later.
     if had_file_handler:
-        root.addHandler(_make_file_handler())
+        root.addHandler(_make_file_handler(log_file))
 
 
 def _same_path(a: str, b: Path) -> bool:
@@ -99,8 +113,14 @@ def _same_path(a: str, b: Path) -> bool:
         return False
 
 
-def setup_logging() -> None:
-    """Configure root logging once. Idempotent — safe to call on every entry."""
+def setup_logging(log_file: Path | None = None) -> None:
+    """Configure root logging once. Idempotent — safe to call on every entry.
+
+    `log_file` chooses the file the FileHandler writes to (defaults to the run log,
+    `settings.LOG_FILE`). The Streamlit app passes `settings.APP_LOG_FILE` so it
+    never opens the run log — that file belongs to the detached fetch process, which
+    rolls it each run (a shared handle would make that roll's unlink fail on Windows).
+    """
     global _configured
     if _configured:
         return
@@ -121,7 +141,7 @@ def setup_logging() -> None:
     root.setLevel(settings.LOG_LEVEL)
     root.handlers.clear()
     root.addHandler(console)
-    root.addHandler(_make_file_handler())
+    root.addHandler(_make_file_handler(log_file))
 
     _quiet_noisy_libraries()
     _configured = True

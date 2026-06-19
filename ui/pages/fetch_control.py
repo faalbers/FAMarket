@@ -12,33 +12,30 @@ Only the fetchers that are actually wired into the orchestrator are exposed here
 (FMP and E*Trade from the original blueprint are deferred and intentionally
 absent). A run triggers a rotating backup of every .db first (core.backup).
 
-Streamlit note: the script reruns top-to-bottom on every interaction, and a fetch
-is one long call. To show the log *live*, the fetch runs on a background worker
-thread (it never touches st.*, so it needs no Streamlit context) while the main
-script polls the log file into a placeholder every few seconds until the worker
-finishes. The final result is kept in st.session_state so it survives the reruns
-caused by other widgets.
+Detached fetch (2026-06-19): a run is launched as its OWN detached OS process
+(`data_layer/launcher.py` → `scripts/run_fetch.py`), so it keeps running after you
+close the app. This page is therefore a CONTROLLER, not a live monitor: it reads
+the cross-process run state (`data_layer/run_state.py`) to know whether a fetch is
+running, gates its buttons on that, and shows the last finished run's summary.
+There is no live log here — watch `logs/famarket.log` for progress. Starting a
+fetch is blocked whenever one is already running (UI gate + launcher re-check), so
+two can never run at once.
 """
 
 from __future__ import annotations
 
 import argparse
-import threading
 from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
 
-from analysis_layer.pipeline import run_analysis
 from config import settings
 from core.database import Database
-from core.logging_config import get_logger, roll_log
-from data_layer import cancel
-from data_layer.orchestrator import report_fetch, run_full_fetch
+from data_layer import cancel, launcher, run_state
+from data_layer.orchestrator import report_fetch
 
 ANALYSIS_META = "analysis_meta"
-_LOG_TAIL_LINES = 200
-_POLL_SECONDS = 2.0
 # Shown as a greyed-out placeholder hint in the subset box (never prefilled as a
 # value) — the canonical type-spanning set for dev runs.
 _DEFAULT_SUBSET = ["AAPL", "MSFT", "JNJ", "KO", "PG", "O", "SPY", "VOO", "TSM", "VFIAX"]
@@ -70,99 +67,6 @@ def _cli_subset() -> str | None:
         return None
     syms = [p.strip().upper() for p in args.subset.replace(",", " ").split()]
     return ", ".join(syms) or None
-
-
-def _log_tail(n: int = _LOG_TAIL_LINES) -> str:
-    """Last n lines of the run log (empty string when there is no log yet)."""
-    path = settings.LOG_FILE
-    if not path.exists():
-        return ""
-    try:
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return ""
-    return "\n".join(lines[-n:])
-
-
-def _run_worker(result: dict, **kwargs) -> None:
-    """Run the pipeline on a background thread; report into the shared `result`.
-
-    Pure backend (no st.* calls), so it needs no Streamlit ScriptRunContext. The
-    main thread watches `result["done"]` and renders the log + summary/error.
-    """
-    # Register this thread so app shutdown (tab close) can stop it gracefully.
-    cancel.set_worker(threading.current_thread())
-    try:
-        result["summary"] = run_full_fetch(**kwargs)
-    except Exception as exc:  # carried back to the page instead of a blank screen
-        result["error"] = f"{type(exc).__name__}: {exc}"
-    finally:
-        result["done"] = True
-
-
-def _run_analysis_worker(result: dict, subset: list[str] | None) -> None:
-    """TEMPORARY (dev): analysis-only run — rebuild analysis.db, no fetch.
-
-    Same worker contract as `_run_worker` (no st.* calls, reports into `result`)
-    so it plugs into the same live-status fragment. The summary is wrapped under
-    an "analysis" key to match the shape `run_full_fetch` returns.
-    """
-    cancel.set_worker(threading.current_thread())
-    try:
-        # Fresh log for this run (previous one archived), same as the orchestrator
-        # does at the top of a fetch — otherwise the live tail shows the OLD log.
-        roll_log()
-        result["summary"] = {"analysis": run_analysis(subset=subset)}
-    except Exception as exc:
-        # Log the full traceback too — the UI banner only shows type+message,
-        # and run_full_fetch logs its own failures; this path must as well.
-        get_logger("analysis").exception(
-            "Analysis-only run failed — %s: %s", type(exc).__name__, exc
-        )
-        result["error"] = f"{type(exc).__name__}: {exc}"
-    finally:
-        result["done"] = True
-
-
-@st.fragment(run_every=_POLL_SECONDS)
-def _live_status() -> None:
-    """Live status + log tail for an in-flight run, on its own refresh timer.
-
-    A fragment — NOT a `time.sleep + st.rerun` loop on the main script. Only THIS
-    block reruns every _POLL_SECONDS; the rest of the page stays idle and fully
-    responsive, so Stop and the "Analyze after stop" checkbox are never dropped
-    (the old blocking sleep froze the script between ticks and ate those clicks).
-    On completion it triggers a full-app rerun to repaint the results + snapshot.
-    """
-    result = st.session_state.get("fetch_result", {})
-    label = st.session_state.get("fetch_label", "")
-    stopping = st.session_state.get("fetch_stopping", False)
-    verb = "Stopping" if stopping else "Running"
-    status = st.status(f"{verb} pipeline ({label})…", expanded=True)
-    if stopping:
-        _tail = (
-            " then reassessing the fetched symbols and rebuilding analysis from the "
-            "data fetched so far."
-            if st.session_state.get("analyze_after_stop", True)
-            else " then reassessing the fetched symbols (analysis skipped)."
-        )
-        status.write(
-            "Stop requested — finishing the current batch (already committed)," + _tail
-        )
-    status.empty().code(_log_tail(10) or "(starting…)", language="log")
-
-    if not result.get("done"):
-        return
-    # Finished — persist the outcome, then repaint the whole page.
-    st.session_state["fetch_running"] = False
-    st.session_state["fetch_stopping"] = False
-    if result.get("error"):
-        st.session_state["fetch_summary"] = None
-        st.session_state["fetch_error"] = result["error"]
-    else:
-        st.session_state["fetch_summary"] = result.get("summary")
-        st.session_state["fetch_error"] = None
-    st.rerun(scope="app")  # repaint the whole page: results section + fresh snapshot
 
 
 def _analysis_meta() -> dict | None:
@@ -294,7 +198,9 @@ def _show_report(report: dict) -> None:
 st.title("Fetch Control")
 st.caption(
     "Run the weekly pipeline: discovery → data fetch → reassessment → analysis. "
-    "A rotating backup of every database is taken before the run starts."
+    "A rotating backup of every database is taken before the run starts. The fetch "
+    "runs as its own background process, so it keeps going if you close the app — "
+    "watch `logs/famarket.log` for live progress."
 )
 
 # -- last analysis snapshot (always shown, top of page) --------------------- #
@@ -308,6 +214,10 @@ else:
     st.info("No analysis run yet — run a fetch below (or `python -m scripts.run_fetch`).")
 
 st.divider()
+
+# Is a fetch running right now? This is the authoritative, cross-process answer
+# (state file status + live PID), so it's correct even after an app restart.
+running = run_state.is_active()
 
 # -- run configuration ------------------------------------------------------ #
 # Note: not wrapped in st.form so the scope radio can show/hide the subset
@@ -365,8 +275,6 @@ run_backup = col_b.checkbox(
     help="Rotating 5-version backup of every .db before the run.",
 )
 
-running = st.session_state.get("fetch_running", False)
-
 # Row 1: Run Fetch | Stop Fetch | Analyze after stop. (Stop's button is created
 # further down — after its on_click callback is defined — but into this row's
 # column, so it lands here alongside Run Fetch.)
@@ -413,20 +321,18 @@ analyze_clicked = analyze_col.button(
 
 
 def _request_stop() -> None:
-    """Set the cancel flag the instant the click is processed (on_click callback).
+    """Write the cross-process stop flag the instant the click is processed.
 
-    A callback (not a `stop_clicked = st.button(...)` return-value check) so the stop
-    is registered the moment Streamlit handles the click, before any rerun. Pairs with
-    the self-refreshing status fragment: because the main script no longer blocks in a
-    sleep loop, this click is processed promptly even mid-run. It also carries the
-    live "Analyze after stop" choice into the stop request.
+    An on_click callback (not a return-value check) so the stop is registered the
+    moment Streamlit handles the click. `cancel.request_cancel` writes the flag file
+    that the detached fetch polls at its next safe boundary; it also carries the
+    live "Analyze after stop" choice into the flag so the other process honours it.
     """
     cancel.request_cancel(analyze_after=st.session_state.get("analyze_after_stop", True))
-    st.session_state["fetch_stopping"] = True
 
 
-# Stop is a cooperative request: the worker keeps running until it reaches the
-# next safe boundary (between fetchers / between batches), where every completed
+# Stop is a cooperative request: the background fetch keeps running until it reaches
+# the next safe boundary (between fetchers / between batches), where every completed
 # batch is already committed, then unwinds. So it's enabled only while a run is live.
 stop_col.button("■ Stop Fetch", disabled=not running, on_click=_request_stop)
 
@@ -443,11 +349,10 @@ if report_clicked:
             _report = report_fetch(subset=report_subset, respect_lock=respect_lock)
         _show_report(_report)
 
-# -- start a run ------------------------------------------------------------ #
-# The worker runs on a daemon thread and the page does NOT block waiting for it:
-# each script run renders the log tail, then schedules a rerun a couple of seconds
-# later. That keeps the script free to process the Stop button between polls — a
-# blocking wait loop would freeze the page and the Stop click would never land.
+# -- start a run (detached process) ----------------------------------------- #
+# The run is spawned as its own OS process and this page does NOT wait for it: it
+# just records the launch and reruns. The launcher re-checks that nothing is already
+# running, so a second fetch can never start.
 if submitted or analyze_clicked:
     if scope == "Full universe":
         subset = None
@@ -457,52 +362,54 @@ if submitted or analyze_clicked:
             st.warning("Dev subset selected but no symbols entered. Add symbols or switch to Full universe.")
             st.stop()
     scope_label = f"{len(subset)} symbols" if subset else "full universe"
-    cancel.clear()  # drop any leftover stop before the worker checks it
-    result: dict = {}
-    if analyze_clicked:
-        label = f"analysis only, {scope_label}"
-        worker = threading.Thread(
-            target=_run_analysis_worker,
-            kwargs={"result": result, "subset": subset},
-            daemon=True,
-        )
-    else:
-        label = scope_label
-        worker = threading.Thread(
-            target=_run_worker,
-            kwargs={
-                "result": result, "discover": discover, "subset": subset,
-                "respect_lock": respect_lock, "run_backup": run_backup,
-            },
-            daemon=True,
-        )
-    worker.start()
-    st.session_state["fetch_running"] = True
-    st.session_state["fetch_stopping"] = False
-    st.session_state["fetch_result"] = result
-    st.session_state["fetch_label"] = label
-    st.session_state["fetch_summary"] = None
-    st.session_state["fetch_error"] = None
+    cancel.clear()  # drop any leftover stop flag before the new run checks it
+    label = f"analysis only, {scope_label}" if analyze_clicked else scope_label
+    res = launcher.launch_detached_fetch(
+        discover=discover,
+        subset=subset,
+        respect_lock=respect_lock,
+        run_backup=run_backup,
+        analysis_only=bool(analyze_clicked),
+        label=label,
+    )
+    if not res.get("launched"):
+        st.warning(f"Could not start — {res.get('reason', 'a fetch is already running')}.")
     st.rerun()
 
-# Stop requests are handled in the _request_stop on_click callback (above). With the
-# main script no longer blocking in a sleep loop, that click is processed promptly.
-
-# -- live status for an in-flight run (self-refreshing fragment) ------------ #
-# Only the fragment reruns on its timer; the main page stays idle between ticks, so
-# Stop / "Analyze after stop" are never dropped. The fragment finalizes the run.
-if st.session_state.get("fetch_running"):
-    _live_status()
-
-# -- results of the most recent run (persist across reruns) ----------------- #
-# While a run is live, fetch_summary is None (cleared at submit), so this slot
-# renders nothing — which prunes any prior run's summary instead of leaving it on
-# screen under the new run. Shown as a flat Parameter/Value list, not a raw dict.
-_last_summary = st.session_state.get("fetch_summary")
-if st.session_state.get("fetch_error"):
-    st.error(f"Fetch failed — {st.session_state['fetch_error']}")
-elif isinstance(_last_summary, dict) and _last_summary.get("cancelled"):
-    _analysed = _last_summary.get("analysis") is not None
+# -- run status / last result ----------------------------------------------- #
+# No live log here (watch logs/famarket.log). This block reads the cross-process
+# state once per script run: a banner while a fetch is live, otherwise the last
+# finished run's outcome (which survives an app restart).
+state = run_state.read()
+if running:
+    pid = state.get("pid") if state else None
+    started = _fmt_local(state.get("started_at")) if state else "—"
+    label = state.get("label", "") if state else ""
+    if settings.FETCH_STOP_FILE.exists():
+        st.warning(
+            "Stop requested — the background fetch will finish its current batch and "
+            "then unwind (every completed batch is already committed, so the run stays "
+            "resumable). Reload to check on it."
+        )
+    else:
+        st.info(
+            f"A fetch is running in the background ({label}) — pid "
+            f"{pid if pid else '…'}, started {started}. Watch `logs/famarket.log` for "
+            "live progress."
+        )
+    st.caption("This page does not auto-update — reload it to refresh the status.")
+elif state and run_state.ended_unexpectedly():
+    st.error(
+        "The background fetch process ended unexpectedly — no completion was recorded. "
+        "Per-batch writes are transactional, so the run is resumable (re-run to "
+        f"continue). Check `{settings.FETCH_CONSOLE_LOG.name}` (in logs/) and the run "
+        "log for what happened."
+    )
+elif state and state.get("status") == "error":
+    st.error(f"Fetch failed — {state.get('error')}")
+elif state and state.get("status") == "cancelled":
+    _summary = state.get("summary") or {}
+    _analysed = _summary.get("analysis") is not None
     st.warning(
         "Fetch stopped before completing. All fetched batches are committed and the "
         "run is resumable — re-run to continue. The fetched symbols were reassessed. "
@@ -512,10 +419,10 @@ elif isinstance(_last_summary, dict) and _last_summary.get("cancelled"):
             else "Analysis was not rebuilt."
         )
     )
-    _show_summary(_last_summary)
-elif _last_summary is not None:
+    _show_summary(_summary)
+elif state and state.get("status") == "done":
     st.success("Fetch complete.")
-    _show_summary(_last_summary)
+    _show_summary(state.get("summary") or {})
 
 # -- danger zone (one collapsible holding every destructive action) --------- #
 # Kept at the very bottom, collapsed, with each action behind its own two-step
@@ -557,9 +464,7 @@ with st.expander("⚠️ Danger zone"):
             from core.reset import reset_all_data
 
             res = reset_all_data()
-            # Clear persisted run state so the page reflects the clean slate.
-            for k in ("fetch_summary", "fetch_error", "fetch_result", "fetch_label"):
-                st.session_state.pop(k, None)
+            run_state.clear()  # drop the last run's result so the page shows a clean slate
             st.session_state["reset_nonce"] = _nonce + 1  # reset the confirm checkbox
             st.session_state["reset_result"] = res
             st.rerun()
@@ -605,9 +510,6 @@ with st.expander("⚠️ Danger zone"):
                 from core.restore import restore_snapshot
 
                 res = restore_snapshot(_sel_stamp)
-                # Clear persisted run state so the page reflects the reverted databases.
-                for k in ("fetch_summary", "fetch_error", "fetch_result", "fetch_label"):
-                    st.session_state.pop(k, None)
                 st.session_state["revert_nonce"] = _rnonce + 1  # reset the confirm checkbox
                 st.session_state["revert_result"] = (_sel_saved_at, res)
                 st.rerun()
