@@ -306,16 +306,18 @@ report_clicked = report_col.button(
     "given the current gate options and symbol states. No data is fetched.",
 )
 
-# Row 3: Run Analysis on its own line. Same style/icon as Run Fetch (primary ▶) so
-# the run actions read as a matching set.
+# Row 3: Rebuild Analysis on its own line. DELIBERATELY styled UNLIKE Run Fetch —
+# secondary (muted/outline, not filled blue) + a ↻ rebuild icon instead of the ▶
+# play icon — because it's a no-fetch dev action that's been mistaken for Run Fetch.
 # TEMPORARY (dev): rebuild analysis.db from the already-fetched data, no fetch.
 # Honors the same Dev subset / Full universe scope. Remove once development settles.
 analyze_col = st.columns([1, 2.4])[0]
 analyze_clicked = analyze_col.button(
-    "▶ Run Analysis",
-    type="primary",
+    "↻ Rebuild Analysis only — no fetch (dev)",
+    type="secondary",
     disabled=running,
-    help="TEMPORARY dev button — analysis rebuild only, no fetch. Uses the run "
+    help="TEMPORARY dev button — rebuilds analysis.db from the already-fetched "
+    "data, NO fetch. Styled differently from ▶ Run Fetch on purpose. Uses the run "
     "scope above. Note: Stop does not interrupt an analysis run.",
 )
 

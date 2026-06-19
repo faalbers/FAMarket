@@ -24,6 +24,7 @@ import argparse
 from analysis_layer.pipeline import run_analysis
 from config import settings
 from core.logging_config import get_logger, roll_log
+from core.shutdown_guard import ShutdownGuard
 from data_layer import run_state
 from data_layer.orchestrator import run_full_fetch
 
@@ -69,6 +70,15 @@ def main() -> None:
     # Record this run in the cross-process state file (own PID, so liveness checks
     # track the real worker even behind the venv launcher shim).
     run_state.mark_running(label, mode)
+
+    # Warn-and-let-cancel on a Start-menu logoff/shutdown while this windowless
+    # detached run is live (Win32 block reason; no-op off Windows). Cleared in the
+    # finally so the block never outlives the run.
+    guard = ShutdownGuard(
+        f"FAMarket {mode} is running ({label}). "
+        "Shutting down or signing out now will interrupt it."
+    )
+    guard.start()
     try:
         summary = _run(args)
     except Exception as exc:
@@ -77,14 +87,17 @@ def main() -> None:
         )
         run_state.mark_error(f"{type(exc).__name__}: {exc}")
         raise
-    if summary.get("cancelled"):
-        run_state.mark_cancelled(summary)
     else:
-        run_state.mark_done(summary)
+        if summary.get("cancelled"):
+            run_state.mark_cancelled(summary)
+        else:
+            run_state.mark_done(summary)
 
-    print("\n=== RUN SUMMARY ===")
-    for stage, result in summary.items():
-        print(f"  {stage:16} {result}")
+        print("\n=== RUN SUMMARY ===")
+        for stage, result in summary.items():
+            print(f"  {stage:16} {result}")
+    finally:
+        guard.stop()
 
 
 if __name__ == "__main__":

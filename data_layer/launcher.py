@@ -20,6 +20,12 @@ import sys
 from config import settings
 from data_layer import run_state
 
+# Win32 constants used for the detached spawn. subprocess only exposes
+# CREATE_BREAKAWAY_FROM_JOB on Windows builds, so fall back to its literal value
+# (0x01000000) elsewhere so this module still imports on POSIX dev boxes.
+CREATE_BREAKAWAY_FROM_JOB = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0x01000000)
+ERROR_ACCESS_DENIED = 5  # winerror raised when the job forbids breakaway
+
 
 def launch_detached_fetch(
     *,
@@ -62,28 +68,48 @@ def launch_detached_fetch(
     # window because the venv launcher re-spawns a console child. Windows child
     # processes aren't killed when the parent exits, and the app is stopped via
     # SIGTERM (not a console Ctrl-C), so the fetch keeps running; CREATE_NEW_PROCESS_GROUP
-    # additionally shields it from any console signals. Std streams are redirected
-    # (no console to attach to); stdout/stderr go to a file for post-mortem if the
-    # child dies before logging is set up.
+    # additionally shields it from any console signals.
+    #
+    # CREATE_BREAKAWAY_FROM_JOB is the crucial one for terminal-launched runs: when
+    # Streamlit is started from a VS Code / Windows Terminal shell, Windows puts the
+    # whole process tree in a Job Object whose default policy KILLS every member when
+    # the job owner (the terminal/editor) closes. CREATE_NEW_PROCESS_GROUP only
+    # affects console *signals*, not job membership, so without breakaway, closing
+    # VS Code would terminate the "detached" fetch. Breakaway requires the job to
+    # allow it (JOB_OBJECT_LIMIT_BREAKAWAY_OK); if it doesn't, CreateProcess raises
+    # ERROR_ACCESS_DENIED, so we retry once without the flag (e.g. when not launched
+    # under such a job at all — the fetch then simply inherits the job, which is fine
+    # for a normal app launch).
     settings.FETCH_CONSOLE_LOG.parent.mkdir(parents=True, exist_ok=True)
     log_handle = open(settings.FETCH_CONSOLE_LOG, "a", encoding="utf-8")
     popen_kwargs: dict = {}
+    base_flags = 0
     if sys.platform == "win32":
-        popen_kwargs["creationflags"] = (
-            subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
-        )
+        base_flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+        popen_kwargs["creationflags"] = base_flags | CREATE_BREAKAWAY_FROM_JOB
     else:  # POSIX dev fallback (this app targets Windows)
         popen_kwargs["start_new_session"] = True
-    try:
-        proc = subprocess.Popen(
+
+    def _spawn(**kw) -> subprocess.Popen:
+        return subprocess.Popen(
             argv,
             cwd=str(settings.BASE_DIR),
             stdin=subprocess.DEVNULL,
             stdout=log_handle,
             stderr=subprocess.STDOUT,
             close_fds=True,
-            **popen_kwargs,
+            **kw,
         )
+
+    try:
+        try:
+            proc = _spawn(**popen_kwargs)
+        except OSError as exc:
+            # Job forbids breakaway (or some other flag issue): retry without it.
+            if sys.platform != "win32" or getattr(exc, "winerror", None) != ERROR_ACCESS_DENIED:
+                raise
+            popen_kwargs["creationflags"] = base_flags
+            proc = _spawn(**popen_kwargs)
     finally:
         log_handle.close()  # the child holds its own inherited copy
 
