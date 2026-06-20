@@ -20,6 +20,39 @@ COLORWAY = ("#33BBEE", "#EE7733", "#EE3377", "#009988", "#0077BB", "#CC3311", "#
 
 GAP_DAYS = 7  # consecutive bars more than this many days apart -> draw a line break
 
+# Heatmap goodness ramp (scoring-rules colored heatmap). A color-blind-safe diverging
+# BLUE → pale → ORANGE scale (no red/green, per the project rule) mapped over a 0-100
+# "goodness" value: 0 = weak (blue), 50 = neutral (pale), 100 = strong (orange). Used by
+# the metrics heatmap and the Scoring Rules page's live preview so both color identically.
+HEAT_RAMP = ("#2c6fbb", "#7aa8d6", "#e8e8e8", "#f3b15a", "#e07b1a")
+
+
+def heat_color(goodness: float) -> str:
+    """Interpolate HEAT_RAMP for a 0-100 goodness value → "#rrggbb".
+
+    NaN / None → a muted grey (no rule applies / no data). Used where an explicit per-cell
+    color is needed (the rules-page preview bars); the ECharts heatmap uses HEAT_RAMP in a
+    continuous visualMap instead.
+    """
+    if goodness is None or goodness != goodness:  # NaN
+        return "#3a3f4b"
+    g = max(0.0, min(100.0, float(goodness))) / 100.0
+    n = len(HEAT_RAMP) - 1
+    pos = g * n
+    i = int(pos)
+    if i >= n:
+        return HEAT_RAMP[n]
+    frac = pos - i
+    c0 = _hex_rgb(HEAT_RAMP[i])
+    c1 = _hex_rgb(HEAT_RAMP[i + 1])
+    rgb = tuple(round(a + (b - a) * frac) for a, b in zip(c0, c1))
+    return "#%02x%02x%02x" % rgb
+
+
+def _hex_rgb(h: str) -> tuple[int, int, int]:
+    h = h.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
 # Legend on/off clarity. The ECharts default line-legend icon is a thin line with a
 # hollow circle; toggled off it only dims a little, so it was very hard to tell which
 # lines were on. A SOLID filled swatch (`roundRect`) reads as brightly-colored when on

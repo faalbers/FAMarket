@@ -146,8 +146,12 @@ def _render_actions(symbols: list[str]) -> None:
                         _charts_url(symbols, "fundamentals_line"), width="stretch")
     _ch2[1].link_button("🎯 Category scores radar ↗", _charts_url(symbols, "radar"),
                         width="stretch")
-    st.caption("Price / growth-lines / radar compare all selected symbols; the Fundamentals "
-               "bar picks one symbol + one parameter across periods.")
+    _ch3 = st.columns(2)
+    _ch3[0].link_button("🔥 Metrics heat map ↗", _charts_url(symbols, "heatmap"),
+                        width="stretch")
+    st.caption("Price / growth-lines / radar / heat map compare all selected symbols; the "
+               "Fundamentals bar picks one symbol + one parameter across periods. The heat "
+               "map colors each symbol × metric by its Scoring Rule (orange = strong).")
     st.markdown("**Dividends**")
     _dv = st.columns(2)
     _dv[0].link_button("💰 Dividend yield ↗",

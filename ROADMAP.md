@@ -323,6 +323,27 @@
      - Metric weights within each category score: set by Claude as sensible defaults
      - All weights adjustable via Settings page in Streamlit UI (sliders, saves to config automatically)
      - Settings page also covers category weights within Overall Score
+     - ✅ PER-PARAMETER SCORING RULES added + IMPLEMENTED (2026-06-20, Option A) —
+       a richer "is this value strong or weak?" model than scoring.py's two-state
+       `_LOWER_IS_BETTER`. Each metric gets a RULE: shape (higher_better / lower_better /
+       **sweet_spot** — middle is best, e.g. payout, current ratio) + anchor (`peer` /
+       `universe` / `absolute` with a pivot value or a band) + sparse per-`screen_type`
+       overrides (e.g. REIT payout 80-95 vs base 30-60). `analysis_layer/scoring_rules.py`
+       holds committed `DEFAULT_RULES` + the `goodness()` 0-100 engine (pure; UI + a future
+       scoring.py both import it); user edits save to gitignored `scoring_rules.json`.
+       A new left-menu **Scoring Rules** page (`ui/pages/scoring_rules_page.py`) edits base
+       rules with a live IQR-zoomed, rule-colored histogram preview; the **metrics heat map**
+       (6.2) is the first consumer.
+       - DECIDED: anchor follows the GOAL (income = absolute bands, not peers); PEG anchored
+         absolute @1.0 (growth-adjusted, comparable on its own); preview x-axis + goodness
+         falloff both use the **1.5× IQR fence** (P/E etc. are wildly right-skewed).
+       - SCOPE (Option A): heatmap is the ONLY consumer for now — `scoring.py` category/overall
+         scores are NOT rewired yet. Category `*_score`s are RESULTS, not rules (excluded from
+         the rules page; the rewire must DERIVE them from rule goodness).
+       - PARKED (next): ⚠️ **rank-within-security-type** for price metrics (RS Rank etc. — the
+         universe is 65% mutual funds, which distorts universe ranking); per-type override
+         EDITING UI (works seeded-in-code; P/B a candidate); rewire scoring.py to read the
+         rules; categorical metrics → numeric encoding; yield heat map variant.
 
    - ✅ Subtopic 4.5 — Sector & sub-industry index series (added + IMPLEMENTED 2026-06-14)
      - WHAT: a daily base-100 level series for every Yahoo sector and every
@@ -634,7 +655,11 @@
        whose actual values are all 0, and PERSIST the legend show/hide selection across the
        Actual/Normalized + period switches (legendselectchanged → session_state →
        legend.selected, same pattern as the price chart).
-       Still pending in 6.2: the fundamentals/dividend HEAT MAP (new chart type, design TBD)
+       ✅ FUNDAMENTALS HEAT MAP IMPLEMENTED (2026-06-20) — metrics heat map (charts.py
+       view=heatmap, Output Action menu): symbols × metrics, each cell colored by a
+       per-parameter SCORING RULE (orange=strong, blue=weak), ranked across the universe.
+       Backed by a new per-parameter rules system — see the "Scoring rules system" addition
+       under Topic 4.4. Still pending in 6.2: the YIELD heat map variant (rows × periods)
        and the Koyfin link. (Dividend yield BAR dropped 2026-06-16 — practically identical to
        the line, per the user.)
      - [ Action ] button opens grouped dropdown, one action at a time, each opens a new browser tab
@@ -645,12 +670,13 @@
              time period selector" (multi-symbol comparison on one period). REVISED
              2026-06-13 (✅ shipped, see 6.2 above) to one-symbol × one-parameter ×
              over-periods; the multi-symbol-comparison bar is a later step.
-           - Parameter heat map charts (blue-to-orange scale, color-blind safe)
+           - ✅ Parameter heat map charts (blue-to-orange scale, color-blind safe) — shipped
+             2026-06-20 (view=heatmap), colored by the scoring-rules `goodness()` engine
            - ✅ Radar chart (5 category scores: Value, Quality, Growth, Momentum, Income) — shipped 2026-06-15, see 6.2 above
            - ✅ Parameter growth line charts (annual/quarterly selector, all periods, gaps shown as breaks) — shipped 2026-06-15, see 6.2 above (multi-symbol, Actual/Normalized scale toggle)
        - Dividends
            - ~~Yield bar chart~~ — DROPPED 2026-06-16 (practically identical to the line)
-           - Yield heat map chart
+           - Yield heat map chart — PENDING (the fundamentals metrics heat map shipped 2026-06-20; this rows×periods yield variant is the remaining heat-map work)
            - ✅ Yield line chart (annual and quarterly only — TTM excluded) — shipped 2026-06-15, refined 2026-06-16, see 6.2 above (multi-symbol, calendar-period yield, Actual/Normalized, view=dividend_line)
        - Analyze on external site
            - Finviz → https://finviz.com/screener?v=111&t=SYM1,SYM2,...

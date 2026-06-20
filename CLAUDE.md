@@ -133,6 +133,15 @@ Three intentionally decoupled layers plus shared infrastructure:
   `settings.py` (type-coerced to each default; unknown/malformed keys ignored).
   Delete that file to reset all settings to defaults. (Replaced the old in-place
   AST rewrite `config/settings_io.py`, 2026-06-12.)
+- **Scoring rules** (per-parameter strong/weak model, `analysis_layer/scoring_rules.py`)
+  follow the SAME defaults-in-code + machine-local-override pattern: committed
+  `DEFAULT_RULES` in code, the Scoring Rules UI saves only deviations to a gitignored
+  `scoring_rules.json` (delete to reset). A rule = shape (`higher_better`/`lower_better`/
+  `sweet_spot`) + anchor (`peer`/`universe`/`absolute`) + sparse per-`screen_type` overrides;
+  `goodness()` turns a column into 0-100. **Both the Scoring Rules page and the rule-colored
+  heatmap consume `scoring_rules.goodness()` — never reimplement strong/weak coloring
+  elsewhere.** Category `*_score`s are **results, not rules** (excluded from the rules page;
+  the future `scoring.py` rewire must DERIVE them from rule goodness, not give them a rule).
 - **TLS / certificates**: this machine sits behind TLS interception (a proxy/AV
   re-signs HTTPS with a private CA in the Windows trust store). `certifi` alone
   fails with CERTIFICATE_VERIFY_FAILED, so `core/net.configure_tls()` MUST run

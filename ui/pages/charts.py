@@ -36,6 +36,7 @@ import streamlit as st
 from streamlit_echarts import JsCode, st_echarts
 
 from analysis_layer import metrics
+from analysis_layer import scoring_rules as _SR
 from config import settings
 from config import param_hints
 from core.database import Database
@@ -45,6 +46,7 @@ from ui.chart_theme import (
     DARK_BG as _DARK_BG,
     DARK_TEXT as _DARK_TEXT,
     GRID_LINE as _GRID_LINE,
+    HEAT_RAMP as _HEAT_RAMP,
     echarts_points as _echarts_points,
     legend_style as _legend_style,
 )
@@ -1105,6 +1107,158 @@ def _index_line(idx: pd.Series, start, end, label: str) -> list[dict]:
 
 
 # --------------------------------------------------------------------------- #
+# Metrics heat map (ROADMAP 6.2) — symbols × metrics, colored by scoring rules
+# --------------------------------------------------------------------------- #
+@st.cache_data(show_spinner=False)
+def _load_analysis_full(_mtime: float) -> pd.DataFrame:
+    """The whole analysis snapshot — needed so peer/universe goodness ranks each cell
+    against the FULL universe, not just the handful of charted symbols."""
+    if not settings.ANALYSIS_DB.exists():
+        return pd.DataFrame()
+    with Database(settings.ANALYSIS_DB) as db:
+        if not db.table_exists("analysis"):
+            return pd.DataFrame()
+        return db.read("analysis")
+
+
+# Heat map default columns (shown if present): a spread across the categories incl. a
+# sweet-spot (current ratio / payout) so the two-sided coloring is visible.
+_HEAT_DEFAULTS = ["overall_score", "pe", "pb", "roe", "net_margin", "revenue_cagr_3y",
+                  "debt_to_equity", "current_ratio", "div_yield_ttm", "rs_rank"]
+
+
+def _heat_goodness(df: pd.DataFrame, metric: str, rules: dict) -> pd.Series:
+    """0-100 goodness for `metric` across the whole frame, applying any per-screen_type
+    override (e.g. REIT payout) on top of the base rule."""
+    base = _SR.rule_for(metric, rules)
+    if base is None:
+        return pd.Series(float("nan"), index=df.index)
+    tiers = ([df["industry"], df["sector"]]
+             if base.get("anchor") == "peer" and {"industry", "sector"} <= set(df.columns)
+             else None)
+    g = _SR.goodness(df[metric], base, tiers)
+    overrides = base.get("overrides") or {}
+    if overrides and "screen_type" in df.columns:
+        for st_val in overrides:
+            mask = df["screen_type"] == st_val
+            if mask.any():
+                r = _SR.resolve(metric, st_val, rules)
+                g.loc[mask] = _SR.goodness(df.loc[mask, metric], r, None)
+    return g
+
+
+def _render_heatmap(symbols: list[str]) -> None:
+    """Symbols × metrics grid, each cell colored by its scoring rule (orange = strong,
+    blue = weak). Goodness is ranked across the whole universe; the tooltip shows the raw
+    value + the rule's verdict. Rules come from the Scoring Rules page (scoring_rules.json)."""
+    st.subheader("Metrics heat map")
+    st.caption("Each cell is colored by how **strong** that symbol is on that metric — "
+               "**orange = strong, blue = weak** — using the rules from the **Scoring "
+               "Rules** page. Sweet-spot metrics (e.g. payout) fade to blue on *both* sides. "
+               "Hover a cell for the raw value and the rule's verdict.")
+
+    _mtime = settings.ANALYSIS_DB.stat().st_mtime if settings.ANALYSIS_DB.exists() else 0.0
+    _df = _load_analysis_full(_mtime)
+    if _df.empty or "symbol" not in _df.columns:
+        st.warning("No analysis scores found — run an analysis first (Fetch Control).")
+        return
+    _rules = _SR.load_rules()
+
+    # Selectable columns: the tunable rule params + the (rule-less) category scores, which
+    # are colorable as-is via rule_for's `*_score` fallback even though they aren't rules.
+    _cols = set(_df.columns)
+    _opts: list[str] = []
+    for _keys in _SR.RULE_CATEGORIES.values():
+        _opts += [k for k in _keys if k in _cols]
+    _opts += [k for k in _SR.SCORE_COLUMNS if k in _cols and k not in _opts]
+
+    def _name(k: str) -> str:
+        h = param_hints.get_hint(k)
+        return h["name"] if h else k.replace("_", " ").title()
+
+    _default = [k for k in _HEAT_DEFAULTS if k in _cols] or _opts[:8]
+    _metrics = st.multiselect("Metrics (columns)", _opts, default=_default,
+                              format_func=_name) or _default
+    if not _metrics:
+        st.info("Pick at least one metric.")
+        return
+
+    _idx = _df.set_index("symbol")
+    _have = [s for s in symbols if s in _idx.index]
+    _missing = [s for s in symbols if s not in _idx.index]
+    if _missing:
+        st.caption("No analysis row for: " + ", ".join(_missing))
+    if not _have:
+        st.warning("None of the selected symbols have an analysis row.")
+        return
+
+    # Goodness per metric over the universe, then pick out the charted symbols.
+    _good = {m: _heat_goodness(_df, m, _rules) for m in _metrics}
+    _good = {m: g.set_axis(_df["symbol"].values) for m, g in _good.items()}
+
+    _units = {m: (param_hints.get_hint(m) or {}).get("unit", "") for m in _metrics}
+    _verdicts = {m: _SR.verdict(0, _SR.rule_for(m, _rules) or {}) for m in _metrics}
+
+    # ECharts heatmap data: [xMetricIdx, ySymbolIdx, goodness] + raw/verdict for tooltip.
+    # y is drawn bottom→top, so reverse the symbol list to read top→bottom as selected.
+    _ysyms = list(reversed(_have))
+    _data = []
+    for _xi, _m in enumerate(_metrics):
+        _col = pd.to_numeric(_idx[_m], errors="coerce")
+        for _yi, _sym in enumerate(_ysyms):
+            _g = _good[_m].get(_sym)
+            _raw = _col.get(_sym)
+            _data.append({
+                "value": [_xi, _yi, round(float(_g), 1) if pd.notna(_g) else None],
+                "raw": (f"{float(_raw):,.2f}{_units[_m]}" if pd.notna(_raw) else "—"),
+                "verdict": _verdicts[_m],
+            })
+
+    _small = len(_metrics) * len(_ysyms) <= 120
+    _fmt = JsCode(
+        "function(p){"
+        "var m=" + repr([_name(m) for m in _metrics]) + ";"
+        "var s=" + repr(_ysyms) + ";"
+        "var g=p.data.value[2];"
+        "return '<b>'+s[p.data.value[1]]+'</b> · '+m[p.data.value[0]]+'<br/>'"
+        "+'Value: '+p.data.raw+'<br/>'"
+        "+'Strength: '+(g==null?'—':g)+' / 100<br/>'"
+        "+'<span style=\"opacity:.7\">'+p.data.verdict+'</span>';}"
+    ).js_code
+
+    _options = {
+        "backgroundColor": _DARK_BG,
+        "textStyle": {"color": _DARK_TEXT},
+        "tooltip": {"position": "top", "formatter": _fmt,
+                    "backgroundColor": "rgba(15,18,25,0.92)",
+                    "borderColor": "rgba(255,255,255,0.20)", "textStyle": {"color": _DARK_TEXT}},
+        "grid": {"left": 8, "right": 24, "top": 8, "bottom": 90, "containLabel": True},
+        "xAxis": {"type": "category", "data": [_name(m) for m in _metrics], "position": "top",
+                  "splitArea": {"show": True},
+                  "axisLabel": {"color": _DARK_TEXT, "rotate": 35, "fontSize": 11},
+                  "axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.35)"}}},
+        "yAxis": {"type": "category", "data": _ysyms, "splitArea": {"show": True},
+                  "axisLabel": {"color": _DARK_TEXT},
+                  "axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.35)"}}},
+        "visualMap": {"min": 0, "max": 100, "calculable": True, "orient": "horizontal",
+                      "left": "center", "bottom": 10, "itemWidth": 14, "itemHeight": 160,
+                      "text": ["strong", "weak"], "textStyle": {"color": _DARK_TEXT},
+                      "inRange": {"color": list(_HEAT_RAMP)}},
+        "series": [{
+            "type": "heatmap", "data": _data,
+            "label": {"show": _small, "color": "#10131a", "fontSize": 10,
+                      "formatter": JsCode("function(p){return p.data.raw;}").js_code},
+            "itemStyle": {"borderColor": _DARK_BG, "borderWidth": 1},
+            "emphasis": {"itemStyle": {"borderColor": "#fff", "borderWidth": 1.5}},
+        }],
+    }
+    _height = max(320, 36 * len(_ysyms) + 150)
+    st_echarts(options=_options, height=f"{_height}px", key="heatmap")
+    st.caption("Color = strength (0-100) from each metric's rule, ranked across the whole "
+               "universe. Edit the rules on the **Scoring Rules** page; this updates on save.")
+
+
+# --------------------------------------------------------------------------- #
 # page
 # --------------------------------------------------------------------------- #
 st.title("Charts")
@@ -1134,10 +1288,14 @@ if view == "dividend_line":
     _render_dividend_line(symbols)
     st.stop()
 
+if view == "heatmap":
+    _render_heatmap(symbols)
+    st.stop()
+
 if view != "price":
     st.info(f"Chart view '{view}' isn't built yet — the normalized price chart, the "
-            "fundamentals bar + growth-line charts, the category-scores radar and the "
-            "dividend-yield growth line are available so far.")
+            "fundamentals bar + growth-line charts, the category-scores radar, the "
+            "dividend-yield growth line and the metrics heat map are available so far.")
     st.stop()
 
 _mtime = settings.OHLCV_DB.stat().st_mtime if settings.OHLCV_DB.exists() else 0.0

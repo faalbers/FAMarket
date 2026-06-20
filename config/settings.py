@@ -75,6 +75,11 @@ LOG_DATEFMT: str = "%Y-%m-%d %H:%M:%S"
 FILTERS_DIR: Path = BASE_DIR / "filters"        # .filt files (saved filter sets)
 COLUMN_SETS_DIR: Path = BASE_DIR / "column_sets"  # .prms files (output column sets)
 
+# Per-parameter scoring RULES (heatmap coloring / future scoring). A dedicated JSON
+# file (like the .filt filter sets) holding the user's edits on top of the committed
+# defaults in analysis_layer/scoring_rules.py. Delete it to reset rules to defaults.
+SCORING_RULES_PATH: Path = BASE_DIR / "scoring_rules.json"
+
 # Saved filter-run results (Topic 6): each Run Filter writes one parquet (rows) +
 # json (metadata) pair here, so every run opens in its own browser tab at
 # /output?run=<id> and survives app restarts. Newest N kept, pruned on each save.

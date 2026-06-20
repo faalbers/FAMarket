@@ -4,6 +4,9 @@
 # --- UI setting overrides (machine-local; defaults live in config/settings.py) ---
 settings.local.json
 
+# --- Scoring rules overrides (machine-local; defaults live in analysis_layer/scoring_rules.py) ---
+scoring_rules.json
+
 # --- Generated CA bundle (rebuilt at startup from the OS trust store) ---
 .ca_bundle.pem
 

@@ -380,8 +380,11 @@ PARAM_HINTS: dict[str, dict] = {
         "how_to_use": [
             "Higher pays more income; unusually high can signal a falling price.",
             "Pair with payout ratio and consecutive growth years for safety.",
+            "Income is an absolute goal — what counts is the actual yield you collect, "
+            "not whether it's high 'for the sector'.",
         ],
-        "vs_peers": "Yes — compare within sector; norms differ a lot by industry.",
+        "vs_peers": "For screening, sector norms differ — but for income the absolute "
+                    "level is what matters most (a sector-high 0.5% is still tiny).",
     },
     "div_rate_ttm": {
         "name": "Div rate",
