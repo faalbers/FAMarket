@@ -32,6 +32,7 @@ from ui.chart_theme import (
     GRID_LINE as _GRID_LINE,
     echarts_points as _echarts_points,
     legend_style as _legend_style,
+    tooltip_style as _tooltip_style,
 )
 
 _CHART_HEIGHT = 600  # px
@@ -143,10 +144,7 @@ def _chart_options(series_opt: list[dict], yaxis_name: str) -> dict:
         "backgroundColor": _DARK_BG,
         "color": list(_SECTOR_COLORWAY),
         "textStyle": {"color": _DARK_TEXT},
-        "tooltip": {"trigger": "axis", "order": "valueDesc",
-                    "backgroundColor": "rgba(15,18,25,0.92)",
-                    "borderColor": "rgba(255,255,255,0.20)",
-                    "textStyle": {"color": _DARK_TEXT}},
+        "tooltip": _tooltip_style(trigger="axis", order="valueDesc"),
         "legend": _legend_style(
             [s["name"] for s in series_opt if not s["name"].startswith("_")]),
         "toolbox": {"right": 10, "top": 2, "iconStyle": {"borderColor": _DARK_TEXT},

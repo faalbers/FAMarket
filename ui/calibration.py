@@ -34,7 +34,7 @@ from config import settings
 from config import settings_overrides
 from core.database import Database
 from ui.chart_theme import (
-    DARK_BG, DARK_TEXT, GRID_LINE, echarts_points,
+    DARK_BG, DARK_TEXT, GRID_LINE, echarts_points, tooltip_style,
     LEGEND_ICON, LEGEND_ITEM_W, LEGEND_ITEM_H, LEGEND_INACTIVE,
 )
 
@@ -244,10 +244,7 @@ def render() -> None:
     _options = {
         "backgroundColor": DARK_BG,
         "textStyle": {"color": DARK_TEXT},
-        "tooltip": {"trigger": "axis",
-                    "backgroundColor": "rgba(15,18,25,0.92)",
-                    "borderColor": "rgba(255,255,255,0.20)",
-                    "textStyle": {"color": DARK_TEXT}},
+        "tooltip": tooltip_style(trigger="axis"),
         "legend": {"top": 4, "data": ["Adj close", "Swing high", "Swing low"],
                    # Filled swatch + dimmed inactive so the on/off state is easy to read
                    # (matches ui.chart_theme.legend_style; this legend is horizontal so it

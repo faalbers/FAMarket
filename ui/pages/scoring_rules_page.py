@@ -26,7 +26,7 @@ from analysis_layer import scoring_rules as SR
 from config import settings, param_hints, rule_hints
 from core.database import Database
 from ui.chart_theme import (
-    HEAT_RAMP, heat_color, DARK_BG, DARK_TEXT, GRID_LINE,
+    HEAT_RAMP, heat_color, DARK_BG, DARK_TEXT, GRID_LINE, tooltip_style,
 )
 
 _SHAPE_LABELS = {
@@ -152,8 +152,7 @@ def _preview(metric: str, rule: dict, df: pd.DataFrame) -> None:
     options = {
         "backgroundColor": DARK_BG,
         "textStyle": {"color": DARK_TEXT},
-        "tooltip": {"trigger": "axis", "backgroundColor": "rgba(15,18,25,0.92)",
-                    "borderColor": "rgba(255,255,255,0.20)", "textStyle": {"color": DARK_TEXT}},
+        "tooltip": tooltip_style(trigger="axis"),
         "grid": {"left": 8, "right": 18, "top": 16, "bottom": 40, "containLabel": True},
         "xAxis": {"type": "category", "data": [f"{c:g}" for c in centers],
                   "name": _metric_name(metric),

@@ -659,8 +659,14 @@
        view=heatmap, Output Action menu): symbols × metrics, each cell colored by a
        per-parameter SCORING RULE (orange=strong, blue=weak), ranked across the universe.
        Backed by a new per-parameter rules system — see the "Scoring rules system" addition
-       under Topic 4.4. Still pending in 6.2: the YIELD heat map variant (rows × periods)
-       and the Koyfin link. (Dividend yield BAR dropped 2026-06-16 — practically identical to
+       under Topic 4.4. ✅ ENHANCED 2026-06-21: (a) the heat map columns now default to the
+       Output table's SHOWN columns (passed via ?cols=; hidden ones excluded) and use the
+       shared param_picker popover (▸ info hints); (b) CLICK a column header to sort the
+       symbol rows by that metric's strength (single-column, toggles direction); (c) a NEW
+       SCORES heat map (view=scores_heatmap, action "🏅 Scores heat map") — the 5 category
+       scores + Overall + RS Rank for the selected symbols, same grid/sort via a shared
+       _heatmap_core. Still pending in 6.2: the YIELD heat map variant (rows × periods) and
+       the Koyfin link. (Dividend yield BAR dropped 2026-06-16 — practically identical to
        the line, per the user.)
      - [ Action ] button opens grouped dropdown, one action at a time, each opens a new browser tab
      - Action menu structure:
@@ -671,7 +677,9 @@
              2026-06-13 (✅ shipped, see 6.2 above) to one-symbol × one-parameter ×
              over-periods; the multi-symbol-comparison bar is a later step.
            - ✅ Parameter heat map charts (blue-to-orange scale, color-blind safe) — shipped
-             2026-06-20 (view=heatmap), colored by the scoring-rules `goodness()` engine
+             2026-06-20 (view=heatmap), colored by the scoring-rules `goodness()` engine;
+             enhanced 2026-06-21 (follows Output shown columns, click-to-sort rows) + a
+             companion ✅ Scores heat map (view=scores_heatmap)
            - ✅ Radar chart (5 category scores: Value, Quality, Growth, Momentum, Income) — shipped 2026-06-15, see 6.2 above
            - ✅ Parameter growth line charts (annual/quarterly selector, all periods, gaps shown as breaks) — shipped 2026-06-15, see 6.2 above (multi-symbol, Actual/Normalized scale toggle)
        - Dividends

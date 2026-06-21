@@ -49,6 +49,7 @@ from ui.chart_theme import (
     HEAT_RAMP as _HEAT_RAMP,
     echarts_points as _echarts_points,
     legend_style as _legend_style,
+    tooltip_style as _tooltip_style,
 )
 
 _CHART_HEIGHT = 600  # px; the symbol list's scroll box is capped to this so they align
@@ -293,7 +294,7 @@ def _cb_fund_param(key: str) -> None:
     st.session_state["fund_param"] = key
 
 
-def _render_fundamentals_bar(symbols: list[str]) -> None:
+def _render_fundamentals_bar(symbols: list[str], picked: list[str] | None = None) -> None:
     """One symbol × one parameter, as bars across its reported periods (ROADMAP 6.2)."""
     st.subheader("Fundamentals over time")
     st.caption("One symbol, one parameter, across its reported periods. Ratios use the "
@@ -301,7 +302,9 @@ def _render_fundamentals_bar(symbols: list[str]) -> None:
                "and growth/score metrics aren't shown here.")
 
     _options = list(metrics.RAW_PERIOD_FIELDS) + list(metrics.RATIO_PERIOD_METRICS)
-    _sel = st.session_state.setdefault("fund_param", _options[0])
+    # On first arrival, default to the first Output-shown column this view supports.
+    _initial = next((c for c in (picked or []) if c in _options), _options[0])
+    _sel = st.session_state.setdefault("fund_param", _initial)
     if _sel not in _options:  # options are static, but guard anyway
         _sel = st.session_state["fund_param"] = _options[0]
 
@@ -371,10 +374,7 @@ def _render_fundamentals_bar(symbols: list[str]) -> None:
     _options_ec = {
         "backgroundColor": _DARK_BG,
         "textStyle": {"color": _DARK_TEXT},
-        "tooltip": {"trigger": "axis",
-                    "backgroundColor": "rgba(15,18,25,0.92)",
-                    "borderColor": "rgba(255,255,255,0.20)",
-                    "textStyle": {"color": _DARK_TEXT}},
+        "tooltip": _tooltip_style(trigger="axis"),
         "grid": {"left": 8, "right": 18, "top": 50, "bottom": 40, "containLabel": True},
         "xAxis": {"type": "category", "data": _labels,
                   "axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.35)"}},
@@ -485,10 +485,7 @@ def _growth_line_options(series: list[dict], yname: str,
         "backgroundColor": _DARK_BG,
         "color": list(_COLORWAY),
         "textStyle": {"color": _DARK_TEXT},
-        "tooltip": {"trigger": "axis", "order": "valueDesc",
-                    "backgroundColor": "rgba(15,18,25,0.92)",
-                    "borderColor": "rgba(255,255,255,0.20)",
-                    "textStyle": {"color": _DARK_TEXT}},
+        "tooltip": _tooltip_style(trigger="axis", order="valueDesc"),
         "legend": _legend_style(
             [s["name"] for s in series if not s["name"].startswith("_")]),
         "toolbox": {"right": 10, "top": 2, "iconStyle": {"borderColor": _DARK_TEXT},
@@ -520,7 +517,7 @@ def _cb_fundline_param(key: str) -> None:
     st.session_state["fundline_param"] = key
 
 
-def _render_fundamentals_line(symbols: list[str]) -> None:
+def _render_fundamentals_line(symbols: list[str], picked: list[str] | None = None) -> None:
     """One parameter across all selected symbols, as lines over reported periods (ROADMAP
     6.2 — Fundamentals growth line). A TIME x-axis lets symbols on different fiscal
     calendars align by date; missing periods break the line (no interpolation)."""
@@ -532,7 +529,9 @@ def _render_fundamentals_line(symbols: list[str]) -> None:
                "formulas as the analysis snapshot. Click a legend name to show/hide a line.")
 
     _opts = list(metrics.RAW_PERIOD_FIELDS) + list(metrics.RATIO_PERIOD_METRICS)
-    _sel = st.session_state.setdefault("fundline_param", _opts[0])
+    # On first arrival, default to the first Output-shown column this view supports.
+    _initial = next((c for c in (picked or []) if c in _opts), _opts[0])
+    _sel = st.session_state.setdefault("fundline_param", _initial)
     if _sel not in _opts:  # options are static, but guard anyway
         _sel = st.session_state["fundline_param"] = _opts[0]
 
@@ -865,13 +864,10 @@ def _render_radar(symbols: list[str]) -> None:
         "backgroundColor": _DARK_BG,
         "color": list(_COLORWAY),
         "textStyle": {"color": _DARK_TEXT},
-        "tooltip": {"trigger": "item",
-                    # Show ONLY the symbol name (not the per-category value list); airy
-                    # translucent box + 0.75-alpha text (#e6e6e6 @ 0.75).
-                    "formatter": JsCode("function(p){ return p.name; }").js_code,
-                    "backgroundColor": "rgba(15,18,25,0.28)",
-                    "borderColor": "rgba(255,255,255,0.20)",
-                    "textStyle": {"color": "rgba(230,230,230,0.75)"}},
+        # Show ONLY the symbol name (not the per-category value list). The shared airy
+        # translucent tooltip (chart_theme.tooltip_style) originated here.
+        "tooltip": _tooltip_style(trigger="item",
+                                  formatter=JsCode("function(p){ return p.name; }").js_code),
         # Vertical scroll list pinned to the left column (the radar is shifted right
         # to make room); many symbols scroll with the page arrows.
         "legend": _legend_style([d["name"] for d in _data]),
@@ -1127,23 +1123,27 @@ _HEAT_DEFAULTS = ["overall_score", "pe", "pb", "roe", "net_margin", "revenue_cag
                   "debt_to_equity", "current_ratio", "div_yield_ttm", "rs_rank"]
 
 
-def _render_heatmap(symbols: list[str]) -> None:
-    """Symbols × metrics grid, each cell colored by its scoring rule (orange = strong,
-    blue = weak). Goodness is ranked across the whole universe; the tooltip shows the raw
-    value + the rule's verdict. Rules come from the Scoring Rules page (scoring_rules.json)."""
-    st.subheader("Metrics heat map")
-    st.caption("Each cell is colored by how **strong** that symbol is on that metric — "
-               "**orange = strong, blue = weak** — using the rules from the **Scoring "
-               "Rules** page. Sweet-spot metrics (e.g. payout) fade to blue on *both* sides. "
-               "Hover a cell for the raw value and the rule's verdict.")
-
+def _load_heatmap_frame():
+    """The analysis frame + rules shared by both heat maps; None on an empty DB."""
     _mtime = settings.ANALYSIS_DB.stat().st_mtime if settings.ANALYSIS_DB.exists() else 0.0
     _df = _load_analysis_full(_mtime)
     if _df.empty or "symbol" not in _df.columns:
         st.warning("No analysis scores found — run an analysis first (Fetch Control).")
-        return
-    _rules = _SR.load_rules()
+        return None, None
+    return _df, _SR.load_rules()
 
+
+def _heat_name(k: str) -> str:
+    h = param_hints.get_hint(k)
+    return h["name"] if h else k.replace("_", " ").title()
+
+
+def _render_heatmap(symbols: list[str], picked: list[str] | None = None) -> None:
+    """Symbols × metrics grid, each cell colored by its scoring rule (orange = strong,
+    blue = weak). Columns default to the Output table's shown params (`picked`)."""
+    _df, _rules = _load_heatmap_frame()
+    if _df is None:
+        return
     # Selectable columns: the tunable rule params + the (rule-less) category scores, which
     # are colorable as-is via rule_for's `*_score` fallback even though they aren't rules.
     _cols = set(_df.columns)
@@ -1151,17 +1151,82 @@ def _render_heatmap(symbols: list[str]) -> None:
     for _keys in _SR.RULE_CATEGORIES.values():
         _opts += [k for k in _keys if k in _cols]
     _opts += [k for k in _SR.SCORE_COLUMNS if k in _cols and k not in _opts]
+    # Default the columns to what the Output table showed (picked, order preserved),
+    # keeping only metrics that are scorable here; fall back to the fixed defaults.
+    _picked = [k for k in (picked or []) if k in _opts]
+    _default = _picked or [k for k in _HEAT_DEFAULTS if k in _cols] or _opts[:8]
+    _heatmap_core(
+        symbols, _df, _rules, _opts, _default, key="heatmap",
+        title="Metrics heat map", metric_label="Metrics (columns)",
+        intro="Each cell is colored by how **strong** that symbol is on that metric — "
+              "**orange = strong, blue = weak** — using the rules from the **Scoring "
+              "Rules** page. Sweet-spot metrics (e.g. payout) fade to blue on *both* sides. "
+              "Hover a cell for the raw value and the rule's verdict.")
 
-    def _name(k: str) -> str:
-        h = param_hints.get_hint(k)
-        return h["name"] if h else k.replace("_", " ").title()
 
-    _default = [k for k in _HEAT_DEFAULTS if k in _cols] or _opts[:8]
-    _metrics = st.multiselect("Metrics (columns)", _opts, default=_default,
-                              format_func=_name) or _default
-    if not _metrics:
-        st.info("Pick at least one metric.")
+def _render_scores_heatmap(symbols: list[str]) -> None:
+    """Symbols × the category scores + Overall + RS Rank, colored by strength. Same grid +
+    click-to-sort as the metrics heat map, but a fixed score-column set (not Output params)."""
+    _df, _rules = _load_heatmap_frame()
+    if _df is None:
         return
+    _cols = set(_df.columns)
+    _opts = [k for k in (list(_SR.SCORE_COLUMNS) + ["rs_rank"]) if k in _cols]
+    if not _opts:
+        st.warning("No score columns found — run an analysis first (Fetch Control).")
+        return
+    _heatmap_core(
+        symbols, _df, _rules, _opts, _opts, key="scores_heatmap",
+        title="Scores heat map", metric_label="Scores (columns)",
+        intro="The five category scores, the **Overall** score and **RS Rank** for the "
+              "selected symbols — each cell colored by its 0-100 strength (**orange = "
+              "strong, blue = weak**). Click a column to sort the symbols by it.")
+
+
+def _heatmap_core(symbols: list[str], _df, _rules, _opts: list[str], _default: list[str],
+                  *, key: str, title: str, intro: str, metric_label: str) -> None:
+    """Shared symbols × metrics heat map: column picker, rule-goodness coloring and
+    click-a-column-to-sort-rows. `key` namespaces the widget/session-state so two heat
+    maps don't collide. `_opts`/`_default` define the column pool + initial selection."""
+    st.subheader(title)
+    st.caption(intro)
+    _name = _heat_name
+
+    # Column picker = the shared popover param browser (search + category groups + per-row
+    # ▸ info from param_hints), same as the Filter / Output pickers. Multi-select: clicking
+    # a row toggles it; selected rows are primary-styled. Selection lives in session_state.
+    _cols_key = f"{key}_cols"
+    if _cols_key not in st.session_state:
+        st.session_state[_cols_key] = list(_default)
+    st.session_state[_cols_key] = [k for k in st.session_state[_cols_key] if k in _opts]
+
+    def _toggle_col(k: str) -> None:
+        sel = st.session_state[_cols_key]
+        sel.remove(k) if k in sel else sel.append(k)
+
+    P.render(
+        st.container(),
+        opt_keys=_opts,
+        label=f"📊  {metric_label}",
+        keyp=f"{key}_pk",
+        category_of=lambda k: (param_hints.get_hint(k) or {}).get("category") or "Other",
+        name_of=_name,
+        info_html_of=lambda k: param_hints.hint_html(
+            k, fallback={"name": _name(k), "category": "", "unit": ""}),
+        search_text_of=lambda k: f"{_name(k)} {k}".lower(),
+        is_selected=lambda k: k in st.session_state[_cols_key],
+        on_pick=_toggle_col,
+        close_on_pick=False,
+        exclude_selected=False,   # show every option; selected ones primary-styled
+        trigger_width="content",
+    )
+    P.scroll_to_current()
+
+    _metrics = [k for k in st.session_state[_cols_key] if k in _opts]
+    if not _metrics:
+        st.info("Pick at least one column from the picker above.")
+        return
+    st.caption("Columns: " + ", ".join(_name(k) for k in _metrics))
 
     _idx = _df.set_index("symbol")
     _have = [s for s in symbols if s in _idx.index]
@@ -1179,9 +1244,37 @@ def _render_heatmap(symbols: list[str]) -> None:
     _units = {m: (param_hints.get_hint(m) or {}).get("unit", "") for m in _metrics}
     _verdicts = {m: _SR.verdict(0, _SR.rule_for(m, _rules) or {}) for m in _metrics}
 
+    # Row order: click a column header to sort the symbols by that metric's strength
+    # (single-column; click again flips direction). Stored in session_state; the click
+    # itself is captured from the chart's xAxis-label event below. NaN strength sorts last.
+    _sort_key, _t_key = f"{key}_sort", f"{key}_sort_t"
+    _sort = st.session_state.get(_sort_key)
+    if _sort and _sort.get("col") not in _metrics:   # selected metric removed → drop the sort
+        _sort = st.session_state[_sort_key] = None
+    _topdown = list(_have)                            # default = selection order, top→bottom
+    if _sort:
+        _scol, _desc = _sort["col"], _sort["desc"]
+
+        def _skey(sym: str) -> tuple:
+            v = _good[_scol].get(sym)
+            if pd.isna(v):
+                return (1, 0.0)                       # NaN always last, both directions
+            return (0, -float(v) if _desc else float(v))
+        _topdown = sorted(_have, key=_skey)
+
+    # x-axis labels carry a ▼/▲ on the active sort column; the click returns the DISPLAYED
+    # label, so map displayed-label → metric from these exact strings.
+    def _xlabel(m: str) -> str:
+        base = _name(m)
+        if _sort and _sort["col"] == m:
+            base += "  " + ("▼" if _sort["desc"] else "▲")
+        return base
+    _xlabels = [_xlabel(m) for m in _metrics]
+    _metric_of_label = {lab: m for lab, m in zip(_xlabels, _metrics)}
+
     # ECharts heatmap data: [xMetricIdx, ySymbolIdx, goodness] + raw/verdict for tooltip.
-    # y is drawn bottom→top, so reverse the symbol list to read top→bottom as selected.
-    _ysyms = list(reversed(_have))
+    # y is drawn bottom→top, so reverse the top→bottom order for the axis.
+    _ysyms = list(reversed(_topdown))
     _data = []
     for _xi, _m in enumerate(_metrics):
         _col = pd.to_numeric(_idx[_m], errors="coerce")
@@ -1209,13 +1302,13 @@ def _render_heatmap(symbols: list[str]) -> None:
     _options = {
         "backgroundColor": _DARK_BG,
         "textStyle": {"color": _DARK_TEXT},
-        "tooltip": {"position": "top", "formatter": _fmt,
-                    "backgroundColor": "rgba(15,18,25,0.92)",
-                    "borderColor": "rgba(255,255,255,0.20)", "textStyle": {"color": _DARK_TEXT}},
+        "tooltip": _tooltip_style(position="top", formatter=_fmt),
         "grid": {"left": 8, "right": 24, "top": 8, "bottom": 90, "containLabel": True},
-        "xAxis": {"type": "category", "data": [_name(m) for m in _metrics], "position": "top",
+        "xAxis": {"type": "category", "data": _xlabels, "position": "top",
+                  "triggerEvent": True,  # make the column labels clickable (sort the rows)
                   "splitArea": {"show": True},
-                  "axisLabel": {"color": _DARK_TEXT, "rotate": 35, "fontSize": 11},
+                  "axisLabel": {"color": _DARK_TEXT, "rotate": 0, "interval": 0,
+                                "fontSize": 11},
                   "axisLine": {"lineStyle": {"color": "rgba(255,255,255,0.35)"}}},
         "yAxis": {"type": "category", "data": _ysyms, "splitArea": {"show": True},
                   "axisLabel": {"color": _DARK_TEXT},
@@ -1233,9 +1326,28 @@ def _render_heatmap(symbols: list[str]) -> None:
         }],
     }
     _height = max(320, 36 * len(_ysyms) + 150)
-    st_echarts(options=_options, height=f"{_height}px", key="heatmap")
-    st.caption("Color = strength (0-100) from each metric's rule, ranked across the whole "
-               "universe. Edit the rules on the **Scoring Rules** page; this updates on save.")
+    # Capture a click on a column label. Date.now() makes each click a distinct return so
+    # Streamlit always reruns; we dedup by that timestamp so a rerun doesn't re-toggle.
+    _ret = st_echarts(
+        options=_options, height=f"{_height}px", key=key,
+        events={"click": "function(p){ return p.componentType==='xAxis' "
+                         "? {col: p.value, t: Date.now()} : null; }"},
+    )
+    if isinstance(_ret, dict) and _ret.get("t") != st.session_state.get(_t_key):
+        st.session_state[_t_key] = _ret.get("t")
+        _clicked = _metric_of_label.get(_ret.get("col"))
+        if _clicked:
+            _prev = st.session_state.get(_sort_key)
+            st.session_state[_sort_key] = (
+                {"col": _clicked, "desc": not _prev["desc"]}
+                if _prev and _prev["col"] == _clicked
+                else {"col": _clicked, "desc": True})
+            st.rerun()
+
+    _sorted_by = (f" · sorted by **{_name(_sort['col'])}** "
+                  f"({'strongest' if _sort['desc'] else 'weakest'} on top)" if _sort else "")
+    st.caption("Color = strength (0-100). **Click a column** to sort the symbols by its "
+               "strength (click again to flip)." + _sorted_by)
 
 
 # --------------------------------------------------------------------------- #
@@ -1246,6 +1358,10 @@ st.title("Charts")
 _raw = st.query_params.get("symbols", "")
 symbols = [s.strip().upper() for s in _raw.split(",") if s.strip()]
 view = st.query_params.get("view", "price")
+# Param-driven views (heat map, fundamentals bar/line) default their picker to the
+# columns the Output table had SHOWN — passed as ?cols=... (hidden columns excluded).
+_cols_raw = st.query_params.get("cols", "")
+picked_cols = [c.strip() for c in _cols_raw.split(",") if c.strip()]
 
 if not symbols:
     st.info("Open this page from an **Output** run: select rows, then "
@@ -1253,11 +1369,11 @@ if not symbols:
     st.stop()
 
 if view == "fundamentals_bar":
-    _render_fundamentals_bar(symbols)
+    _render_fundamentals_bar(symbols, picked_cols)
     st.stop()
 
 if view == "fundamentals_line":
-    _render_fundamentals_line(symbols)
+    _render_fundamentals_line(symbols, picked_cols)
     st.stop()
 
 if view == "radar":
@@ -1269,13 +1385,18 @@ if view == "dividend_line":
     st.stop()
 
 if view == "heatmap":
-    _render_heatmap(symbols)
+    _render_heatmap(symbols, picked_cols)
+    st.stop()
+
+if view == "scores_heatmap":
+    _render_scores_heatmap(symbols)
     st.stop()
 
 if view != "price":
     st.info(f"Chart view '{view}' isn't built yet — the normalized price chart, the "
             "fundamentals bar + growth-line charts, the category-scores radar, the "
-            "dividend-yield growth line and the metrics heat map are available so far.")
+            "dividend-yield growth line and the metrics + scores heat maps are available "
+            "so far.")
     st.stop()
 
 _mtime = settings.OHLCV_DB.stat().st_mtime if settings.OHLCV_DB.exists() else 0.0
@@ -1379,12 +1500,7 @@ _options = {
     "backgroundColor": _DARK_BG,
     "color": list(_COLORWAY),
     "textStyle": {"color": _DARK_TEXT},
-    "tooltip": {
-        "trigger": "axis", "order": "valueDesc",
-        "backgroundColor": "rgba(15,18,25,0.92)",
-        "borderColor": "rgba(255,255,255,0.20)",
-        "textStyle": {"color": _DARK_TEXT},
-    },
+    "tooltip": _tooltip_style(trigger="axis", order="valueDesc"),
     # Vertical scroll list pinned to the left column (grid.left is opened up to make
     # room); many symbols scroll with the page arrows. Same layout as the radar.
     # "All" turns every line on; "Invert" flips the selection (all-on -> all-off).

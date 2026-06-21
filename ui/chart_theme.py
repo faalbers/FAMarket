@@ -88,6 +88,33 @@ def legend_style(data, **overrides):
     return legend
 
 
+# Hover tooltip — the airy TRANSLUCENT look from the Category radar, applied to every
+# chart so the box never blocks the data behind it. Background at 0.28 alpha (see-through),
+# text softened to 0.75. One place to tune all chart tooltips.
+TOOLTIP_BG = "rgba(15,18,25,0.28)"
+TOOLTIP_BORDER = "rgba(255,255,255,0.20)"
+TOOLTIP_TEXT = "rgba(230,230,230,0.9)"
+
+
+def tooltip_style(**overrides):
+    """The shared translucent hover-tooltip dict for every ECharts chart.
+
+    Pass per-chart keys (``trigger``, ``order``, ``position``, ``formatter``, …) as
+    overrides. A ``textStyle`` override is shallow-merged onto the softened text color so
+    a caller can add fields without losing the translucency.
+    """
+    ts = overrides.pop("textStyle", None)
+    style = {
+        "backgroundColor": TOOLTIP_BG,
+        "borderColor": TOOLTIP_BORDER,
+        "textStyle": {"color": TOOLTIP_TEXT},
+    }
+    style.update(overrides)
+    if ts:
+        style["textStyle"] = {"color": TOOLTIP_TEXT, **ts}
+    return style
+
+
 def echarts_points(dates: pd.Series, values: pd.Series) -> list[list]:
     """Build ECharts [date, value] points, inserting a null wherever consecutive
     bars are >GAP_DAYS apart.

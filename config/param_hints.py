@@ -753,12 +753,17 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "RS Rank",
         "category": "Relative Strength",
         "unit": "",
-        "what_it_is": "IBD-style 0-99 rank of weighted trailing return vs the whole universe.",
+        "what_it_is": "IBD-style 0-99 strength rank of a weighted trailing return, ranked "
+                      "within the symbol's security type.",
         "how_to_use": [
-            "Higher means stronger price performance than most other symbols.",
-            "80+ is market-leading; NULL when under ~1 year of price history.",
+            "Input data: total return over four ~3-month windows from adjusted-close prices, "
+            "the most recent window weighted heaviest (40/20/20/20).",
+            "Ranked WITHIN its security type (stock / ETF / fund / …) so funds don't distort "
+            "stocks — the universe is ~65% mutual funds.",
+            "Higher means stronger price performance than most others of its type; 80+ leads.",
+            "NULL when under ~1 year of price history.",
         ],
-        "vs_peers": "No — it is already a rank against the entire universe.",
+        "vs_peers": "Ranked within its security type, not the whole universe.",
     },
     # ------------------------------------------------------------------ #
     # Statement items (raw financial-statement line items — charted over time on the
@@ -881,52 +886,81 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Overall",
         "category": "Score",
         "unit": "",
-        "what_it_is": "0-100 blend of the five category scores (Quality/Growth/Momentum/Value/Income).",
+        "what_it_is": "0-100 weighted blend of the five category scores.",
         "how_to_use": [
-            "Higher is a stronger all-round profile on current weights.",
-            "Sort to triage, then read the category scores to see why.",
+            "Default weights (adjustable in Settings): Quality 25, Value 22, Momentum 20, "
+            "Growth 18, Income 15.",
+            "Categories with no data (e.g. a fund's fundamentals) drop out and the rest re-weight.",
+            "Higher is a stronger all-round profile; sort to triage, then read the category "
+            "scores to see why.",
         ],
-        "vs_peers": "No — it is already a cross-universe percentile blend.",
+        "vs_peers": "No — a blend of the category scores (each already ranked/scored).",
     },
     "value_score": {
         "name": "Value",
         "category": "Score",
         "unit": "",
-        "what_it_is": "0-100 percentile of valuation metrics, ranked within the industry (then sector).",
-        "how_to_use": ["Higher means cheaper than industry/sector peers on the weighted multiples."],
-        "vs_peers": "No — it is already peer-relative (industry, then sector).",
+        "what_it_is": "0-100 weighted average of each valuation metric's Scoring-Rule strength, "
+                      "ranked within the industry (then sector).",
+        "how_to_use": [
+            "Built from: EV/EBITDA, P/FCF, margin of safety, P/E, PEG, P/B, P/S, EV/Sales, "
+            "forward P/E (cheaper = stronger).",
+            "Higher means cheaper than industry/sector peers on the weighted multiples.",
+        ],
+        "vs_peers": "Yes — peer-relative (industry, then sector).",
     },
     "quality_score": {
         "name": "Quality",
         "category": "Score",
         "unit": "",
-        "what_it_is": "0-100 percentile of profitability and balance-sheet strength, within the industry (then sector).",
-        "how_to_use": ["Higher means more profitable / financially sound than industry/sector peers."],
-        "vs_peers": "No — it is already peer-relative (industry, then sector).",
+        "what_it_is": "0-100 weighted average of each profitability/balance-sheet metric's "
+                      "Scoring-Rule strength, ranked within the industry (then sector).",
+        "how_to_use": [
+            "Built from: ROIC, gross margin, ROE, Altman-Z, FCF margin, net margin, "
+            "debt/equity, current ratio, interest coverage, operating margin, ROA, debt/EBITDA.",
+            "Higher means more profitable / financially sound than industry/sector peers.",
+        ],
+        "vs_peers": "Yes — peer-relative (industry, then sector).",
     },
     "growth_score": {
         "name": "Growth",
         "category": "Score",
         "unit": "",
-        "what_it_is": "0-100 percentile of revenue/EPS/FCF growth across the universe.",
-        "how_to_use": ["Higher means faster, steadier growth than most of the universe."],
-        "vs_peers": "No — it is already a cross-universe percentile.",
+        "what_it_is": "0-100 weighted average of each growth metric's Scoring-Rule strength, "
+                      "ranked across the universe.",
+        "how_to_use": [
+            "Built from: 3y & 5y revenue and EPS CAGR, 3y FCF CAGR, latest revenue & EPS "
+            "YoY, and EPS-growth steadiness.",
+            "Higher means faster, steadier growth than most of the universe.",
+        ],
+        "vs_peers": "No — ranked across the whole universe.",
     },
     "momentum_score": {
         "name": "Momentum",
         "category": "Score",
         "unit": "",
-        "what_it_is": "0-100 percentile of price trend (RS rank, MA distance, 52-week) across the universe.",
-        "how_to_use": ["Higher means stronger recent price action than most of the universe."],
-        "vs_peers": "No — it is already a cross-universe percentile.",
+        "what_it_is": "0-100 weighted average of each price-trend metric's Scoring-Rule strength.",
+        "how_to_use": [
+            "Built from: RS Rank, distance above the 50 / 150 / 200-day moving averages, "
+            "and distance from the 52-week high.",
+            "Higher means stronger recent price action.",
+        ],
+        "vs_peers": "Mixed — RS Rank ranks within security type; the MA / 52-week pieces "
+                    "score against fixed lines.",
     },
     "income_score": {
         "name": "Income",
         "category": "Score",
         "unit": "",
-        "what_it_is": "0-100 percentile of dividend yield, growth and safety across the universe.",
-        "how_to_use": ["Higher means a stronger, better-covered income profile; NaN for non-payers."],
-        "vs_peers": "No — it is already a cross-universe percentile.",
+        "what_it_is": "0-100 weighted average of each dividend metric's Scoring-Rule strength, "
+                      "mostly judged against absolute income targets.",
+        "how_to_use": [
+            "Built from: dividend yield, 5y dividend growth, coverage, consistency, payout "
+            "ratio and consecutive-years streak.",
+            "Higher means a stronger, better-covered income profile; NaN for non-payers.",
+        ],
+        "vs_peers": "Absolute — judged against income targets (e.g. yield 2-6%, REIT 4-10%), "
+                    "not peers.",
     },
     # ------------------------------------------------------------------ #
     # Classification — text labels the company/fund carries, not metrics.

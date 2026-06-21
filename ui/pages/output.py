@@ -115,8 +115,11 @@ def _column_options(types: set[str], result: pd.DataFrame, current: list[str]) -
 # TradingView one tab per symbol). Chart actions open the internal Charts page in a
 # new tab — mirroring how /output?run=<id> opens a run — with the selected symbols in
 # the query string. Koyfin is intentionally absent until its URL format is confirmed.
-def _charts_url(symbols: list[str], view: str) -> str:
-    return f"/charts?view={view}&symbols=" + quote(",".join(symbols))
+def _charts_url(symbols: list[str], view: str, cols: list[str] | None = None) -> str:
+    url = f"/charts?view={view}&symbols=" + quote(",".join(symbols))
+    if cols:  # param-driven views default their picker to the Output's SHOWN columns
+        url += "&cols=" + quote(",".join(cols))
+    return url
 
 
 def _parse_symbols(raw: str) -> list[str]:
@@ -126,10 +129,14 @@ def _parse_symbols(raw: str) -> list[str]:
     return [p for p in parts if p]
 
 
-def _render_actions(symbols: list[str]) -> None:
+def _render_actions(symbols: list[str], cols: list[str] | None = None) -> None:
     """Render the Action-menu body (charts + external links) for `symbols`. Shared by the
     run-results selection popover and the launcher's quick-actions box — keep it body-only
-    (no popover wrapper) so each caller decides how to host it."""
+    (no popover wrapper) so each caller decides how to host it.
+
+    `cols` = the Output's currently SHOWN parameter columns; passed to the param-driven
+    chart views (heat map, fundamentals bar/line) so they default to what's visible in the
+    table (hidden/deselected columns are excluded). Other views ignore it."""
     n = len(symbols)
     sites = settings.EXTERNAL_SITES
     syms_csv = ",".join(symbols)
@@ -140,18 +147,21 @@ def _render_actions(symbols: list[str]) -> None:
     _ch[0].link_button("📈 Normalized price chart ↗", _charts_url(symbols, "price"),
                        width="stretch")
     _ch[1].link_button("📊 Fundamentals over time ↗",
-                       _charts_url(symbols, "fundamentals_bar"), width="stretch")
+                       _charts_url(symbols, "fundamentals_bar", cols), width="stretch")
     _ch2 = st.columns(2)
     _ch2[0].link_button("📉 Fundamentals growth lines ↗",
-                        _charts_url(symbols, "fundamentals_line"), width="stretch")
+                        _charts_url(symbols, "fundamentals_line", cols), width="stretch")
     _ch2[1].link_button("🎯 Category scores radar ↗", _charts_url(symbols, "radar"),
                         width="stretch")
     _ch3 = st.columns(2)
-    _ch3[0].link_button("🔥 Metrics heat map ↗", _charts_url(symbols, "heatmap"),
+    _ch3[0].link_button("🔥 Metrics heat map ↗", _charts_url(symbols, "heatmap", cols),
                         width="stretch")
-    st.caption("Price / growth-lines / radar / heat map compare all selected symbols; the "
-               "Fundamentals bar picks one symbol + one parameter across periods. The heat "
-               "map colors each symbol × metric by its Scoring Rule (orange = strong).")
+    _ch3[1].link_button("🏅 Scores heat map ↗", _charts_url(symbols, "scores_heatmap"),
+                        width="stretch")
+    st.caption("Price / growth-lines / radar / heat maps compare all selected symbols; the "
+               "Fundamentals bar picks one symbol + one parameter across periods. The "
+               "**Metrics** heat map colors your shown columns by Scoring Rule; the "
+               "**Scores** heat map shows the category scores + RS Rank (orange = strong).")
     st.markdown("**Dividends**")
     _dv = st.columns(2)
     _dv[0].link_button("💰 Dividend yield ↗",
@@ -645,7 +655,7 @@ def _cb_reset_grid() -> None:
 _n_sel = len(_selected)
 _act = st.columns([1.6, 5], vertical_alignment="center")
 with _act[0].popover(f"⚙ Action · {_n_sel}" if _n_sel else "⚙ Action", disabled=_n_sel == 0):
-    _render_actions(_selected)
+    _render_actions(_selected, chosen)
 _act[1].caption("Select rows in the table — click, **Shift-click** for a range, "
                 "**Ctrl/Cmd-click** to add — then open **Action**.")
 
