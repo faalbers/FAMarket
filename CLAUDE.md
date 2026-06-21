@@ -53,8 +53,9 @@ Filter page (Topic 5) is backed by `ui/filter_registry.py` (per-`screen_type` me
 applicability) + `ui/filter_engine.py` (block model + `.filt` JSON). Each Run Filter
 persists a run file (`ui/output_runs.py`: parquet+json in `results/`, newest
 `OUTPUT_RUNS_KEEP` kept) and auto-opens `/output?run=<id>` in its own browser tab;
-the sidebar Output page is a recent-runs launcher (.prms column sets, multi-sort,
-row-select + Action menu still to come). Build order is
+the sidebar Output page is a recent-runs launcher. Column-set save/load (`.prms`),
+multi-sort, row-select and the Action menu are built; symbol/param **selections**
+persist via `ui/selection_io.py` (`.syms`/`.prms` in `SELECTIONS_DIR`). Build order is
 strictly **Data → Analysis → UI**, each layer completed fully before starting the
 next (no thin end-to-end slices).
 
@@ -245,7 +246,18 @@ Three intentionally decoupled layers plus shared infrastructure:
   cloud/remote move would have to switch back to the browser chooser. The utility only
   picks the path — each file type owns its (de)serialisation (e.g.
   `filter_engine.save_filterset_to` / `load_filterset_from` for `.filt`). Reuse it for
-  any future file picker (e.g. `.prms` column sets); don't hand-roll `st.file_uploader`.
+  any future file picker; don't hand-roll `st.file_uploader`.
+- **Selections (chosen items + per-item info) persist via `ui/selection_io.py`** — the
+  ONE place for "save/load a SET of items". Two kinds, one JSON shape (a dict keyed by
+  item; insertion order = saved order), both in the single `settings.SELECTIONS_DIR`
+  folder, suffix telling them apart: **`.syms`** symbol sets (per-symbol info =
+  Company/Sector/Industry from analysis.db) and **`.prms`** parameter/column sets
+  (per-param info = the param's `param_hints` entry). Built on `file_io` dialogs
+  (`save_dialog`/`load_dialog` by `kind`); the typed filename IS the name (no pre-naming
+  field). Item KEYS drive behaviour on load; the info is descriptive snapshot metadata.
+  Wired into Output (Custom Symbols box, results-selection Action menu, parameter-columns
+  Swap/Add) and Fetch Control (dev subset). Don't add a parallel selection store — extend
+  this (add a kind to its registry).
 - **Per-symbol analysis loops index once**: never filter the full OHLCV/financials
   frame inside the per-symbol loop — a boolean mask per symbol re-scans millions of
   rows. Pre-group by symbol before the loop (`groupby` → dict of pre-sorted slices)

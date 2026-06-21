@@ -26,7 +26,8 @@ logs/*.log.*
 
 # --- User-saved collections (keep the folders, ignore contents) ---
 filters/*.filt
-column_sets/*.prms
+selections/*.syms
+selections/*.prms
 
 # --- Saved filter-run results (generated; newest OUTPUT_RUNS_KEEP kept) ---
 results/*.parquet

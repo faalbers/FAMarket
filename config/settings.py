@@ -73,7 +73,9 @@ LOG_DATEFMT: str = "%Y-%m-%d %H:%M:%S"
 
 # User-managed file collections (paths configurable from the Settings page).
 FILTERS_DIR: Path = BASE_DIR / "filters"        # .filt files (saved filter sets)
-COLUMN_SETS_DIR: Path = BASE_DIR / "column_sets"  # .prms files (output column sets)
+# One shared folder for all "selection" files (ui/selection_io): symbol sets (.syms)
+# and parameter/column sets (.prms). The suffix distinguishes the kind.
+SELECTIONS_DIR: Path = BASE_DIR / "selections"
 
 # Per-parameter scoring RULES (heatmap coloring / future scoring). A dedicated JSON
 # file (like the .filt filter sets) holding the user's edits on top of the committed
@@ -335,7 +337,7 @@ FRED_SERIES: dict[str, str] = {
 
 def ensure_runtime_dirs() -> None:
     """Create the directories the app writes to. Safe to call on every startup."""
-    for path in (DB_DIR, BACKUP_DIR, LOG_DIR, FILTERS_DIR, COLUMN_SETS_DIR, OUTPUT_RUNS_DIR,
+    for path in (DB_DIR, BACKUP_DIR, LOG_DIR, FILTERS_DIR, SELECTIONS_DIR, OUTPUT_RUNS_DIR,
                  STATE_DIR):
         path.mkdir(parents=True, exist_ok=True)
 

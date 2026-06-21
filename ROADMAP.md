@@ -555,8 +555,21 @@
        security types and an "Open ↗" link each (see 6.2 for Custom Symbols)
      - Table columns: Symbol (AAPL (stock)), Company Name, Sector/Industry, then filter parameters
      - Add/remove parameter columns via same searchable dropdown as filter
-     - Column selection saveable as .prms file; load with Swap or Add option
-     - .prms folder path configured in Settings
+     - ✅ IMPLEMENTED (2026-06-21): Column selection saveable as .prms file; load with
+       Swap or Add option. Built on the shared SELECTION system below (`ui/selection_io.py`),
+       not a bespoke writer. Save/Load(Swap)/Load(Add) buttons sit in the Parameter-columns
+       list; per-param info = the param's `param_hints` entry.
+     - .prms folder path configured in Settings (now the shared `SELECTIONS_DIR`)
+     - ✅ IMPLEMENTED (2026-06-21): SHARED SELECTION SYSTEM (`ui/selection_io.py`). One
+       JSON shape — a dict keyed by item with per-item info, insertion order preserved —
+       serves two kinds in one `SELECTIONS_DIR` folder (suffix distinguishes):
+       **`.syms`** symbol sets (info = Company/Sector/Industry from analysis.db) and
+       **`.prms`** parameter/column sets (info = each param's `param_hints`). Built on the
+       native file dialog (`ui/file_io`); the typed filename is the name (no pre-naming).
+       SYMBOL Save/Load wired into: Output Custom Symbols box (Load also sets the Output
+       name to the file stem), the results-selection Action menu (Save selection), and the
+       Fetch Control dev subset (enrich-if-available). Local-machine only (file_io limit).
+       Replaced the originally separate `COLUMN_SETS_DIR` with the shared `SELECTIONS_DIR`.
      - Multi-column sort: click header = primary sort, Shift+click = secondary sort etc.
      - Sort direction indicator + priority number on each sorted column header
      - Standard table multi-select: click = select row, Shift+click = range, Ctrl/Cmd+click = add to selection

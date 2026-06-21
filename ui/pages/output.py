@@ -48,6 +48,7 @@ from ui import filter_engine as E
 from ui import filter_registry as R
 from ui import output_runs
 from ui import param_picker as P
+from ui import selection_io as SEL
 
 # --------------------------------------------------------------------------- #
 # Column labelling — concrete analysis.db column -> human label
@@ -349,6 +350,13 @@ def _render_custom_symbols() -> None:
     """Name a hand-entered symbol set and open it as a saved Output (kind='custom') — the
     same results screen a filter run opens. Go is active only when both fields are filled;
     symbols parse like the Fetch Dev subset (comma/space/newline)."""
+    # A Load (.syms) refills the keyed text inputs HERE, before they render, since a
+    # keyed widget ignores its value after first render (pending-widget-state pattern).
+    _pend = st.session_state.pop("_pending_custom", None)
+    if _pend is not None:
+        st.session_state["custom_symbols"] = _pend["symbols"]
+        st.session_state["custom_name"] = _pend["name"]
+
     with st.expander("Custom Symbols", expanded=False):
         name = st.text_input("Output name", key="custom_name", placeholder="My watchlist")
         raw = st.text_input(
@@ -356,10 +364,30 @@ def _render_custom_symbols() -> None:
             key="custom_symbols", placeholder="AAPL, MSFT, KO")
         syms = _parse_symbols(raw)
         ready = bool(name.strip()) and bool(syms)
-        if st.button("Go", type="primary", disabled=not ready):
+        _cb = st.columns([1, 1, 1])
+        if _cb[0].button("Go", type="primary", disabled=not ready, width="stretch"):
             _open_custom_output(name.strip(), syms)
+        # Save the typed symbols as a .syms selection (info = Company/Sector/Industry).
+        if _cb[1].button("💾 Save", disabled=not syms, width="stretch",
+                         help="Save these symbols to a .syms file"):
+            p = SEL.save_dialog(kind="symbols", items=SEL.symbol_info(syms),
+                                default_name=name.strip())
+            if p:
+                st.toast(f"Saved {p.name}")
+        # Load a .syms: refill the symbols + set the Output name to the file's stem.
+        if _cb[2].button("📂 Load", width="stretch",
+                         help="Load symbols from a .syms file"):
+            data = SEL.load_dialog(kind="symbols")
+            if data:
+                st.session_state["_pending_custom"] = {
+                    "symbols": ", ".join(data["items"].keys()),
+                    "name": data["path"].stem,
+                }
+                st.toast(f"Loaded {data['path'].name}")
+                st.rerun()
         st.caption("Name a set of symbols and **Go** to open them as an Output — "
-                   "the same results screen as a filter run.")
+                   "the same results screen as a filter run. **Save / Load** the set "
+                   "as a .syms file.")
     st.divider()
 
 
@@ -437,6 +465,14 @@ def _col_info_html(col: str) -> str:
     return P.hint_html(parsed[0]) if parsed else html.escape(col)
 
 
+def _param_info(col: str) -> dict:
+    """A param column's param_hints entry (resolved to its base key) for a .prms save."""
+    parsed = _parse(col)
+    if parsed and (hint := param_hints.PARAM_HINTS.get(parsed[0].key)):
+        return dict(hint)
+    return {}
+
+
 # The ➕ Add / remove columns picker now lives INSIDE the Parameter-columns list (at
 # its top), built below once the list is open.
 #
@@ -486,6 +522,33 @@ if _open:
         close_on_pick=False,
     )
     P.scroll_to_current()
+
+    # Save the SELECTED (shown) columns as a .prms; Add appends a saved set to the
+    # current columns (info = each param's param_hints). No Swap — Add only.
+    def _add_prms(keys: list[str]) -> None:
+        valid = [k for k in keys if k in opts]
+        cur = st.session_state["output_columns"]
+        cur.extend(k for k in valid if k not in cur)
+        for k in valid:  # re-seed the keyed show/hide checkboxes so they pick up value=
+            st.session_state.pop(f"colactive:{k}", None)
+
+    _selected_cols = [c for c in _cols_list if c not in _inactive]
+    _pb = st.columns(2)
+    if _pb[0].button("💾 Save Selection", key="prms_save", width="stretch",
+                     disabled=not _selected_cols, help="Save the shown columns to a .prms file"):
+        p = SEL.save_dialog(kind="params",
+                            items={c: _param_info(c) for c in _selected_cols},
+                            default_name=(meta.get("filter_name") or "").strip())
+        if p:
+            st.toast(f"Saved {p.name}")
+    if _pb[1].button("📂 Add Selection", key="prms_add", width="stretch",
+                     help="Append a saved .prms set to the current columns"):
+        data = SEL.load_dialog(kind="params")
+        if data:
+            _add_prms(list(data["items"].keys()))
+            st.toast(f"Added {data['path'].name}")
+            st.rerun()
+
     if not _cols_list:
         st.caption("No parameter columns yet — add some with **➕ Add columns** above.")
     # The per-row ✕ delete buttons are styled in app.py into a small red square that
@@ -633,6 +696,17 @@ if _spec:
 # Delete-selected button. Selection rows are positional into the DISPLAYED (sorted)
 # order, so map them through view.index back to the symbol.
 _display_symbols = result.loc[view.index, "symbol"].astype(str).tolist()
+
+# Apply a pending programmatic selection (from "Add Selection") HERE — before the Action
+# bar reads the selection and before the grid renders — so BOTH reflect it this run. The
+# Add handler stashes the rows + reruns; setting the grid's key now keeps it in
+# _new_session_state (so value_changed pushes it to the grid) and the bump forces a fresh
+# mount that accepts it even after a manual clear-all.
+_pending_rows = st.session_state.pop("_pending_grid_rows", None)
+if _pending_rows is not None:
+    st.session_state["results_grid"] = {"selection": {"rows": _pending_rows}}
+    st.session_state["output_grid_bump"] = st.session_state.get("output_grid_bump", 0) + 1
+
 _grid_sel = (st.session_state.get("results_grid") or {}).get("selection", {})
 _selected = [_display_symbols[i] for i in _grid_sel.get("rows", []) if i < len(_display_symbols)]
 
@@ -659,16 +733,46 @@ with _act[0].popover(f"⚙ Action · {_n_sel}" if _n_sel else "⚙ Action", disa
 _act[1].caption("Select rows in the table — click, **Shift-click** for a range, "
                 "**Ctrl/Cmd-click** to add — then open **Action**.")
 
-_bump = st.session_state.setdefault("output_grid_bump", 0)
 _bar = st.columns([5, 1.4], vertical_alignment="bottom")
 _bar[1].button("↺ Reset to sort order", key="grid_reset", on_click=_cb_reset_grid,
                width="stretch", help="Undo an accidental header-click sort — restore "
                                      "the Sort-panel order")
 
+# -- Selection Save / Add (Output-screen UI, just above the table) ------------ #
+# Save the current row selection as a .syms; Add a .syms's symbols to the selection
+# (only those present in this table). Add can't set the grid selection here — the
+# Action bar above already read `_selected` this run — so it stashes the target rows in
+# `_pending_grid_rows` and reruns; the top of the page applies them before _selected and
+# the grid (see that block for why that placement is required).
+_sel_bar = st.columns([1.5, 1.5, 4], vertical_alignment="center")
+if _sel_bar[0].button("💾 Save selection", disabled=not _selected, width="stretch",
+                      help="Save the selected symbols to a .syms file"):
+    p = SEL.save_dialog(kind="symbols", items=SEL.symbol_info(_selected),
+                        default_name=(meta.get("filter_name") or "").strip())
+    if p:
+        st.toast(f"Saved {p.name}")
+if _sel_bar[1].button("📂 Add Selection", width="stretch",
+                      help="Load a .syms and add its symbols to the selection "
+                           "(only those present in this table)"):
+    data = SEL.load_dialog(kind="symbols")
+    if data:
+        loaded = set(data["items"].keys())
+        present = set(_display_symbols)
+        new_rows = [i for i, s in enumerate(_display_symbols) if s in loaded]
+        cur_rows = list(_grid_sel.get("rows", []))
+        st.session_state["_pending_grid_rows"] = sorted(set(cur_rows) | set(new_rows))
+        _added = len(set(new_rows) - set(cur_rows))
+        _missing = len(loaded - present)
+        st.toast(f"Added {_added} to selection"
+                 + (f" · {_missing} not in this table" if _missing else ""))
+        st.rerun()
+_sel_bar[2].caption("Save the selected rows as a .syms, or Add one to bring its "
+                    "symbols into the current selection (only those in this table).")
+
+_bump = st.session_state.setdefault("output_grid_bump", 0)
 _wrap = st.container(key=f"results_grid_wrap:{'|'.join(chosen)}:{_bump}")
 _wrap.dataframe(view, hide_index=True, width="stretch", column_config=col_config,
                 key="results_grid", on_select="rerun", selection_mode="multi-row")
 st.caption("Use the **Sort** panel above for multi-column sort — priority number + "
            "arrow show on each sorted header. A single header click still does a quick "
-           "one-off sort; **↺ Reset to sort order** restores the panel order. Column-set "
-           "save/load (.prms) and the remaining chart actions are coming next.")
+           "one-off sort; **↺ Reset to sort order** restores the panel order.")

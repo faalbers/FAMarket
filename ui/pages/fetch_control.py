@@ -34,6 +34,7 @@ from config import settings
 from core.database import Database
 from data_layer import cancel, launcher, run_state
 from data_layer.orchestrator import report_fetch
+from ui import selection_io as SEL
 
 ANALYSIS_META = "analysis_meta"
 # Shown as a greyed-out placeholder hint in the subset box (never prefilled as a
@@ -49,6 +50,8 @@ def _parse_subset(raw: str) -> list[str] | None:
     parts = [p.strip().upper() for p in raw.replace("\n", ",").replace(" ", ",").split(",")]
     syms = [p for p in parts if p]
     return syms or None
+
+
 
 
 def _cli_subset() -> str | None:
@@ -253,13 +256,35 @@ scope = st.radio(
 # disabled, on Full universe — where it would be ignored anyway).
 subset_raw = ""
 if scope == "Dev subset":
+    # Seed once from any CLI subset, then drive the box purely by key so a Load can
+    # refill it (a keyed widget ignores value= after first render). A Load (.syms)
+    # stashes its symbols in _pending_subset, applied here before the box renders.
+    st.session_state.setdefault("subset_symbols", _cli_subset() or "")
+    _pend_sub = st.session_state.pop("_pending_subset", None)
+    if _pend_sub is not None:
+        st.session_state["subset_symbols"] = _pend_sub
     subset_raw = st.text_input(
         "Subset symbols (comma-separated)",
-        value=_cli_subset() or "",
+        key="subset_symbols",
         placeholder=", ".join(_DEFAULT_SUBSET),
         help="Prefill from the CLI with `streamlit run app.py -- --subset AAPL,MSFT`. "
         "Discovery still populates the full symbols.db.",
     )
+    _sub_syms = _parse_subset(subset_raw) or []
+    _sb = st.columns(2)
+    if _sb[0].button("💾 Save subset", disabled=not _sub_syms, width="stretch",
+                     help="Save these symbols to a .syms file"):
+        p = SEL.save_dialog(kind="symbols", items=SEL.symbol_info(_sub_syms),
+                            default_name="subset")
+        if p:
+            st.toast(f"Saved {p.name}")
+    if _sb[1].button("📂 Load subset", width="stretch",
+                     help="Load symbols from a .syms file"):
+        data = SEL.load_dialog(kind="symbols")
+        if data:
+            st.session_state["_pending_subset"] = ", ".join(data["items"].keys())
+            st.toast(f"Loaded {data['path'].name}")
+            st.rerun()
 col_a, col_b = st.columns(2)
 respect_lock = col_a.checkbox(
     f"Respect {settings.FETCH_LOCK_DAYS}-day fetch lock", value=True,

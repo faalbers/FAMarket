@@ -41,6 +41,7 @@ from config import settings
 from config import param_hints
 from core.database import Database
 from ui import param_picker as P
+from ui import selection_io as SEL
 from ui.chart_theme import (
     COLORWAY as _COLORWAY,
     DARK_BG as _DARK_BG,
@@ -53,6 +54,17 @@ from ui.chart_theme import (
 )
 
 _CHART_HEIGHT = 600  # px; the symbol list's scroll box is capped to this so they align
+
+# Every legend interaction that changes which lines show must report the FULL selected
+# map so the server can persist it (and the Save/Add Selection bar can read it). Individual
+# clicks fire legendselectchanged; the All / Invert selector BUTTONS fire their own events
+# (legendselectall / legendinverseselect) — without these two, an Invert silently leaves
+# the server's legend map stale, which broke additive Add.
+_LEGEND_EVENTS = {
+    "legendselectchanged": "function(p){ return p.selected; }",
+    "legendselectall": "function(p){ return p.selected; }",
+    "legendinverseselect": "function(p){ return p.selected; }",
+}
 
 # Fundamentals-bar view (ROADMAP 6.2): one symbol × one parameter, plotted over its
 # reported periods. Ratios reuse metrics.RATIO_PERIOD_METRICS — the SAME formula
@@ -656,10 +668,12 @@ def _render_fundamentals_line(symbols: list[str], picked: list[str] | None = Non
     _legend_sel = st.session_state.get("fundline_legend_sel")
     if _legend_sel:
         _options_ec["legend"]["selected"] = _legend_sel
+    _symbol_selection_bar(symbols, keyp="fundline", legend_key="fundline_legend_sel")
     _ret = st_echarts(
         options=_options_ec,
-        events={"legendselectchanged": "function(p){ return p.selected; }"},
-        height=f"{_CHART_HEIGHT}px", key="fund_line")
+        events=_LEGEND_EVENTS,
+        height=f"{_CHART_HEIGHT}px",
+        key=f"fund_line_{st.session_state.get('echarts_bump', 0)}")
     if isinstance(_ret, dict) and _ret:
         _cur = st.session_state.get("fundline_legend_sel") or {}
         _merged = {**_cur, **_ret}
@@ -895,8 +909,23 @@ def _render_radar(symbols: list[str]) -> None:
                      "itemStyle": {"opacity": 0.12}},
         }],
     }
+    # Persist legend show/hide across reruns (same pattern as the line charts) so the
+    # selection survives and the Save/Add Selection bar can drive it.
+    _legend_sel = st.session_state.get("radar_legend_sel")
+    if _legend_sel:
+        _options_ec["legend"]["selected"] = _legend_sel
+    _symbol_selection_bar(symbols, keyp="radar", legend_key="radar_legend_sel")
     # Taller than the line charts so the radar fills the wide Category-scores screen.
-    st_echarts(options=_options_ec, height="760px", key="radar")
+    _ret = st_echarts(
+        options=_options_ec,
+        events=_LEGEND_EVENTS,
+        height="760px", key=f"radar_{st.session_state.get('echarts_bump', 0)}")
+    if isinstance(_ret, dict) and _ret:
+        _cur = st.session_state.get("radar_legend_sel") or {}
+        _merged = {**_cur, **_ret}
+        if _merged != _cur:
+            st.session_state["radar_legend_sel"] = _merged
+            st.rerun()
     st.caption("Axes: Value, Quality, Growth, Momentum, Income — each 0-100. A blank "
                "axis means that category wasn't scored for the symbol. Color-blind-safe "
                "palette; overlay several to compare, or toggle via the legend.")
@@ -1350,6 +1379,52 @@ def _heatmap_core(symbols: list[str], _df, _rules, _opts: list[str], _default: l
                "strength (click again to flip)." + _sorted_by)
 
 
+def _symbol_selection_bar(symbols: list[str], *, keyp: str,
+                          legend_key: str | None = None) -> None:
+    """Save this chart's shown symbols to a .syms, or Add a saved set to turn its symbols
+    on in the legend. Mirrors the Output screen's Save / Add Selection. `keyp` namespaces
+    the buttons per view.
+
+    `legend_key` is the session_state key of this view's legend on/off map ({name: bool}).
+    Save writes only the VISIBLE symbols (legend on; absent from the map = shown). Add is
+    ADDITIVE — it keeps the currently-shown lines on AND turns the loaded symbols on,
+    without changing the chart's symbol set. It writes a COMPLETE map (every chart symbol
+    gets an explicit on/off) so a freshly-mounted chart can't default absent symbols to
+    shown (the "all get selected after Invert" bug).
+    """
+    _lmap = st.session_state.get(legend_key) or {} if legend_key else {}
+    _save = [s for s in symbols if _lmap.get(s, True)]  # visible symbols only
+    _c = st.columns([1.5, 1.5, 5], vertical_alignment="center")
+    if _c[0].button("💾 Save selection", key=f"savesel_{keyp}", width="stretch",
+                    disabled=not _save, help="Save the shown symbols to a .syms file"):
+        p = SEL.save_dialog(kind="symbols", items=SEL.symbol_info(_save),
+                            default_name="_".join(_save[:4]))
+        if p:
+            st.toast(f"Saved {p.name}")
+    if _c[1].button("📂 Add Selection", key=f"addsel_{keyp}", width="stretch",
+                    disabled=not legend_key,
+                    help="Load a .syms and turn its symbols ON (keeps the shown lines on)"):
+        data = SEL.load_dialog(kind="symbols")
+        if data:
+            loaded = {s.strip().upper() for s in data["items"].keys() if s.strip()}
+            _on = [s for s in symbols if s in loaded]  # symbols on this chart in the file
+            # ADDITIVE + COMPLETE map: every chart symbol explicit — currently shown stay
+            # shown (absent from the map = shown), plus the loaded ones turned on. Writing
+            # every key stops a freshly-mounted chart defaulting absent symbols to shown.
+            _cur = st.session_state.get(legend_key) or {}
+            _lmap = {s: (_cur.get(s, True) or s in loaded) for s in symbols}
+            st.session_state[legend_key] = _lmap
+            # Remount the chart (bump its key) so it reads the new legend selection fresh.
+            # Without this the component re-applies its own stale last-event selection and
+            # overrides our change — the same frontend-vs-programmatic clash as the Output
+            # grid. A fresh mount returns no event, so the capture below is skipped.
+            st.session_state["echarts_bump"] = st.session_state.get("echarts_bump", 0) + 1
+            st.toast(f"Turned on {len(_on)} symbol{'' if len(_on) == 1 else 's'}")
+            st.rerun()
+    _c[2].caption("Save the shown symbols, or Add a saved set to turn those symbols on "
+                  "(the shown lines stay on; the chart's symbol set doesn't change).")
+
+
 # --------------------------------------------------------------------------- #
 # page
 # --------------------------------------------------------------------------- #
@@ -1561,11 +1636,13 @@ if _legend_sel:
     _options["legend"]["selected"] = _legend_sel
 
 with _chart_host:
+    _symbol_selection_bar(symbols, keyp="price", legend_key="chart_legend_sel")
     st.caption(_head)
     _ret = st_echarts(
         options=_options,
-        events={"legendselectchanged": "function(p){ return p.selected; }"},
-        height=f"{_CHART_HEIGHT}px", key="echarts_price")
+        events=_LEGEND_EVENTS,
+        height=f"{_CHART_HEIGHT}px",
+        key=f"echarts_price_{st.session_state.get('echarts_bump', 0)}")
     if isinstance(_ret, dict) and _ret:
         _cur = st.session_state.get("chart_legend_sel") or {}
         _merged = {**_cur, **_ret}
