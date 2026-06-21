@@ -4,9 +4,8 @@ A flexible, Python-based system that gathers US stock-market data from free APIs
 and screens for (mainly long-term) investment candidates. Local-only; the UI is
 an interactive Streamlit app.
 
-> Full design lives in [`ROADMAP.md`](ROADMAP.md) (the completed brainstorm) and
-> [`Stock_Screening_Analysis.md`](Stock_Screening_Analysis.md) (the original
-> blueprint). Read those before making architectural changes.
+> Full design lives in [`ROADMAP.md`](ROADMAP.md) (the completed brainstorm).
+> Read it before making architectural changes.
 
 ## Architecture — three independent layers
 

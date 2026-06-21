@@ -12,8 +12,7 @@ sequencing. `ROADMAP.md` is a **living document**: when a design decision is
 changed or refined in agreement with the user, update the affected entries
 in-place (mark with the date and what it replaced; shipped items get ✅).
 Never rewrite it wholesale, and never change a decision the user hasn't agreed
-to. `Stock_Screening_Analysis.md` is the original blueprint — that one stays
-read-only.
+to.
 
 Build status: the **data layer** (`core/`, `config/`, symbol discovery, and the
 yfinance/EDGAR/FRED fetchers) is functional. The **analysis layer** is now
