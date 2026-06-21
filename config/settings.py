@@ -243,57 +243,62 @@ PEER_COMPARABLE_METRICS: tuple[str, ...] = (
 )
 MIN_PEERS_FOR_MEDIAN: int = 3       # below this a sector/industry median is too noisy
 MIN_PEERS_FOR_PERCENTILE: int = 5   # below this fall back to the universe for scoring
+RS_RANK_MIN_PER_TYPE: int = 30      # min members for a security_type to rank RS within itself
+                                    # (else fall back to universe — funds vs stocks don't distort)
 
 # --------------------------------------------------------------------------- #
 # Scoring & ranking (Topic 4.4) — all adjustable from the Settings page
 # --------------------------------------------------------------------------- #
 # Weights of each category score within the Overall Score (must sum to 1.0).
+# Mix re-derived 2026-06-20 (was Q25/G25/M20/V20/I10): the five category scores are
+# near-uncorrelated on the live universe (all |r|≈0, value↔momentum −0.23), so this is
+# a pure emphasis call. Growth down (weak standalone factor, overlaps quality); value &
+# income up (robust / independent + one of only two categories funds even have).
 OVERALL_SCORE_WEIGHTS: dict[str, float] = {
     "quality": 0.25,
-    "growth": 0.25,
+    "value": 0.22,
     "momentum": 0.20,
-    "value": 0.20,
-    "income": 0.10,
+    "growth": 0.18,
+    "income": 0.15,
 }
 
-# Metric weights WITHIN each category score (Topic 4.4) — Claude's sensible
-# defaults, all adjustable from the Settings page. Each category's score is the
-# weight-averaged 0-100 percentile rank of whichever of these metrics the symbol
-# actually has (NaN metrics drop out, so funds/ETFs gate themselves naturally).
-# Weights are positive magnitudes; metric DIRECTION (lower-is-better for the
-# valuation multiples / leverage / payout) is intrinsic and lives in scoring.py.
+# Metric weights WITHIN each category score (Topic 4.4) — all adjustable from the
+# Settings page. Each category's score is the weight-averaged 0-100 rule GOODNESS
+# of whichever of these metrics the symbol has (NaN metrics drop out, so funds/ETFs
+# gate themselves naturally). Weights are positive magnitudes; metric DIRECTION and
+# the peer/universe/absolute anchor live per-metric in analysis_layer/scoring_rules.py.
+#
+# Re-derived 2026-06-20 from the live 37,753-row analysis.db (intra-category goodness
+# correlation + coverage + discriminating spread) plus factor-investing robustness.
+# PRINCIPLE: weight by UNIQUE INFORMATION + robustness, not by count — a correlated
+# cluster shares one "slot"; independent / sustainability metrics keep weight even when
+# sparse (gating handles absence). Notable collapses: momentum's MA trio (corr up to
+# 0.96), value's ps↔ev_revenue (0.82), quality's roa/operating/net margin blob (0.82-0.84).
 CATEGORY_METRIC_WEIGHTS: dict[str, dict[str, float]] = {
-    "value": {
-        "pe": 1.0, "forward_pe": 0.5, "peg": 1.0, "ps": 0.75, "pb": 0.75,
-        "p_fcf": 1.0, "ev_ebitda": 1.0, "ev_revenue": 0.5, "margin_of_safety": 1.0,
+    "value": {  # favor EV/EBITDA, FCF, DCF gap; down-weight redundant multiples
+        "ev_ebitda": 1.0, "p_fcf": 1.0, "margin_of_safety": 1.0, "pe": 0.75,
+        "peg": 0.5, "pb": 0.5, "ps": 0.5, "ev_revenue": 0.25, "forward_pe": 0.25,
     },
-    "quality": {
-        "roe": 1.0, "roa": 0.75, "roic": 1.0, "gross_margin": 0.5,
-        "operating_margin": 0.75, "net_margin": 0.75, "fcf_margin": 0.75,
-        "debt_to_equity": 0.75, "debt_to_ebitda": 0.5, "current_ratio": 0.5,
-        "interest_coverage": 0.5, "altman_z": 0.75,
+    "quality": {  # gross_margin + roic + safety carry; margin blob shares one slot
+        "roic": 1.0, "gross_margin": 1.0, "roe": 0.75, "altman_z": 0.75,
+        "fcf_margin": 0.75, "net_margin": 0.5, "debt_to_equity": 0.5,
+        "current_ratio": 0.5, "interest_coverage": 0.5, "operating_margin": 0.25,
+        "roa": 0.25, "debt_to_ebitda": 0.25,
     },
-    "growth": {
-        "revenue_cagr_3y": 1.0, "revenue_cagr_5y": 0.75, "eps_cagr_3y": 1.0,
-        "eps_cagr_5y": 0.75, "fcf_cagr_3y": 0.5, "revenue_yoy_q": 0.75,
-        "eps_yoy_q": 0.75, "eps_growth_r2": 0.5,
+    "growth": {  # already near-independent; trim 3y/5y window overlap (~0.55)
+        "eps_cagr_3y": 1.0, "revenue_cagr_3y": 1.0, "eps_yoy_q": 0.75,
+        "revenue_yoy_q": 0.75, "fcf_cagr_3y": 0.5, "eps_growth_r2": 0.5,
+        "eps_cagr_5y": 0.5, "revenue_cagr_5y": 0.5,
     },
-    "momentum": {
-        "rs_rank": 1.0, "price_vs_ma_50": 0.75, "price_vs_ma_150": 0.5,
-        "price_vs_ma_200": 1.0, "pct_from_52w_high": 0.75,
+    "momentum": {  # rs_rank is the canonical factor; collapse the MA trio
+        "rs_rank": 1.0, "pct_from_52w_high": 0.75, "price_vs_ma_50": 0.5,
+        "price_vs_ma_200": 0.5, "price_vs_ma_150": 0.25,
     },
-    "income": {
-        "div_yield_ttm": 1.0, "div_growth_5y": 0.75, "div_consecutive_years": 0.5,
-        "div_coverage": 0.75, "div_consistency": 0.5, "div_payout_ratio": 0.5,
+    "income": {  # near-independent already; keep sustainability weighted
+        "div_yield_ttm": 1.0, "div_growth_5y": 0.75, "div_coverage": 0.75,
+        "div_consistency": 0.75, "div_payout_ratio": 0.5, "div_consecutive_years": 0.5,
     },
 }
-
-# Peer baseline for the percentile scoring (Topic 4.3/4.4): value & quality are
-# ranked within the symbol's peer group, narrowest-first — INDUSTRY, then SECTOR,
-# then the whole universe (fundamentals are only comparable among peers), stepping
-# out a tier whenever a group is smaller than MIN_PEERS_FOR_PERCENTILE. Growth,
-# momentum and income rank universe-wide.
-SCORE_PEER_RELATIVE_CATEGORIES: tuple[str, ...] = ("value", "quality")
 
 # rs_rank (Topic 4.2): IBD-style weighted percentile vs the whole universe.
 # Weighted return over four ~3-month windows (most recent weighted heaviest);

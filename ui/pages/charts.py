@@ -1127,26 +1127,6 @@ _HEAT_DEFAULTS = ["overall_score", "pe", "pb", "roe", "net_margin", "revenue_cag
                   "debt_to_equity", "current_ratio", "div_yield_ttm", "rs_rank"]
 
 
-def _heat_goodness(df: pd.DataFrame, metric: str, rules: dict) -> pd.Series:
-    """0-100 goodness for `metric` across the whole frame, applying any per-screen_type
-    override (e.g. REIT payout) on top of the base rule."""
-    base = _SR.rule_for(metric, rules)
-    if base is None:
-        return pd.Series(float("nan"), index=df.index)
-    tiers = ([df["industry"], df["sector"]]
-             if base.get("anchor") == "peer" and {"industry", "sector"} <= set(df.columns)
-             else None)
-    g = _SR.goodness(df[metric], base, tiers)
-    overrides = base.get("overrides") or {}
-    if overrides and "screen_type" in df.columns:
-        for st_val in overrides:
-            mask = df["screen_type"] == st_val
-            if mask.any():
-                r = _SR.resolve(metric, st_val, rules)
-                g.loc[mask] = _SR.goodness(df.loc[mask, metric], r, None)
-    return g
-
-
 def _render_heatmap(symbols: list[str]) -> None:
     """Symbols × metrics grid, each cell colored by its scoring rule (orange = strong,
     blue = weak). Goodness is ranked across the whole universe; the tooltip shows the raw
@@ -1193,7 +1173,7 @@ def _render_heatmap(symbols: list[str]) -> None:
         return
 
     # Goodness per metric over the universe, then pick out the charted symbols.
-    _good = {m: _heat_goodness(_df, m, _rules) for m in _metrics}
+    _good = {m: _SR.metric_goodness(_df, m, _rules) for m in _metrics}
     _good = {m: g.set_axis(_df["symbol"].values) for m, g in _good.items()}
 
     _units = {m: (param_hints.get_hint(m) or {}).get("unit", "") for m in _metrics}

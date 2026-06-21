@@ -244,6 +244,32 @@ def goodness(values: pd.Series, rule: dict,
     return s.clip(lower=0, upper=100)              # already a 0-100 rank (rs_rank, scores)
 
 
+def metric_goodness(df: pd.DataFrame, metric: str,
+                    rules: dict[str, dict] | None = None) -> pd.Series:
+    """One metric's 0-100 goodness over the WHOLE frame, with per-`screen_type`
+    overrides spliced in — the SINGLE code path shared by the scoring rewire and
+    the heatmap (don't reimplement strong/weak coloring elsewhere).
+
+    Pass the whole universe: peer/universe anchors rank across the passed rows.
+    Returns all-NaN when the metric is absent or has no rule (not scorable).
+    """
+    base = rule_for(metric, rules)
+    if base is None or metric not in df.columns:
+        return pd.Series(np.nan, index=df.index, dtype="float64")
+    tiers = ([df["industry"], df["sector"]]
+             if base.get("anchor") == "peer" and {"industry", "sector"} <= set(df.columns)
+             else None)
+    g = goodness(df[metric], base, tiers)
+    overrides = base.get("overrides") or {}
+    if overrides and "screen_type" in df.columns:
+        for st_val in overrides:                       # sparse; all ABSOLUTE today
+            mask = df["screen_type"] == st_val
+            if mask.any():                             # absolute → tiers irrelevant
+                merged = resolve(metric, st_val, rules)
+                g.loc[mask] = goodness(df.loc[mask, metric], merged, None)
+    return g
+
+
 def _spread(s: pd.Series) -> tuple[float, float]:
     """The falloff reach for absolute rules — the robust **1.5× IQR fence**, clamped to the
     data. Using the IQR fence (not the 5th/95th pctile) keeps fat tails from stretching the
