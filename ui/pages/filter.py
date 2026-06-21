@@ -395,8 +395,6 @@ if _pending_types is not None:
 
 # -- Security Type ---------------------------------------------------------- #
 with st.expander("Security Type", expanded=True):
-    st.caption("Pick one or more. When several are selected, only metrics meaningful "
-               "for **all** of them are offered.")
     cols = st.columns(3)
     selected: set[str] = set()
     for i, (key, meta) in enumerate(R.SCREEN_TYPES.items()):
@@ -483,7 +481,7 @@ with st.expander("Filters", expanded=True):
         if children:
             cwrap = st.container(border=True)
             with cwrap:
-                st.caption("OR — fallbacks (block passes if the main row **or** any of these match)")
+                st.caption("OR — fallbacks")
                 for ci, child in enumerate(children):
                     _render_block(child, selected, opt_keys, opt_labels, cat_map, is_child=True,
                                   can_up=ci > 0, can_down=ci < len(children) - 1)

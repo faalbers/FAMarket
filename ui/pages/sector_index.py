@@ -202,8 +202,6 @@ def _render_chart(series_opt: list[dict], yaxis_name: str, caption: str) -> None
 # page
 # --------------------------------------------------------------------------- #
 st.title("Sector Indices")
-st.caption("Base-100 indices (float-cap weighted, SPDR Select Sector formula) built from "
-           "indices.db on full analysis runs. Click a legend name to show/hide a line.")
 
 _mtime = settings.INDICES_DB.stat().st_mtime if settings.INDICES_DB.exists() else 0.0
 _sector_map = _load_indices("sector", _mtime)
@@ -310,6 +308,5 @@ _series_opt = [*_series_opt, _baseline_marker(100.0)]
 
 _n = len(_series_opt) - 1
 _what = "sectors" if _view == "Sectors" else f"{_sector} industries"
-_caption = (f"{_n} {_what} · {_tail} Zoom with the wheel or the bottom slider; the ⟳ "
-            "restore icon resets the view.")
+_caption = f"{_n} {_what} · {_tail}"
 _render_chart(_series_opt, _yaxis, _caption)

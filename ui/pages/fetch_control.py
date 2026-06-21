@@ -180,31 +180,12 @@ def _show_report(report: dict) -> None:
             "stale and not-due symbols are fetched too. Combine with the lock off "
             "for a full refetch of everything."
         )
-    st.caption(
-        "- **Candidates** — symbols of the types this step handles\n"
-        f"- **Locked** — skipped by the {lock_days}-day cadence lock (the lock checkbox)\n"
-        "- **Abandoned** — hit the no-data cap (a viability gate)\n"
-        "- **Stale** — data too old to keep fetching (a viability gate)\n"
-        "- **Not due** — next statement can't exist yet, financials only (a viability gate)\n"
-        "- **Will fetch** — what this step would actually fetch now\n\n"
-        "The lock checkbox toggles only **Locked**; the viability gates "
-        "(Abandoned / Stale / Not due) are governed by `FETCH_ABANDONMENT_ENABLED` "
-        "on the Settings page. FRED macro series always run (not symbol-gated). "
-        "OHLCV/financials counts use the currently stored security types — quotes "
-        "resolves types first in a real run, so they can shift slightly."
-    )
 
 
 # --------------------------------------------------------------------------- #
 # page
 # --------------------------------------------------------------------------- #
 st.title("Fetch Control")
-st.caption(
-    "Run the weekly pipeline: discovery → data fetch → reassessment → analysis. "
-    "A rotating backup of every database is taken before the run starts. The fetch "
-    "runs as its own background process, so it keeps going if you close the app — "
-    "watch `logs/famarket.log` for live progress."
-)
 
 # -- last analysis snapshot (always shown, top of page) --------------------- #
 meta = _analysis_meta()
@@ -424,7 +405,6 @@ if running:
             f"{pid if pid else '…'}, started {started}. Watch `logs/famarket.log` for "
             "live progress."
         )
-    st.caption("This page does not auto-update — reload it to refresh the status.")
 elif state and run_state.ended_unexpectedly():
     st.error(
         "The background fetch process ended unexpectedly — no completion was recorded. "

@@ -159,16 +159,10 @@ def _render_actions(symbols: list[str], cols: list[str] | None = None) -> None:
                         width="stretch")
     _ch3[1].link_button("🏅 Scores heat map ↗", _charts_url(symbols, "scores_heatmap"),
                         width="stretch")
-    st.caption("Price / growth-lines / radar / heat maps compare all selected symbols; the "
-               "Fundamentals bar picks one symbol + one parameter across periods. The "
-               "**Metrics** heat map colors your shown columns by Scoring Rule; the "
-               "**Scores** heat map shows the category scores + RS Rank (orange = strong).")
     st.markdown("**Dividends**")
     _dv = st.columns(2)
     _dv[0].link_button("💰 Dividend yield ↗",
                        _charts_url(symbols, "dividend_line"), width="stretch")
-    st.caption("Dividend yield per calendar period (annual/quarterly), one line per symbol, "
-               "Actual or Normalized to 100. Yield heat-map chart coming next.")
     st.markdown("**Analyze on external site**")
     _ext = st.columns(2)
     _ext[0].link_button("Finviz ↗", sites["finviz"].format(symbols=syms_csv), width="stretch")
@@ -248,9 +242,6 @@ def _render_filter_summary(meta: dict) -> None:
                     cnote = "" if E.is_complete(c) else " *(incomplete — ignored)*"
                     lines.append(f"    - **OR** {_describe_block(c)}{cnote}")
         st.markdown("\n".join(lines))
-        if len(enabled) > 1:
-            st.caption("All top-level conditions must match (AND); indented lines "
-                       "are OR fallbacks for the condition above them.")
 
 
 def _render_launcher() -> None:
@@ -280,9 +271,7 @@ def _render_launcher() -> None:
                            for m, k in zip(runs, kinds)],
     })
 
-    st.caption(f"Recent outputs (newest {settings.OUTPUT_RUNS_KEEP} kept). "
-               "Click a **name ↗** to open that output in its own browser tab. Select rows "
-               "(Shift-click for a range) and use **Delete selected** to remove them.")
+    st.caption(f"Recent outputs (newest {settings.OUTPUT_RUNS_KEEP} kept)")
 
     # The Delete button sits ABOVE the table, so it reads the selection persisted
     # in session state from the previous render (st.dataframe stores it under its
@@ -385,9 +374,6 @@ def _render_custom_symbols() -> None:
                 }
                 st.toast(f"Loaded {data['path'].name}")
                 st.rerun()
-        st.caption("Name a set of symbols and **Go** to open them as an Output — "
-                   "the same results screen as a filter run. **Save / Load** the set "
-                   "as a .syms file.")
     st.divider()
 
 
@@ -624,8 +610,7 @@ st.button(f"{'▾' if _sort_open else '▸'}  Sort — {_sort_summary}", key="ou
           on_click=_cb_toggle_sort, width="stretch")
 if _sort_open:
     if not _spec:
-        st.caption("No sort yet. Click a column below to add it — the first is the "
-                   "primary sort, each next one breaks ties within the previous.")
+        st.caption("No sort yet.")
     for _i, _s in enumerate(_spec):
         _r = st.columns([0.5, 5, 1.6, 0.8, 0.8, 0.8, 4], gap="small", vertical_alignment="center")
         _r[0].markdown(f"<div style='text-align:center;font-weight:600'>{_i + 1}</div>",
@@ -727,11 +712,8 @@ def _cb_reset_grid() -> None:
 # link that opens in a new browser tab (ROADMAP 6.2). Body lives in _render_actions,
 # shared with the launcher's quick-actions box.
 _n_sel = len(_selected)
-_act = st.columns([1.6, 5], vertical_alignment="center")
-with _act[0].popover(f"⚙ Action · {_n_sel}" if _n_sel else "⚙ Action", disabled=_n_sel == 0):
+with st.popover(f"⚙ Action · {_n_sel}" if _n_sel else "⚙ Action", disabled=_n_sel == 0):
     _render_actions(_selected, chosen)
-_act[1].caption("Select rows in the table — click, **Shift-click** for a range, "
-                "**Ctrl/Cmd-click** to add — then open **Action**.")
 
 _bar = st.columns([5, 1.4], vertical_alignment="bottom")
 _bar[1].button("↺ Reset to sort order", key="grid_reset", on_click=_cb_reset_grid,
@@ -766,13 +748,8 @@ if _sel_bar[1].button("📂 Add Selection", width="stretch",
         st.toast(f"Added {_added} to selection"
                  + (f" · {_missing} not in this table" if _missing else ""))
         st.rerun()
-_sel_bar[2].caption("Save the selected rows as a .syms, or Add one to bring its "
-                    "symbols into the current selection (only those in this table).")
 
 _bump = st.session_state.setdefault("output_grid_bump", 0)
 _wrap = st.container(key=f"results_grid_wrap:{'|'.join(chosen)}:{_bump}")
 _wrap.dataframe(view, hide_index=True, width="stretch", column_config=col_config,
                 key="results_grid", on_select="rerun", selection_mode="multi-row")
-st.caption("Use the **Sort** panel above for multi-column sort — priority number + "
-           "arrow show on each sorted header. A single header click still does a quick "
-           "one-off sort; **↺ Reset to sort order** restores the panel order.")

@@ -117,25 +117,16 @@ def _slider(col, path: str, label: str, *, lo: float = 0.0, hi: float = 1.0, ste
 
 # --------------------------------------------------------------------------- #
 st.title("Settings")
-st.caption(
-    "Edits write back to `config/settings.py` (a backup is taken first) and take "
-    "effect immediately. Hand-edits to that file work just the same."
-)
 
 # -- Scoring weights -------------------------------------------------------- #
 with st.expander("Scoring — Overall category weights", expanded=True):
-    st.caption(
-        "Weight of each category in the Overall Score. Renormalized across the "
-        "categories a symbol actually has, so relative sizes are what matter."
-    )
     cols = st.columns(len(settings.OVERALL_SCORE_WEIGHTS))
     for col, cat in zip(cols, settings.OVERALL_SCORE_WEIGHTS):
         _slider(col, f"OVERALL_SCORE_WEIGHTS.{cat}", cat.capitalize(), lo=0.0, hi=1.0, step=0.05)
     _total = sum(_new[f"OVERALL_SCORE_WEIGHTS.{c}"] for c in settings.OVERALL_SCORE_WEIGHTS)
-    st.caption(f"Sum: **{_total:.2f}** (need not equal 1.0 — it's renormalized).")
+    st.caption(f"Sum: **{_total:.2f}**")
 
 with st.expander("Scoring — Metric weights within each category"):
-    st.caption("Relative weight of each metric inside its category score (0 disables it).")
     for cat, metrics in settings.CATEGORY_METRIC_WEIGHTS.items():
         st.markdown(f"**{cat.capitalize()}**")
         items = list(metrics)
@@ -224,31 +215,30 @@ with st.expander("Fetch — behaviour & viability/abandonment"):
     _int(c2, "DEFAULT_BATCH_SIZE", "Batch size", min_value=1, max_value=2000)
     _int(c3, "OHLCV_INITIAL_YEARS", "OHLCV initial load (years)", min_value=1, max_value=50)
 
-    st.markdown("**Abandonment** — stop fetching symbols that stop producing data")
+    st.markdown("**Abandonment**")
     _bool(st, "FETCH_ABANDONMENT_ENABLED", "Policy enabled (master switch)")
-    st.caption("No-data strikes — for symbols that return nothing at all")
+    st.caption("No-data strikes")
     c1, c2, c3 = st.columns(3)
     _int(c1, "MAX_NO_DATA_FETCHES", "Max no-data fetches before abandon", min_value=1, max_value=20)
-    st.caption("Staleness — for symbols that return only old data")
+    st.caption("Staleness")
     c1, c2, c3 = st.columns(3)
     _int(c1, "OHLCV_STALE_WEEKS", "OHLCV stale (weeks)", min_value=1, max_value=104)
     _int(c2, "FINANCIALS_QUARTERLY_STALE_QUARTERS", "Quarterly stale (quarters)", min_value=1, max_value=20)
     _int(c3, "FINANCIALS_YEARLY_STALE_QUARTERS", "Annual stale (quarters)", min_value=1, max_value=40)
-    st.caption("Due-date gate — defer financials while the next statement can't exist yet")
+    st.caption("Due-date gate")
     c1, c2, c3 = st.columns(3)
     _int(c1, "FINANCIALS_REPORT_LAG_DAYS", "Filing lag (days)", min_value=0, max_value=120)
 
-    st.markdown("**Validation** — drop a symbol from the analysis universe")
+    st.markdown("**Validation**")
     c1, c2, c3 = st.columns(3)
     _int(c1, "OHLCV_INACTIVE_AFTER_WEEKS", "OHLCV inactive after (weeks)", min_value=1, max_value=104)
 
-    st.markdown("**Retries** — transient API failure (tenacity)")
+    st.markdown("**Retries**")
     c1, c2, c3 = st.columns(3)
     _int(c1, "RETRY_MAX_ATTEMPTS", "Max attempts", min_value=1, max_value=10)
     _float(c2, "RETRY_WAIT_SECONDS", "Wait between (seconds)", min_value=0.0, max_value=60.0, step=0.5, fmt="%.1f")
 
 with st.expander("Fetch — API rate limits (calls per period)"):
-    st.caption("Max calls allowed per period (seconds) for each API's throttle.")
     for api in settings.RATE_LIMITS:
         calls, period = settings.RATE_LIMITS[api]
         c0, c1, c2 = st.columns([1, 1, 1])

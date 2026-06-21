@@ -154,13 +154,6 @@ _TREND_LABELS = {
 def render() -> None:
     """The peak-detection calibrator UI. Embedded as a Settings section, so it uses early
     `return`s (not `st.stop()`) to bail without killing the rest of the Settings page."""
-    st.caption(
-        "Tune how the analysis finds price **swing highs and lows** — the peaks that "
-        "decide each symbol's `trend`. Slide the two knobs, watch the markers move, "
-        "then **Save**. New values apply to the **next analysis run** (existing rows "
-        "are not re-labelled)."
-    )
-
     _samples = _pick_samples(
         settings.ANALYSIS_DB.stat().st_mtime if settings.ANALYSIS_DB.exists() else 0.0,
         settings.SETTINGS_OVERRIDES_PATH.stat().st_mtime

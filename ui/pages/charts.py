@@ -309,9 +309,6 @@ def _cb_fund_param(key: str) -> None:
 def _render_fundamentals_bar(symbols: list[str], picked: list[str] | None = None) -> None:
     """One symbol × one parameter, as bars across its reported periods (ROADMAP 6.2)."""
     st.subheader("Fundamentals over time")
-    st.caption("One symbol, one parameter, across its reported periods. Ratios use the "
-               "same formulas as the analysis snapshot; price-based ratios (P/E, yield) "
-               "and growth/score metrics aren't shown here.")
 
     _options = list(metrics.RAW_PERIOD_FIELDS) + list(metrics.RATIO_PERIOD_METRICS)
     # On first arrival, default to the first Output-shown column this view supports.
@@ -404,9 +401,7 @@ def _render_fundamentals_bar(symbols: list[str], picked: list[str] | None = None
     }
     with _right:
         st_echarts(options=_options_ec, height="560px", key="fund_bar")
-        st.caption(f"**{_symbol}** · {_param_label(_param)} · {_freq_label.lower()} periods. "
-                   "Missing bars = the metric wasn't reported (or its inputs were absent) "
-                   "that period.")
+        st.caption(f"**{_symbol}** · {_param_label(_param)} · {_freq_label.lower()} periods")
 
 
 # --------------------------------------------------------------------------- #
@@ -534,11 +529,6 @@ def _render_fundamentals_line(symbols: list[str], picked: list[str] | None = Non
     6.2 — Fundamentals growth line). A TIME x-axis lets symbols on different fiscal
     calendars align by date; missing periods break the line (no interpolation)."""
     st.subheader("Fundamentals growth — over time")
-    st.caption("One parameter, every selected symbol, across its reported periods. "
-               "**Normalized** rebases each symbol to 100 to compare growth trajectories "
-               "regardless of size; **Actual** shows reported values on a shared axis. "
-               "Ratios use the same "
-               "formulas as the analysis snapshot. Click a legend name to show/hide a line.")
 
     _opts = list(metrics.RAW_PERIOD_FIELDS) + list(metrics.RATIO_PERIOD_METRICS)
     # On first arrival, default to the first Output-shown column this view supports.
@@ -683,9 +673,7 @@ def _render_fundamentals_line(symbols: list[str], picked: list[str] | None = Non
     _scale_note = ("normalized to 100 at the shared start" if _indexed
                    else "actual reported values")
     _cut_note = f" · from {_cut:%Y-%m-%d} (after last gap)" if _cut is not None else ""
-    st.caption(f"{_param_label(_param)} · {_freq_label.lower()} periods · {_scale_note}"
-               f"{_cut_note}. Line breaks mark missing periods. Zoom with the wheel or the "
-               "bottom slider; the ⟳ restore icon resets the view.")
+    st.caption(f"{_param_label(_param)} · {_freq_label.lower()} periods · {_scale_note}{_cut_note}")
 
 
 # --------------------------------------------------------------------------- #
@@ -697,10 +685,6 @@ def _render_dividend_line(symbols: list[str]) -> None:
     period-end close × 100; annual = calendar year, quarterly = calendar quarter (TTM is
     excluded from the growth view by design). TIME x-axis so symbols align by date."""
     st.subheader("Dividend yield — over time")
-    st.caption("Each selected symbol's dividend yield, per calendar period. Yield = "
-               "dividends paid in the period ÷ the period-end price. A period with no "
-               "payout shows 0%. **Actual** shows the yield %; **Normalized** rebases each "
-               "symbol to 100 to compare trajectories. Click a legend name to show/hide a line.")
 
     _freq_label = st.container(key="fundperiod").radio(
         "Period", list(_FREQ), index=0, horizontal=True)
@@ -802,9 +786,7 @@ def _render_dividend_line(symbols: list[str]) -> None:
             st.rerun()
     _scale_note = "normalized to 100" if _normalized else "actual yield"
     _cut_note = f" · from {_cut:%Y-%m-%d} (after last gap)" if _cut is not None else ""
-    st.caption(f"Dividend yield · {_freq_label.lower()} periods · {_scale_note}{_cut_note}. "
-               "Line breaks mark gaps. Zoom with the wheel or the bottom slider; the ⟳ "
-               "restore icon resets the view.")
+    st.caption(f"Dividend yield · {_freq_label.lower()} periods · {_scale_note}{_cut_note}")
 
 
 # --------------------------------------------------------------------------- #
@@ -832,9 +814,6 @@ def _load_scores(symbols: tuple[str, ...], _mtime: float) -> pd.DataFrame:
 def _render_radar(symbols: list[str]) -> None:
     """The five 0-100 category scores per symbol, one polygon each (ROADMAP 6.2)."""
     st.subheader("Category scores — radar")
-    st.caption("Each symbol's five category scores (0-100, percentile-ranked vs the "
-               "universe) as one polygon — bigger/rounder is stronger overall. Click a "
-               "legend name to show/hide that symbol.")
 
     _mtime = settings.ANALYSIS_DB.stat().st_mtime if settings.ANALYSIS_DB.exists() else 0.0
     _df = _load_scores(tuple(symbols), _mtime)
@@ -926,9 +905,6 @@ def _render_radar(symbols: list[str]) -> None:
         if _merged != _cur:
             st.session_state["radar_legend_sel"] = _merged
             st.rerun()
-    st.caption("Axes: Value, Quality, Growth, Momentum, Income — each 0-100. A blank "
-               "axis means that category wasn't scored for the symbol. Color-blind-safe "
-               "palette; overlay several to compare, or toggle via the legend.")
 
 
 # --------------------------------------------------------------------------- #
@@ -1021,8 +997,6 @@ def _render_group_selector(tree: dict) -> None:
         sel = st.session_state.setdefault("chart_grp_sel", None)
         st.session_state.setdefault("chart_grp_open", set())
         open_ = st.session_state["chart_grp_open"]
-        st.caption("Pick one (click it again to clear). The chart then shows only that "
-                   "group's symbols, each relative to its index (the flat 100 line is it).")
         with st.container(height=min(len(tree) * 36 + 80, 340)):
             for sec in tree:
                 skey = f"S::{sec}"
@@ -1186,11 +1160,7 @@ def _render_heatmap(symbols: list[str], picked: list[str] | None = None) -> None
     _default = _picked or [k for k in _HEAT_DEFAULTS if k in _cols] or _opts[:8]
     _heatmap_core(
         symbols, _df, _rules, _opts, _default, key="heatmap",
-        title="Metrics heat map", metric_label="Metrics (columns)",
-        intro="Each cell is colored by how **strong** that symbol is on that metric — "
-              "**orange = strong, blue = weak** — using the rules from the **Scoring "
-              "Rules** page. Sweet-spot metrics (e.g. payout) fade to blue on *both* sides. "
-              "Hover a cell for the raw value and the rule's verdict.")
+        title="Metrics heat map", metric_label="Metrics (columns)")
 
 
 def _render_scores_heatmap(symbols: list[str]) -> None:
@@ -1206,19 +1176,15 @@ def _render_scores_heatmap(symbols: list[str]) -> None:
         return
     _heatmap_core(
         symbols, _df, _rules, _opts, _opts, key="scores_heatmap",
-        title="Scores heat map", metric_label="Scores (columns)",
-        intro="The five category scores, the **Overall** score and **RS Rank** for the "
-              "selected symbols — each cell colored by its 0-100 strength (**orange = "
-              "strong, blue = weak**). Click a column to sort the symbols by it.")
+        title="Scores heat map", metric_label="Scores (columns)")
 
 
 def _heatmap_core(symbols: list[str], _df, _rules, _opts: list[str], _default: list[str],
-                  *, key: str, title: str, intro: str, metric_label: str) -> None:
+                  *, key: str, title: str, metric_label: str) -> None:
     """Shared symbols × metrics heat map: column picker, rule-goodness coloring and
     click-a-column-to-sort-rows. `key` namespaces the widget/session-state so two heat
     maps don't collide. `_opts`/`_default` define the column pool + initial selection."""
     st.subheader(title)
-    st.caption(intro)
     _name = _heat_name
 
     # Column picker = the shared popover param browser (search + category groups + per-row
@@ -1373,10 +1339,9 @@ def _heatmap_core(symbols: list[str], _df, _rules, _opts: list[str], _default: l
                 else {"col": _clicked, "desc": True})
             st.rerun()
 
-    _sorted_by = (f" · sorted by **{_name(_sort['col'])}** "
-                  f"({'strongest' if _sort['desc'] else 'weakest'} on top)" if _sort else "")
-    st.caption("Color = strength (0-100). **Click a column** to sort the symbols by its "
-               "strength (click again to flip)." + _sorted_by)
+    if _sort:
+        st.caption(f"Sorted by **{_name(_sort['col'])}** "
+                   f"({'strongest' if _sort['desc'] else 'weakest'} on top)")
 
 
 def _symbol_selection_bar(symbols: list[str], *, keyp: str,
@@ -1649,10 +1614,6 @@ with _chart_host:
         if _merged != _cur:  # store the new on/off state and redraw with it applied
             st.session_state["chart_legend_sel"] = _merged
             st.rerun()
-    st.caption("Apache ECharts (dark theme). Click a legend name to show/hide that line "
-               "(kept across the view toggle); hover shows every symbol's value at the "
-               "cursor. Zoom with the wheel or the bottom slider; the ⟳ restore icon "
-               "(top-right) resets to the full chart.")
 
 # Sector/industry selector — below the chart, collapsed by default, and a FRAGMENT:
 # expand/collapse reruns only it (chart untouched), a selection triggers a full rerun.

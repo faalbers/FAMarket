@@ -165,9 +165,6 @@ def _preview(metric: str, rule: dict, df: pd.DataFrame) -> None:
         "series": [{"type": "bar", "data": data, "barCategoryGap": "8%", **mark}],
     }
     st_echarts(options=options, height="320px", key=f"sr_prev_{metric}")
-    st.caption("Each bar = a slice of the universe's values for this metric, colored by the "
-               "rule: **orange = strong, blue = weak.** The shaded band / dashed line marks "
-               "the rule's ideal band / anchor.")
 
 
 def _editor(metric: str, df: pd.DataFrame, rules: dict[str, dict]) -> dict:
@@ -217,11 +214,6 @@ def _editor(metric: str, df: pd.DataFrame, rules: dict[str, dict]) -> dict:
 # page
 # --------------------------------------------------------------------------- #
 st.title("Scoring Rules")
-st.caption(
-    "Decide how each parameter is judged **strong vs weak** — the rule that colors the "
-    "**metrics heat map**. Pick a metric, set its rule, watch the live preview, then "
-    "**Save**. Rules also carry seeded per-type exceptions (e.g. REITs pay out more) that "
-    "apply automatically. Delete `scoring_rules.json` to reset everything to defaults.")
 
 _mtime = settings.ANALYSIS_DB.stat().st_mtime if settings.ANALYSIS_DB.exists() else 0.0
 _df = _load_analysis(_mtime)
@@ -283,5 +275,4 @@ _save[1].caption("Saves every metric whose rule differs from the built-in defaul
 # -- whole-set overview (text table, no charts) ---------------------------------
 st.divider()
 st.subheader("All rules")
-st.caption("The full rule set at a glance. Pick any row's metric above to edit it.")
 st.dataframe(_overview_table(_rules, _by_cat), width="stretch", hide_index=True)
