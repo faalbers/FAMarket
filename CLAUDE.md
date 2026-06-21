@@ -188,6 +188,12 @@ Three intentionally decoupled layers plus shared infrastructure:
   category info row, etc.) — never hardcode a description in a page. Category scores
   (`*_score`) are registry keys too (`category: "Score"`). To verify nothing slipped:
   cross-check `R.BASE_BY_KEY` against `PARAM_HINTS` (currently 69/69, 0 missing).
+- **No explainer text in the UI** — don't add `st.caption`/`st.markdown` blurbs that
+  describe what a control does or how to use it (they clutter the UI, 2026-06-21). The
+  sanctioned hint mechanism is `config/param_hints.py` hint boxes + widget `help=`
+  tooltips. Keep ONLY status/error/empty messages and captions that show **data**
+  (counts, names, plotted-data subtitles, sort state). `ui/pages/param_reference.py` is
+  intentional documentation — exempt.
 - **Charts** are rendered with **Apache ECharts** (`streamlit-echarts`, pinned
   `==0.4.0` — 0.7.0 uses `st.components.v2` and breaks on the current Streamlit).
   Use a color-blind-safe palette (no red/green; blue-to-orange for heatmaps); the
