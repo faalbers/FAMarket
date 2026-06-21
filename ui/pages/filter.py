@@ -28,10 +28,14 @@ import streamlit as st
 
 from config import settings
 from core.database import Database
+from ui import file_io as FIO
 from ui import filter_engine as E
 from ui import filter_registry as R
 from ui import output_runs as O
 from ui import param_picker as P
+
+# Native file-dialog filter for .filt files (ui/file_io).
+_FILT_TYPES = [("Filter files", "*.filt"), ("All files", "*.*")]
 
 # --------------------------------------------------------------------------- #
 # data + state
@@ -412,64 +416,62 @@ cat_map = _categorical_map(settings.ANALYSIS_DB.stat().st_mtime)
 # -- Filters ---------------------------------------------------------------- #
 with st.expander("Filters", expanded=True):
     bar = st.columns([1, 1, 1, 1, 3], vertical_alignment="bottom")
-    saved = E.list_filter_files()
-    # Load / Add (replace vs append a saved .filt set). Each popover is wrapped in a
-    # nonce-keyed container so a successful action can close it: Streamlit has no
-    # close-popover API, but re-keying the wrapper remounts the popover shut (the
-    # same trick the param picker uses). Feedback goes to a toast that survives the
-    # rerun, instead of a message stranded inside the now-closed popover.
-    load_nonce = st.session_state.get("load_nonce", 0)
-    with bar[0].container(key=f"load_wrap{load_nonce}").popover("📂 Load", width="stretch"):
-        if saved:
-            pick = st.selectbox("Replace current with…", saved, key="load_pick")
-            if st.button("Load (replace)", key="do_load"):
-                data = E.load_filterset(pick)
-                st.session_state["filter_blocks"] = [_with_id(b) for b in data["blocks"]] or [_with_id(E.new_block())]
+    # Save / Load / Add go through the app's native OS file dialog (ui/file_io),
+    # starting in the filters library. Save writes straight there; Load replaces the
+    # current blocks; Add appends. The dialog runs out-of-process and blocks until the
+    # user picks or cancels — a None return means cancel, so nothing changes.
+    if bar[0].button("💾 Save", width="stretch",
+                     help="Save these conditions to a .filt file"):
+        typed = (st.session_state.get("filter_name") or "untitled").strip() or "untitled"
+        path = FIO.ask_save_path(
+            initialdir=settings.FILTERS_DIR, default_name=f"{typed}.filt",
+            defaultextension=".filt", filetypes=_FILT_TYPES, title="Save filter")
+        if path:
+            E.save_filterset_to(path, list(selected), st.session_state["filter_blocks"])
+            st.session_state["filter_name"] = path.stem  # reflect saved name in the box
+            st.toast(f"Saved {path.name}")
+            st.rerun()
+    if bar[1].button("📂 Load", width="stretch",
+                     help="Replace the current filter with a saved .filt file"):
+        path = FIO.ask_open_path(initialdir=settings.FILTERS_DIR,
+                                 filetypes=_FILT_TYPES, title="Load filter")
+        if path:
+            try:
+                data = E.load_filterset_from(path)
+            except (OSError, ValueError) as exc:
+                st.error(f"Couldn't read {path.name}: {exc}")
+            else:
+                st.session_state["filter_blocks"] = (
+                    [_with_id(b) for b in data["blocks"]] or [_with_id(E.new_block())])
                 if data["selected_types"]:
                     # Applied at the top of the next run, before the checkboxes render.
                     st.session_state["_pending_sectypes"] = list(data["selected_types"])
-                st.session_state["filter_name"] = pick
-                st.session_state["load_nonce"] = load_nonce + 1  # re-key wrapper -> popover closes
-                st.toast(f"Loaded {pick}")
+                st.session_state["filter_name"] = path.stem
+                st.toast(f"Loaded {path.name}")
                 st.rerun()
-        else:
-            st.caption("No saved filters yet.")
-    add_nonce = st.session_state.get("add_nonce", 0)
-    with bar[1].container(key=f"add_wrap{add_nonce}").popover("➕ Add", width="stretch"):
-        if saved:
-            pick = st.selectbox("Append blocks from…", saved, key="add_pick")
-            if st.button("Add (append)", key="do_add"):
-                data = E.load_filterset(pick)
-                st.session_state["filter_blocks"].extend(_with_id(b) for b in data["blocks"])
-                st.session_state["add_nonce"] = add_nonce + 1  # re-key wrapper -> popover closes
-                st.toast(f"Added blocks from {pick}")
+    if bar[2].button("➕ Add", width="stretch",
+                     help="Append blocks from a saved .filt file"):
+        path = FIO.ask_open_path(initialdir=settings.FILTERS_DIR,
+                                 filetypes=_FILT_TYPES, title="Add filter")
+        if path:
+            try:
+                data = E.load_filterset_from(path)
+            except (OSError, ValueError) as exc:
+                st.error(f"Couldn't read {path.name}: {exc}")
+            else:
+                st.session_state["filter_blocks"].extend(
+                    _with_id(b) for b in data["blocks"])
+                # Keep the current Filter name across the rerun: its text_input isn't
+                # rendered on this run (we rerun above it), and Streamlit drops a
+                # widget's value when the widget doesn't render unless it's re-pinned.
+                st.session_state["filter_name"] = st.session_state.get("filter_name", "")
+                st.toast(f"Added blocks from {path.name}")
                 st.rerun()
-        else:
-            st.caption("No saved filters yet.")
-    save_nonce = st.session_state.get("save_nonce", 0)
-    with bar[2].container(key=f"save_wrap{save_nonce}").popover("💾 Save", width="stretch"):
-        typed = (st.session_state.get("filter_name") or "").strip()
-        st.caption("Save the current conditions as a .filt file. Pick an existing "
-                   "filter to overwrite it, or keep **— new file —** to save under "
-                   "the name in the Filter name box.")
-        if saved:
-            pick = st.selectbox("Overwrite an existing filter…",
-                                ["— new file —"] + saved, key="save_pick")
-            target = typed if pick == "— new file —" else pick
-        else:
-            target = typed
-        st.markdown(f"Save as **{target or '—'}.filt**")
-        if st.button("Save", key="do_save", disabled=not target):
-            path = E.save_filterset(target, list(selected), st.session_state["filter_blocks"])
-            st.session_state["filter_name"] = target  # reflect saved name in the box
-            st.session_state["save_nonce"] = save_nonce + 1  # re-key wrapper -> popover closes
-            st.toast(f"Saved {path.name}")
-            st.rerun()
     bar[3].button("🧹 Clear", on_click=_cb_clear, width="stretch", help="Remove all blocks")
     bar[4].text_input(
         "Filter name", key="filter_name", placeholder="untitled",
-        help="Working name for this filter set. Used as the .filt filename when "
-             "you Save, and recorded on each run. Leave blank for an ad-hoc run.")
+        help="Working name for this filter set. Pre-fills the Save dialog's filename "
+             "and is recorded on each run. Leave blank for an ad-hoc run.")
 
     st.divider()
 

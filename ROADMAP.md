@@ -499,9 +499,15 @@
    - ✅ Subtopic 5.2 — Saving & importing filter sets
      - Filter sets saved as .filt files (plain JSON, human-readable/editable) in filters/ folder
      - Save, Load, Add (append to current filters), Clear (wipe current screen)
-     - Load → file selector popup, replaces current filters entirely
-     - Add → file selector popup, appends saved set's blocks to bottom of current filters
-     - Save → file selector popup, saves current filters as .filt file
+     - Save/Load/Add → **native OS file dialog** (`ui/file_io.py`), starting in the
+       filters/ folder; Save writes straight there. (2026-06-21: replaced the original
+       in-app .filt dropdown picker — we evaluated the browser file chooser vs a
+       tkinter dialog and chose tkinter because it can start in / save to the filters
+       folder and gives plain Save/Load/Add buttons. Reusable for .prms later. Valid
+       only because the app is local & single-user; a cloud/remote move would need the
+       browser chooser instead. tkinter runs out-of-process to avoid Streamlit's
+       worker-thread crash.)
+     - Load → replaces current filters entirely; Add → appends saved set's blocks
      - Clear → wipes all current blocks (no file selector)
      - Filters folder path configured once in Settings
 

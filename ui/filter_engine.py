@@ -272,34 +272,40 @@ def run_filter(df: pd.DataFrame, selected_types: set[str], filterset: list[dict]
 
 # --------------------------------------------------------------------------- #
 # .filt persistence (plain JSON, hand-editable — ROADMAP 5.2)
+# Files are chosen via the native OS dialog (ui/file_io), so these take a full path
+# rather than a name in a fixed folder.
 # --------------------------------------------------------------------------- #
-def _filters_dir() -> Path:
-    settings.FILTERS_DIR.mkdir(parents=True, exist_ok=True)
-    return settings.FILTERS_DIR
+def _clean_blocks(blocks: list[dict]) -> list[dict]:
+    """Copy of the block list without the UI-only `_id` fields (added on load by the
+    Filter page for widget tracking; never part of the saved file)."""
+    out = []
+    for b in blocks:
+        nb = {k: v for k, v in b.items() if k != "_id"}
+        if "or_children" in nb:
+            nb["or_children"] = [
+                {k: v for k, v in c.items() if k != "_id"} for c in nb["or_children"]
+            ]
+        out.append(nb)
+    return out
 
 
-def list_filter_files() -> list[str]:
-    """Saved filter-set names (without the .filt extension), alphabetical."""
-    return sorted(p.stem for p in _filters_dir().glob("*.filt"))
-
-
-def save_filterset(name: str, selected_types: list[str], filterset: list[dict]) -> Path:
-    """Write a filter set to <FILTERS_DIR>/<name>.filt (overwrites)."""
-    path = _filters_dir() / f"{name}.filt"
+def save_filterset_to(path: Path | str, selected_types: list[str],
+                      filterset: list[dict]) -> Path:
+    """Write a filter set to `path` as .filt JSON (overwrites)."""
+    path = Path(path)
     payload = {
         "version": 1,
         "saved_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "selected_types": list(selected_types),
-        "blocks": filterset,
+        "blocks": _clean_blocks(filterset),
     }
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return path
 
 
-def load_filterset(name: str) -> dict:
+def load_filterset_from(path: Path | str) -> dict:
     """Read a .filt file -> {"selected_types": [...], "blocks": [...]}."""
-    path = _filters_dir() / f"{name}.filt"
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
     return {
         "selected_types": data.get("selected_types", []),
         "blocks": data.get("blocks", []),

@@ -235,6 +235,18 @@ Three intentionally decoupled layers plus shared infrastructure:
   Count-capped, not day-based. Same scheme backs up the run log and `config/settings.py`.
   `core/restore.py` reverts the live DBs to a chosen snapshot (Fetch Control danger
   zone), copying the current DBs to `backups/pre_restore/` first as a one-level undo.
+- **File Open/Save dialogs go through `ui/file_io.py`** (`ask_open_path` /
+  `ask_save_path`) — the app's ONE file chooser. It pops a **native OS dialog**
+  (tkinter) run **out-of-process** (tkinter needs the main thread; Streamlit runs the
+  script on a worker thread, so an in-process dialog would crash/freeze). Chosen
+  deliberately over the browser's `file_uploader`/`download_button` because the app is
+  local & single-user, so a native dialog can start in / save straight to a folder
+  (e.g. `FILTERS_DIR`) and offers plain Save/Load buttons — a browser chooser can do
+  neither. **This ties file dialogs to running on the user's own desktop**; a
+  cloud/remote move would have to switch back to the browser chooser. The utility only
+  picks the path — each file type owns its (de)serialisation (e.g.
+  `filter_engine.save_filterset_to` / `load_filterset_from` for `.filt`). Reuse it for
+  any future file picker (e.g. `.prms` column sets); don't hand-roll `st.file_uploader`.
 - **Per-symbol analysis loops index once**: never filter the full OHLCV/financials
   frame inside the per-symbol loop — a boolean mask per symbol re-scans millions of
   rows. Pre-group by symbol before the loop (`groupby` → dict of pre-sorted slices)
