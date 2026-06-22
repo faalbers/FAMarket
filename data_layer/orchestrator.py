@@ -34,6 +34,7 @@ from data_layer import cancel, fetch_status, symbols
 from data_layer.fetchers.edgar_fetcher import EDGARFinancials
 from data_layer.fetchers.fred_fetcher import fetch_fred
 from data_layer.fetchers.yfinance_fetcher import (
+    YFinanceEstimates,
     YFinanceFinancials,
     YFinanceOHLCV,
     YFinanceQuotes,
@@ -80,6 +81,7 @@ def _report_fetchers() -> list[tuple[str, object]]:
         ("yfinance quotes", YFinanceQuotes()),
         ("yfinance OHLCV", YFinanceOHLCV()),
         ("yfinance financials", YFinanceFinancials()),
+        ("yfinance estimates", YFinanceEstimates()),
         ("EDGAR financials", EDGARFinancials()),
     ]
 
@@ -236,6 +238,11 @@ def _run_fetch_groups(
         if _cancelled():
             return
         summary["financials"] = YFinanceFinancials().run(universe, sdb, respect_lock)
+        if _cancelled():
+            return
+        # Analyst estimates — same universe (resolved types), shares the yfinance
+        # rate limit; forward-horizon consensus into its own estimates.db.
+        summary["estimates"] = YFinanceEstimates().run(universe, sdb, respect_lock)
         if _cancelled():
             return
         # EDGAR runs AFTER yfinance so yfinance owns the recent window first; EDGAR

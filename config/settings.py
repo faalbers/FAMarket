@@ -37,6 +37,7 @@ FINANCIALS_DB: Path = DB_DIR / "financials.db"
 ANALYSIS_DB: Path = DB_DIR / "analysis.db"
 MACRO_DB: Path = DB_DIR / "macro.db"
 INDICES_DB: Path = DB_DIR / "indices.db"  # sector / sub-industry index level series
+ESTIMATES_DB: Path = DB_DIR / "estimates.db"  # yfinance analyst estimates (per forward horizon)
 
 # Rotating backups of every .db file, taken before each fetch run.
 BACKUP_DIR: Path = BASE_DIR / "backups"

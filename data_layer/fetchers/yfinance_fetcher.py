@@ -384,3 +384,132 @@ class YFinanceFinancials(BaseFetcher):
                         "%s (%d days apart); upsert keeps both, manual review needed",
                         sym, freq, labels[i - 1], labels[i], gap,
                     )
+
+
+# --------------------------------------------------------------------------- #
+# Analyst estimates (Topic 3.3 — forward-looking consensus)
+# --------------------------------------------------------------------------- #
+# Five yfinance Ticker properties, all derived from the one cached `earningsTrend`
+# module (so reading all five is ~one network fetch), share a forward-HORIZON index
+# (0q / +1q / 0y / +1y, plus LTG only on growth_estimates) — NOT a reported
+# period_end. We store them tidy/long, one row per (symbol, horizon), each re-fetch
+# replacing the row in place (no dated history: eps_trend already carries the
+# 7/30/60/90-days-ago values within a single snapshot).
+#
+# Each property maps its yfinance columns to a prefixed snake_case column EXPLICITLY
+# (not via a generic normalizer): eps_revisions mixes casings — `upLast7days` (lower
+# d) vs `downLast7Days` (capital D) — that a normalizer would silently mishandle.
+_EE_COLS = {  # earnings_estimate
+    "avg": "eps_avg", "low": "eps_low", "high": "eps_high",
+    "yearAgoEps": "eps_year_ago", "numberOfAnalysts": "eps_num_analysts",
+    "growth": "eps_growth",
+}
+_RE_COLS = {  # revenue_estimate
+    "avg": "rev_avg", "low": "rev_low", "high": "rev_high",
+    "numberOfAnalysts": "rev_num_analysts", "yearAgoRevenue": "rev_year_ago",
+    "growth": "rev_growth",
+}
+_GE_COLS = {  # growth_estimates (the only property that fills the LTG horizon)
+    "stockTrend": "growth_stock_trend", "indexTrend": "growth_index_trend",
+}
+_ET_COLS = {  # eps_trend — the estimate's own revision history, in one snapshot
+    "current": "eps_trend_current", "7daysAgo": "eps_trend_7d",
+    "30daysAgo": "eps_trend_30d", "60daysAgo": "eps_trend_60d",
+    "90daysAgo": "eps_trend_90d",
+}
+_ER_COLS = {  # eps_revisions — note the casing quirk on downLast7Days
+    "upLast7days": "eps_rev_up_7d", "upLast30days": "eps_rev_up_30d",
+    "downLast30days": "eps_rev_down_30d", "downLast7Days": "eps_rev_down_7d",
+}
+
+# Final column order for the stored frame (keys, then each property group, then
+# bookkeeping). currency rides on every property except growth_estimates.
+_ESTIMATE_COLUMNS = [
+    "symbol", "horizon",
+    *_EE_COLS.values(), *_RE_COLS.values(), *_GE_COLS.values(),
+    *_ET_COLS.values(), *_ER_COLS.values(),
+    "currency", "fetched_at",
+]
+
+
+def sanitize_estimates(symbol, earnings, revenue, growth, trend, revisions) -> pd.DataFrame:
+    """Merge the five horizon-indexed estimate frames into tidy (symbol, horizon) rows.
+
+    Each input is a yfinance DataFrame (or None/empty). Horizons are unioned across
+    all five so LTG (growth_estimates only) is included; a horizon row with no metric
+    value at all is dropped. Numerics are coerced (bad -> NaN -> stored NULL). Empty
+    DataFrame when nothing usable survives -> base class records no-data.
+    """
+    sources = [
+        (earnings, _EE_COLS), (revenue, _RE_COLS), (growth, _GE_COLS),
+        (trend, _ET_COLS), (revisions, _ER_COLS),
+    ]
+    cells: dict[str, dict] = {}      # horizon -> {dest_col: value}
+    currency: dict[str, str] = {}    # horizon -> currency (first source carrying it)
+    for df, mapping in sources:
+        if df is None or not hasattr(df, "empty") or df.empty:
+            continue
+        for horizon in df.index:
+            dest = cells.setdefault(str(horizon), {})
+            for src_col, dst_col in mapping.items():
+                if src_col in df.columns:
+                    dest[dst_col] = pd.to_numeric(df.at[horizon, src_col], errors="coerce")
+            if "currency" in df.columns and str(horizon) not in currency:
+                cv = _clean_value(df.at[horizon, "currency"])
+                if cv:
+                    currency[str(horizon)] = cv
+
+    fetched = datetime.now(timezone.utc).isoformat()
+    out_rows = []
+    for horizon, vals in cells.items():
+        if not any(pd.notna(v) for v in vals.values()):  # record-level reject
+            continue
+        out_rows.append({"symbol": symbol, "horizon": horizon, **vals,
+                         "currency": currency.get(horizon), "fetched_at": fetched})
+    if not out_rows:
+        return pd.DataFrame()
+    out = pd.DataFrame(out_rows)
+    return out[[c for c in _ESTIMATE_COLUMNS if c in out.columns]]
+
+
+def _estimate_frame(ticker, prop: str):
+    """One analyst-estimate property as a DataFrame, or None on any failure.
+
+    Best-effort per property (mirrors `_fund_overview`): all five share the cached
+    earningsTrend module, but any one can raise or come back unpopulated, and a
+    single missing property must not reject the whole symbol.
+    """
+    try:
+        df = getattr(ticker, prop)
+    except Exception:
+        return None
+    if df is None or not hasattr(df, "empty") or df.empty:
+        return None
+    return df
+
+
+class YFinanceEstimates(BaseFetcher):
+    name = "yfinance_estimates"
+    api = "yfinance"
+    applies_to = ("stock", "reit", "adr")  # analyst estimates exist only for these
+    target_db = "ESTIMATES_DB"
+    table = "estimates"
+    write_mode = "upsert"
+    upsert_key = ["symbol", "horizon"]
+    # Standard weekly lock (inherits FETCH_LOCK_DAYS); no not_due/stale overrides —
+    # estimates revise continuously (no filing cycle) and the snapshot is replaced in
+    # place, so no-coverage names self-abandon via the no-data strike counter.
+
+    def fetch_one(self, symbol: str) -> pd.DataFrame | None:
+        import yfinance as yf
+
+        t = yf.Ticker(symbol)
+        rows = sanitize_estimates(
+            symbol,
+            _estimate_frame(t, "earnings_estimate"),
+            _estimate_frame(t, "revenue_estimate"),
+            _estimate_frame(t, "growth_estimates"),
+            _estimate_frame(t, "eps_trend"),
+            _estimate_frame(t, "eps_revisions"),
+        )
+        return rows if not rows.empty else None

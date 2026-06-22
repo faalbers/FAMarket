@@ -165,6 +165,15 @@
        - Multiple time horizons (current/next quarter, current/next year)
        - Stored in financials.db; used in Analysis layer for forward-looking metrics
        - Coverage sparse for small caps — NULL where unavailable
+       - ✅ IMPLEMENTED — FETCH side (2026-06-21): `YFinanceEstimates` (data_layer/fetchers/
+         yfinance_fetcher.py) pulls earnings_estimate + revenue_estimate + growth_estimates AND
+         eps_trend + eps_revisions (the revision-momentum signal — yfinance gives 7/30/60/90d-ago
+         in one snapshot). Stored in a dedicated **estimates.db** (NOT financials.db — different
+         key shape: tidy/long keyed (symbol, horizon) with horizon 0q/+1q/0y/+1y/LTG), upsert-
+         replaced each run. applies_to stock/reit/adr; standard weekly lock; no-coverage names
+         self-abandon. Wired into the orchestrator Group 2 (after financials, before EDGAR) +
+         backup/restore. STILL PLANNED: the Analysis-layer use — forward PEG/Lynch from LTG,
+         eps_revision momentum/breadth, forward rev/eps growth, surfacing as filter params.
      - Data completeness checked before appending — is_complete flag on all records
      - yfinance values cross-checked against calculated values; fallback to calculated if info returns None/NaN
      - data_source field per metric: "info", "calculated", or "fallback_calculated"
@@ -181,9 +190,10 @@
 
 ✅ Topic 4 — Analysis Layer
    - ✅ Subtopic 4.1 — Metric categories defined
+     - Size: Market cap (price × shares outstanding)
      - Valuation: P/E, Forward P/E, PEG, P/B, P/S, P/FCF, EV/EBITDA, EV/Revenue
-     - Profitability: ROE, ROA, ROIC, gross/operating/net margins, FCF margin, EPS
-     - Growth: Revenue, EPS, FCF, book value growth (1y, 3y, 5y CAGR)
+     - Profitability: ROE, ROA, ROIC, gross/operating/net margins, FCF margin, EPS, 3y gross/operating margin trend
+     - Growth: Revenue, EPS, FCF, book value growth (1y, 3y, 5y CAGR); revenue/EPS acceleration (latest YoY − 3y CAGR); 1y diluted share-count change (buybacks)
      - Income: dividend yield (TTM, annual, quarterly), growth rate, payout ratio, consecutive growth years, consistency, coverage ratio
      - Dividend yield calculation:
        - Source: Dividends column from yfinance history() — included in OHLCV fetch, no separate API call needed
@@ -197,6 +207,12 @@
        - Peter Lynch Fair Value (EPS + growth rate)
        - Simple DCF (FCF history + growth estimates + FRED risk-free rate + beta)
        - Results: intrinsic_value_graham, intrinsic_value_lynch, intrinsic_value_dcf, margin_of_safety
+     - ✅ IMPLEMENTED amendment (2026-06-21): added six filter-only "cheap win" metrics
+       derived from data already loaded — market_cap (new Size category),
+       gross_margin_trend_3y / operating_margin_trend_3y (pct-point change vs ~3y ago),
+       revenue_accel / eps_accel (latest YoY − 3y CAGR), share_count_chg_1y (1y diluted
+       share-count change; negative = buybacks). Filter metrics ONLY — deliberately NOT
+       wired into category scores or peer-relative (_vs_sector/_vs_industry) variants.
    - ✅ Subtopic 4.2 — Technical indicators
      FETCH / ANALYSIS PHASE DESIGN:
      - Fetch ALL data first (all APIs, all symbols) → analysis runs automatically after fetch completes

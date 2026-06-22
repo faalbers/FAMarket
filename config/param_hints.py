@@ -59,6 +59,20 @@ PARAM_HINTS: dict[str, dict] = {
         "vs_peers": "No — raw price says nothing about value; use the multiples instead.",
     },
     # ------------------------------------------------------------------ #
+    # Size
+    # ------------------------------------------------------------------ #
+    "market_cap": {
+        "name": "Market cap",
+        "category": "Size",
+        "unit": "$",
+        "what_it_is": "Company size: last completed session's price × shares outstanding.",
+        "how_to_use": [
+            "Smaller companies have more room to grow (and more risk); giants compound slowly.",
+            "Use as a band — e.g. small/mid-cap hunting (300M–10B) — or a floor to drop micro-caps.",
+        ],
+        "vs_peers": "No — it's an absolute size; compare valuation multiples instead.",
+    },
+    # ------------------------------------------------------------------ #
     # Valuation
     # ------------------------------------------------------------------ #
     "pe": {
@@ -240,6 +254,28 @@ PARAM_HINTS: dict[str, dict] = {
         ],
         "vs_peers": "Yes — capital intensity drives the achievable level.",
     },
+    "gross_margin_trend_3y": {
+        "name": "Gross mgn trend 3y",
+        "category": "Profitability",
+        "unit": "%",
+        "what_it_is": "Change in gross margin over ~3 years (latest annual margin minus the margin ~3 years earlier), in percentage points.",
+        "how_to_use": [
+            "Positive = widening margins = pricing power; often precedes a re-rating.",
+            "Negative = margin erosion — an early warning even while sales still grow.",
+        ],
+        "vs_peers": "No — read the direction on its own; compare the level via gross margin.",
+    },
+    "operating_margin_trend_3y": {
+        "name": "Op mgn trend 3y",
+        "category": "Profitability",
+        "unit": "%",
+        "what_it_is": "Change in operating margin over ~3 years (latest annual margin minus the margin ~3 years earlier), in percentage points.",
+        "how_to_use": [
+            "Positive = the core business is getting more efficient — the cleanest quality-trend signal.",
+            "Negative = costs outpacing sales; profit quality slipping.",
+        ],
+        "vs_peers": "No — read the direction on its own; compare the level via operating margin.",
+    },
     # ------------------------------------------------------------------ #
     # Balance Sheet
     # ------------------------------------------------------------------ #
@@ -368,6 +404,40 @@ PARAM_HINTS: dict[str, dict] = {
             "Steady ~10%+ book growth plus reasonable P/B is the classic financial-sector screen.",
         ],
         "vs_peers": "Yes — compare within banks/insurance specifically.",
+    },
+    "revenue_accel": {
+        "name": "Rev accel",
+        "category": "Growth",
+        "unit": "%",
+        "what_it_is": "Revenue acceleration: latest quarter's YoY growth minus the 3-year revenue CAGR, in percentage points.",
+        "how_to_use": [
+            "Positive = growth speeding up vs its own recent pace — a strong forward signal.",
+            "Negative = decelerating; read alongside the raw growth rates.",
+        ],
+        "vs_peers": "No — it's self-relative (a stock vs its own trend).",
+    },
+    "eps_accel": {
+        "name": "EPS accel",
+        "category": "Growth",
+        "unit": "%",
+        "what_it_is": "EPS acceleration: latest quarter's YoY EPS growth minus the 3-year EPS CAGR, in percentage points.",
+        "how_to_use": [
+            "Positive = earnings growth accelerating — often what drives a fresh price run.",
+            "Negative = earnings momentum fading even if still growing.",
+        ],
+        "vs_peers": "No — it's self-relative (a stock vs its own trend).",
+    },
+    "share_count_chg_1y": {
+        "name": "Share count chg 1y",
+        "category": "Growth",
+        "unit": "%",
+        "what_it_is": "Year-over-year change in diluted share count (the EPS denominator).",
+        "how_to_use": [
+            "Negative = net buybacks — fewer shares quietly lift EPS and per-share value.",
+            "Positive = dilution (new shares, stock comp, raises) — a per-share headwind.",
+            "Filter < 0 to find companies shrinking their share count.",
+        ],
+        "vs_peers": "No — read it as an absolute capital-return signal.",
     },
     # ------------------------------------------------------------------ #
     # Income

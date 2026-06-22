@@ -247,6 +247,35 @@ def _yoy_latest(sq: pd.Series) -> float:
     return last / prior - 1
 
 
+def _level_change(s: pd.Series, years: int) -> float:
+    """Absolute change in a level series from ~`years` ago to the latest annual
+    point (same point-selection rule as _cagr). NaN if no point ~`years` back.
+
+    Used for margin TREND: the input series is already in percent (margin levels),
+    so the result is a change in percentage points.
+    """
+    s = s.dropna()
+    if len(s) < 2:
+        return float("nan")
+    last_date, last = s.index[-1], float(s.iloc[-1])
+    target = last_date - pd.DateOffset(years=years)
+    older = s[s.index <= target + pd.Timedelta(days=60)]
+    if older.empty:
+        return float("nan")
+    return last - float(older.iloc[-1])
+
+
+def _margin_series(fin, num_field: str, den_field: str) -> pd.Series:
+    """Annual margin level series (percent) = num / den per reported year × 100.
+
+    The two annual series align on period_end; years missing either field drop out.
+    """
+    num, den = P.annual(fin, num_field), P.annual(fin, den_field)
+    if num.empty or den.empty:
+        return pd.Series(dtype="float64")
+    return (num / den).replace([np.inf, -np.inf], float("nan")).dropna() * 100
+
+
 def split_adjust(s: pd.Series, splits: pd.Series | None) -> pd.Series:
     """Per-share series rescaled to current-share terms using post-period splits.
 
@@ -315,6 +344,7 @@ def compute(
     if pd.isna(shares):
         shares = P.latest(fin, "share_issued")
     mktcap = _div(price * shares, 1.0) if pd.notna(shares) else float("nan")
+    m["market_cap"] = mktcap  # size; currency-neutral (price & shares share the listing's terms)
 
     rev = P.ttm(fin, "total_revenue")
     ni = P.ttm(fin, "net_income")
@@ -370,6 +400,10 @@ def compute(
     m["operating_margin"] = operating_margin(ebit, rev)
     m["net_margin"] = net_margin(ni, rev)
     m["fcf_margin"] = fcf_margin(fcf, rev)
+    # Margin TREND (percentage points): widening margins signal pricing power and
+    # often precede a re-rating. Annual-vs-annual so it's apples-to-apples.
+    m["gross_margin_trend_3y"] = _level_change(_margin_series(fin, "gross_profit", "total_revenue"), 3)
+    m["operating_margin_trend_3y"] = _level_change(_margin_series(fin, "operating_income", "total_revenue"), 3)
 
     # -- financial health --------------------------------------------------- #
     cur_assets = P.latest(fin, "current_assets")
@@ -398,6 +432,15 @@ def compute(
     m.update(_growth_block("eps", eps_a, eps_q))
     m.update(_growth_block("fcf", fcf_annual(fin), P.quarterly(fin, "free_cash_flow")))
     m.update(_growth_block("book_value", P.annual(fin, "stockholders_equity"), P.quarterly(fin, "stockholders_equity")))
+
+    # Growth ACCELERATION (percentage points): latest YoY quarter minus the smoothed
+    # 3y CAGR. Positive = speeding up vs its own recent pace. Inputs already computed
+    # above; NaN in either propagates to NaN.
+    m["revenue_accel"] = m["revenue_yoy_q"] - m["revenue_cagr_3y"]
+    m["eps_accel"] = m["eps_yoy_q"] - m["eps_cagr_3y"]
+    # Share-count trend: 1y change in diluted share count (the EPS denominator).
+    # Negative = net buybacks, which lift per-share growth; positive = dilution.
+    m["share_count_chg_1y"] = _pct(_cagr(P.annual(fin, "diluted_average_shares"), 1))
 
     # PEG: trailing P/E over 3y EPS CAGR (%); guard non-positive growth.
     g3 = m.get("eps_cagr_3y")

@@ -149,7 +149,7 @@ def _b(key, name, category, applies, growth=False) -> Base:
 
 # Categories in display order.
 CATEGORY_ORDER = [
-    "Price", "Valuation", "Profitability", "Balance Sheet", "Growth", "Income",
+    "Price", "Size", "Valuation", "Profitability", "Balance Sheet", "Growth", "Income",
     "Technical", "Intrinsic Value", "Relative Strength", "Score", "Classification",
 ]
 
@@ -159,6 +159,8 @@ FUNDS = frozenset({ETF, CEF, MUTUAL_FUND})
 BASES: list[Base] = [
     # -- Price -------------------------------------------------------------- #
     _b("price", "Price", "Price", ALL_TRADED),
+    # -- Size --------------------------------------------------------------- #
+    _b("market_cap", "Market cap", "Size", COMPANY),
     # -- Valuation ---------------------------------------------------------- #
     _b("pe", "P/E", "Valuation", frozenset({STANDARD, BANK, INSURANCE})),
     _b("forward_pe", "Forward P/E", "Valuation", frozenset({STANDARD, BANK, INSURANCE})),
@@ -177,6 +179,8 @@ BASES: list[Base] = [
     _b("operating_margin", "Operating margin", "Profitability", frozenset({STANDARD})),
     _b("net_margin", "Net margin", "Profitability", frozenset({STANDARD, BANK, INSURANCE})),
     _b("fcf_margin", "FCF margin", "Profitability", frozenset({STANDARD})),
+    _b("gross_margin_trend_3y", "Gross margin trend (3y)", "Profitability", frozenset({STANDARD})),
+    _b("operating_margin_trend_3y", "Operating margin trend (3y)", "Profitability", frozenset({STANDARD})),
     # -- Balance sheet ------------------------------------------------------ #
     _b("debt_to_equity", "Debt/Equity", "Balance Sheet", frozenset({STANDARD, REIT})),
     _b("debt_to_ebitda", "Debt/EBITDA", "Balance Sheet", frozenset({STANDARD, REIT})),
@@ -190,6 +194,9 @@ BASES: list[Base] = [
     _b("eps", "EPS growth", "Growth", frozenset({STANDARD, BANK, INSURANCE}), growth=True),
     _b("fcf", "FCF growth", "Growth", frozenset({STANDARD}), growth=True),
     _b("book_value", "Book-value growth", "Growth", frozenset({STANDARD, BANK, INSURANCE}), growth=True),
+    _b("revenue_accel", "Revenue acceleration", "Growth", frozenset({STANDARD, BANK, INSURANCE, REIT})),
+    _b("eps_accel", "EPS acceleration", "Growth", frozenset({STANDARD, BANK, INSURANCE})),
+    _b("share_count_chg_1y", "Share count change (1y)", "Growth", frozenset({STANDARD, BANK, INSURANCE})),
     # -- Income ------------------------------------------------------------- #
     _b("div_yield_ttm", "Dividend yield (TTM)", "Income", DIVIDEND_PAYERS),
     _b("div_rate_ttm", "Dividend rate (TTM)", "Income", DIVIDEND_PAYERS),
