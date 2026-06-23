@@ -31,7 +31,8 @@ dedicated `indices.db` (long/tidy `sector_industry_index` table). Index history 
 read via a dedicated memory-efficient deep `adj_close` read of the liquid constituents
 only — decoupled from `ANALYSIS_OHLCV_LOOKBACK_DAYS`. Each run logs its peak RAM via
 `core/meminfo.py` (Win32 ctypes, no psutil). The **UI** is being built page by page: Fetch Control, Settings,
-Filter, Output and Sector Indices are functional. The peak-detection calibration tuner
+Filter, Output, Sector Indices and Utilities (a collapsible-tools page; first tool emails a `.syms`
+selection as an HTML email via Gmail SMTP — `ui/email_report.py` + `core/mailer.py`) are functional. The peak-detection calibration tuner
 (`ui/calibration.py`, exposing `render()`) is **a section inside the Settings page**
 (no longer its own sidebar page) — sliders for
 `PEAK_PROMINENCE`/`PEAK_DISTANCE`, a price chart with detected swing highs/lows
@@ -103,7 +104,7 @@ Three intentionally decoupled layers plus shared infrastructure:
   `is_active=True` AND `is_validated=True`.
 - **`ui/`** + **`app.py`** — Streamlit multipage app (registered via
   `st.navigation` in `app.py`, pages under `ui/pages/`): Fetch Control, Filter,
-  Output, Sector Indices, Parameters, Settings (Settings embeds the peak-detection
+  Output, Sector Indices, Parameters, Utilities, Settings (Settings embeds the peak-detection
   calibration tuner via `ui/calibration.render()`).
 - **`core/`** — `database.py` (the SQLite wrapper), `logging_config.py`,
   `backup.py`. Used by every layer.
