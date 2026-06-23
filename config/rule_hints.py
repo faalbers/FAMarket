@@ -78,6 +78,19 @@ RULE_HINTS: dict[str, str] = {
               "as a **sweet-spot** (the healthy middle of the band).",
     "macd_hist": "**Higher is better**, anchored at **0** (positive = bullish). More a "
                  "*timing* tool than a quality tool — so weight it lightly.",
+    # -- Acceleration / forward estimates ------------------------------------
+    "revenue_accel": "**Higher is better**, anchored on an **absolute 0**: above 0 = growth is "
+                     "*speeding up* vs its own 3-year pace, below 0 = slowing. Self-relative, so "
+                     "it rewards a fresh inflection rather than just a high steady rate.",
+    "share_count_chg_1y": "**Lower is better**, judged **across the universe**: negative = net "
+                          "buybacks (fewer shares lift per-share value), positive = dilution.",
+    "forward_eps_growth": "**Higher is better**, judged **across the whole universe** — what "
+                          "analysts expect NEXT year, the forward complement to the historical "
+                          "CAGRs. It's a forecast (an opinion), so weigh it alongside realized "
+                          "growth, not instead of it.",
+    "eps_revision_1m": "**Higher is better**, anchored on an **absolute 0**: positive = the "
+                       "consensus estimate is being revised UP (analysts upgrading), negative = "
+                       "downgrades. One of the strongest forward-return signals.",
 }
 
 # Metrics that SHARE one rule rationale (the text is metric-agnostic, so this is safe;
@@ -94,6 +107,10 @@ _ALIASES = {
     "eps_cagr_5y": "revenue_cagr_3y", "fcf_cagr_3y": "revenue_cagr_3y",
     "book_value_cagr_3y": "revenue_cagr_3y", "revenue_yoy_q": "revenue_cagr_3y",
     "eps_yoy_q": "revenue_cagr_3y",
+    "gross_margin_trend_3y": "revenue_cagr_3y", "operating_margin_trend_3y": "revenue_cagr_3y",
+    "eps_accel": "revenue_accel",
+    "forward_rev_growth": "forward_eps_growth", "forward_peg": "peg",
+    "eps_revision_3m": "eps_revision_1m", "eps_revision_breadth": "eps_revision_1m",
     "price_vs_ma_150": "price_vs_ma_50", "price_vs_ma_200": "price_vs_ma_50",
     "div_growth_5y": "div_payout_ratio", "div_consecutive_years": "div_payout_ratio",
     "div_consistency": "div_payout_ratio",

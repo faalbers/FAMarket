@@ -440,6 +440,87 @@ PARAM_HINTS: dict[str, dict] = {
         "vs_peers": "No — read it as an absolute capital-return signal.",
     },
     # ------------------------------------------------------------------ #
+    # Estimates (forward-looking analyst data, from estimates.db)
+    # ------------------------------------------------------------------ #
+    "forward_eps_growth": {
+        "name": "Fwd EPS gr",
+        "category": "Estimates",
+        "unit": "%",
+        "what_it_is": "Analysts' consensus EPS growth for the NEXT fiscal year vs the current one.",
+        "how_to_use": [
+            "The forward complement to historical EPS growth — what the Street expects next.",
+            "High + accelerating vs trailing growth is the GARP sweet spot; it's a forecast, not fact.",
+        ],
+        "vs_peers": "Yes — expected growth norms differ by sector; compare within the group.",
+    },
+    "forward_rev_growth": {
+        "name": "Fwd rev gr",
+        "category": "Estimates",
+        "unit": "%",
+        "what_it_is": "Analysts' consensus revenue growth for the next fiscal year vs the current one.",
+        "how_to_use": [
+            "Top-line forward growth — cleaner than EPS for early-stage / thin-margin names.",
+            "Pair with forward EPS growth: revenue growing faster than EPS hints at margin pressure.",
+        ],
+        "vs_peers": "Yes — compare within sector/industry.",
+    },
+    "forward_peg": {
+        "name": "Fwd PEG",
+        "category": "Estimates",
+        "unit": "x",
+        "what_it_is": "Forward P/E divided by next-year EPS growth (%). (yfinance gives no usable "
+                      "per-stock long-term rate, so the 1-year-forward growth is used.)",
+        "how_to_use": [
+            "Around 1 is fairly priced for its expected growth; under 1 is growth at a discount.",
+            "NULL when forward growth is zero or negative. More forward-looking than trailing PEG.",
+        ],
+        "vs_peers": "Somewhat — it already adjusts for growth, but sector norms still differ.",
+    },
+    "eps_revision_1m": {
+        "name": "EPS rev 1m",
+        "category": "Estimates",
+        "unit": "%",
+        "what_it_is": "Percent change in the current-year consensus EPS estimate over the last 30 days.",
+        "how_to_use": [
+            "Positive = analysts raising estimates — one of the strongest forward-return signals.",
+            "Negative = downgrades in progress; a warning even on a cheap-looking stock.",
+        ],
+        "vs_peers": "No — it's self-relative (the estimate vs its own level a month ago).",
+    },
+    "eps_revision_3m": {
+        "name": "EPS rev 3m",
+        "category": "Estimates",
+        "unit": "%",
+        "what_it_is": "Percent change in the current-year consensus EPS estimate over the last 90 days.",
+        "how_to_use": [
+            "The slower-moving revision trend — confirms the 1-month signal isn't just noise.",
+            "Both 1m and 3m positive = sustained upgrade momentum.",
+        ],
+        "vs_peers": "No — it's self-relative (the estimate vs its own level three months ago).",
+    },
+    "eps_revision_breadth": {
+        "name": "EPS rev breadth",
+        "category": "Estimates",
+        "unit": "",
+        "what_it_is": "Net analysts revising the current-year EPS estimate UP minus DOWN over the last 30 days (a count).",
+        "how_to_use": [
+            "Positive = more raised than cut (broad agreement on improvement); filter > 0.",
+            "Reads the breadth of the revision, not just the size — pair with EPS rev 1m.",
+        ],
+        "vs_peers": "No — it's an absolute count of analyst actions.",
+    },
+    "analyst_count": {
+        "name": "Analysts",
+        "category": "Estimates",
+        "unit": "",
+        "what_it_is": "Number of analysts behind the current-year EPS estimate.",
+        "how_to_use": [
+            "More analysts = a more reliable consensus; very low counts make the estimates noisy.",
+            "Use a floor (e.g. >= 3) to keep estimate-based screens trustworthy.",
+        ],
+        "vs_peers": "No — it's coverage depth, not a valuation; read it as a confidence gate.",
+    },
+    # ------------------------------------------------------------------ #
     # Income
     # ------------------------------------------------------------------ #
     "div_yield_ttm": {

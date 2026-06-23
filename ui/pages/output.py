@@ -53,13 +53,16 @@ from ui import selection_io as SEL
 # --------------------------------------------------------------------------- #
 # Column labelling — concrete analysis.db column -> human label
 # --------------------------------------------------------------------------- #
-_PEER_SUFFIXES = (("_vs_sector", " vs Sector"), ("_vs_industry", " vs Industry"))
+# Variant suffixes that ride on a base column: peer-relative + the per-metric Score
+# (goodness). Stripped to recover the base, with their label appended to the header.
+_VARIANT_SUFFIXES = (("_vs_sector", " vs Sector"), ("_vs_industry", " vs Industry"),
+                     ("_goodness", " Score"))
 
 
 def _parse(col: str) -> tuple[R.Base, str | None, str] | None:
-    """Concrete column -> (base, growth window | None, peer suffix label | '')."""
+    """Concrete column -> (base, growth window | None, variant suffix label | '')."""
     stem, peer = col, ""
-    for sfx, txt in _PEER_SUFFIXES:
+    for sfx, txt in _VARIANT_SUFFIXES:
         if col.endswith(sfx):
             stem, peer = col[: -len(sfx)], txt
             break

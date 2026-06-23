@@ -40,6 +40,7 @@ from core.logging_config import get_logger
 from core import meminfo
 from analysis_layer import _periods as P
 from analysis_layer import metrics, technical, intrinsic_value, peers, scoring
+from analysis_layer import estimates as estimates_metrics
 from analysis_layer import sector_index
 from analysis_layer.screen_type import classify as classify_screen_type
 
@@ -89,6 +90,11 @@ def _load(subset: list[str] | None = None) -> dict[str, pd.DataFrame]:
     for name, path in (("quotes", settings.QUOTES_DB), ("financials", settings.FINANCIALS_DB)):
         with Database(path) as db:
             out[name] = db.read(name, where=where, params=params)
+    # Analyst estimates (forward growth / PEG / revision momentum). Optional — the
+    # DB may not exist on a setup that never ran the estimates fetcher; read() over a
+    # missing table/DB just yields an empty frame, which estimates.compute tolerates.
+    with Database(settings.ESTIMATES_DB) as db:
+        out["estimates"] = db.read("estimates", where=where, params=params)
     with Database(settings.MACRO_DB) as db:
         out["macro"] = db.read("macro")
     fin = out["financials"]
@@ -208,6 +214,11 @@ def run_analysis(subset: list[str] | None = None) -> dict:
     empty_fin = P.prepare(financials.iloc[0:0])
     fin_by = ({s: P.prepare(g) for s, g in financials.groupby("symbol", sort=False)}
               if not financials.empty and "symbol" in financials.columns else {})
+    # Estimates: one row per (symbol, horizon) -> {symbol: frame indexed by horizon},
+    # so the per-symbol lookup is O(1) (same pre-group pattern as the other panels).
+    est = data.pop("estimates")
+    est_by = ({s: g.set_index("horizon") for s, g in est.groupby("symbol", sort=False)}
+              if not est.empty and "symbol" in est.columns else {})
 
     reconcile: list = []
     rows: list[dict] = []
@@ -225,6 +236,7 @@ def run_analysis(subset: list[str] | None = None) -> dict:
                             reconcile=reconcile)
         t = technical.compute(sym, osym)
         iv = intrinsic_value.compute(sym, fsym, quote, price, m, risk_free)
+        est_m = estimates_metrics.compute(sym, est_by.get(sym), forward_pe=m.get("forward_pe"))
         sec = quote.get("sector") if quote is not None else None
         ind = quote.get("industry") if quote is not None else None
         # Fund provider/sponsor — funds only (NULL for stocks). Filtered as a
@@ -244,7 +256,7 @@ def run_analysis(subset: list[str] | None = None) -> dict:
             # raw weighted return -> universe-ranked into rs_rank in scoring; kept
             # in the table so subset runs can re-rank the un-recomputed rows too
             "rs_raw": technical.relative_strength_raw(osym),
-            **m, **t, **iv,
+            **m, **t, **iv, **est_m,
         })
         if i % _PROGRESS_EVERY == 0:
             log.info("Analysis — per-symbol metrics %d/%d (%d to go)…",

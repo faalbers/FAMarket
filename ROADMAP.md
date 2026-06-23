@@ -172,8 +172,22 @@
          key shape: tidy/long keyed (symbol, horizon) with horizon 0q/+1q/0y/+1y/LTG), upsert-
          replaced each run. applies_to stock/reit/adr; standard weekly lock; no-coverage names
          self-abandon. Wired into the orchestrator Group 2 (after financials, before EDGAR) +
-         backup/restore. STILL PLANNED: the Analysis-layer use — forward PEG/Lynch from LTG,
-         eps_revision momentum/breadth, forward rev/eps growth, surfacing as filter params.
+         backup/restore.
+       - ✅ IMPLEMENTED — ANALYSIS side (2026-06-22): `analysis_layer/estimates.py` derives seven
+         forward filter metrics from estimates.db, wired into `pipeline.run_analysis()` (per-symbol,
+         pre-grouped O(1) like the other panels) and surfaced as a new **Estimates** filter category
+         (param_hints.py + filter_registry.py): `forward_eps_growth`, `forward_rev_growth`,
+         `forward_peg`, `eps_revision_1m`, `eps_revision_3m`, `eps_revision_breadth`, `analyst_count`.
+         REVISED from the original plan: a true **LTG-based PEG/Lynch is NOT derivable** — yfinance's
+         LTG horizon carries only the *index* long-term constant (~12% for every symbol), never a
+         per-stock stockTrend, so the forward PEG uses the **+1y (next fiscal year)** consensus EPS
+         growth instead. Revision momentum/breadth read the FY0 (current-year) consensus.
+       - ✅ SCORING (2026-06-22): all the new metrics (these + the cheap-win batch) got scoring
+         RULES in `scoring_rules.py` (heatmap coloring + Rules-page tunable; new **Estimates** rule
+         category) — except `market_cap`/`analyst_count`, left ruleless as size/coverage gates. And
+         three forward signals — `forward_eps_growth`, `eps_revision_1m`, `revenue_accel` — now feed
+         `growth_score` at 0.5 weight each (`CATEGORY_METRIC_WEIGHTS`); sparse, so they drop out and
+         renormalize for no-coverage names. Values populate on a full analysis run.
      - Data completeness checked before appending — is_complete flag on all records
      - yfinance values cross-checked against calculated values; fallback to calculated if info returns None/NaN
      - data_source field per metric: "info", "calculated", or "fallback_calculated"
@@ -356,10 +370,20 @@
        - SCOPE (Option A): heatmap is the ONLY consumer for now — `scoring.py` category/overall
          scores are NOT rewired yet. Category `*_score`s are RESULTS, not rules (excluded from
          the rules page; the rewire must DERIVE them from rule goodness).
+       - ✅ PER-PARAMETER SCORE as a filter/Output VARIANT (2026-06-22): `scoring.py` now stores
+         a `<metric>_goodness` (0-100) column per scorable metric in analysis.db — computed once
+         via `metric_goodness`, reused as the input to the category scores (parameter goodness →
+         category → overall). Surfaced as a 4th Filter **compare** variant **"Score"** (beside
+         Value / vs Sector / vs Industry; `filter_engine.resolve_column`→`_goodness`,
+         data-driven `filter_registry.score_column`), and labelled "· Score" + sortable in
+         Output. Editing a rule + Save runs `scoring.refresh_scores()` — a ~4s recompute of the
+         goodness + category/overall columns on the stored analysis.db (no fetch/per-symbol pass),
+         so the filterable scores track the heatmap. 76 goodness cols (excludes `*_score`/peer
+         variants + `rs_rank`); analysis.db 140→216 cols.
        - PARKED (next): ⚠️ **rank-within-security-type** for price metrics (RS Rank etc. — the
          universe is 65% mutual funds, which distorts universe ranking); per-type override
-         EDITING UI (works seeded-in-code; P/B a candidate); rewire scoring.py to read the
-         rules; categorical metrics → numeric encoding; yield heat map variant.
+         EDITING UI (works seeded-in-code; P/B a candidate); categorical metrics → numeric
+         encoding; yield heat map variant.
 
    - ✅ Subtopic 4.5 — Sector & sub-industry index series (added + IMPLEMENTED 2026-06-14)
      - WHAT: a daily base-100 level series for every Yahoo sector and every

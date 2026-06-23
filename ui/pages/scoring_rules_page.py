@@ -267,7 +267,14 @@ _changed = _edited != (SR.DEFAULT_RULES.get(_metric) or SR.rule_for(_metric))
 _save = st.columns([1, 3], vertical_alignment="center")
 if _save[0].button("💾 Save rules", type="primary", width="stretch"):
     SR.save_rules(_rules)
-    st.success("Saved to scoring_rules.json. The heat map uses these immediately.")
+    # Refresh the STORED scores so the filterable per-metric Score columns + the
+    # category/overall scores in analysis.db match the new rules (the heat map was
+    # already live). Fast — recomputes goodness only, no fetch / per-symbol pass.
+    from analysis_layer import scoring
+    with st.spinner("Refreshing stored scores…"):
+        summary = scoring.refresh_scores()
+    st.success(f"Saved to scoring_rules.json and refreshed scores for "
+               f"{summary.get('symbols', 0):,} symbols. The heat map uses these immediately.")
 _save[1].caption("Saves every metric whose rule differs from the built-in default "
                  + ("· this metric **differs** from its default." if _changed
                     else "· this metric matches its default."))

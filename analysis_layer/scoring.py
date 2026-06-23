@@ -34,11 +34,19 @@ import numpy as np
 import pandas as pd
 
 from config import settings
+from core.database import Database
+from core.logging_config import get_logger
 from analysis_layer import _stats, scoring_rules
+
+log = get_logger("analysis")
+
+# Column suffixes that are NOT scorable base metrics: results (category/overall
+# scores), peer-relative variants, and the goodness columns themselves.
+_NON_SCORABLE_SUFFIXES = ("_score", "_vs_sector", "_vs_industry", "_goodness")
 
 
 def compute(df: pd.DataFrame) -> pd.DataFrame:
-    """Add rs_rank, the five category scores, and overall_score to the frame."""
+    """Add rs_rank, per-metric goodness, the five category scores, and overall_score."""
     if df.empty:
         return df
     # On a subset-merged frame the kept rows arrive with their prior rs_rank; keep
@@ -49,12 +57,75 @@ def compute(df: pd.DataFrame) -> pd.DataFrame:
     if prior_rs is not None:
         df["rs_rank"] = df["rs_rank"].fillna(pd.to_numeric(prior_rs, errors="coerce"))
 
-    rules = scoring_rules.load_rules()  # load once; metric direction/anchor lives here now
-    for category, weights in settings.CATEGORY_METRIC_WEIGHTS.items():
-        df[f"{category}_score"] = _category_score(df, weights, rules)
+    return _apply_rule_scores(df)
 
-    df["overall_score"] = _overall_score(df)
+
+def _apply_rule_scores(df: pd.DataFrame, rules: dict[str, dict] | None = None) -> pd.DataFrame:
+    """The rule-dependent scoring, in dependency order: per-metric goodness FIRST,
+    then category scores derived from it, then overall.
+
+    Shared by compute() (during analysis) and refresh_scores() (a fast rule-edit
+    update). rs_rank and the raw metrics are NOT touched here. metric direction/
+    anchor lives in the rules, loaded once.
+    """
+    rules = rules if rules is not None else scoring_rules.load_rules()
+    df = _goodness_columns(df, rules)                       # 1. per-parameter Score
+    for category, weights in settings.CATEGORY_METRIC_WEIGHTS.items():
+        df[f"{category}_score"] = _category_score(df, weights, rules)  # 2. categories
+    df["overall_score"] = _overall_score(df)               # 3. overall
     return df
+
+
+def _scorable_columns(df: pd.DataFrame, rules: dict[str, dict]) -> list[str]:
+    """Base/window columns that have a scoring rule — each gets a `_goodness` twin.
+
+    Excludes results & variants (the `_NON_SCORABLE_SUFFIXES`) and `rs_rank` (its
+    goodness equals itself — it's already a 0-99 rank).
+    """
+    return [c for c in df.columns
+            if c != "rs_rank" and not c.endswith(_NON_SCORABLE_SUFFIXES)
+            and scoring_rules.rule_for(c, rules) is not None]
+
+
+def _goodness_columns(df: pd.DataFrame, rules: dict[str, dict]) -> pd.DataFrame:
+    """Append `<metric>_goodness` (0-100) for every scorable column.
+
+    This is the per-parameter "Score" — filterable in the UI AND the input the
+    category scores average, so goodness is computed ONCE here (via the canonical
+    scoring_rules.metric_goodness) and reused, never recomputed per category.
+
+    All twins are built against the original frame (goodness never depends on
+    another goodness column) and joined in ONE concat — assigning ~76 columns
+    individually fragments the DataFrame.
+    """
+    cols = _scorable_columns(df, rules)
+    if not cols:
+        return df
+    twins = {f"{c}_goodness": scoring_rules.metric_goodness(df, c, rules) for c in cols}
+    return pd.concat([df, pd.DataFrame(twins, index=df.index)], axis=1)
+
+
+def refresh_scores() -> dict:
+    """Recompute ONLY the rule-dependent scores on the stored analysis.db, in place.
+
+    For when a scoring rule changed but nothing else did: re-derives every
+    `<metric>_goodness`, the category scores, and overall_score from the current
+    rules and rewrites the table. No fetch, no per-symbol metric recompute, no
+    index rebuild — rs_rank and raw metrics are left as stored. analysis_meta is
+    untouched (prices/vintage didn't change). Returns a small summary.
+    """
+    with Database(settings.ANALYSIS_DB) as db:
+        df = db.read("analysis")
+    if df.empty:
+        return {"symbols": 0}
+    # Drop existing goodness columns first so a metric whose rule was removed (or a
+    # renamed column) doesn't leave a stale `_goodness` behind.
+    df = df.drop(columns=[c for c in df.columns if c.endswith("_goodness")], errors="ignore")
+    df = _apply_rule_scores(df)
+    with Database(settings.ANALYSIS_DB) as db:
+        db.replace("analysis", df)
+    log.info("Scores refreshed — %d symbols, %d columns", len(df), df.shape[1])
+    return {"symbols": len(df), "columns": df.shape[1]}
 
 
 def _rs_rank(df: pd.DataFrame) -> pd.Series:
@@ -81,19 +152,22 @@ def _rs_rank(df: pd.DataFrame) -> pd.Series:
 
 def _category_score(df: pd.DataFrame, weights: dict[str, float],
                     rules: dict[str, dict]) -> pd.Series:
-    """Weight-averaged rule GOODNESS of the available metrics; NaN if none present.
+    """Weight-averaged per-metric GOODNESS of the available metrics; NaN if none.
 
-    Each metric's 0-100 goodness comes from its scoring rule (shape + anchor +
-    per-screen_type overrides) via the shared scoring_rules.metric_goodness — the
-    same code path the heatmap uses. Missing metrics drop out and weights
-    renormalize, so a fund with no fundamentals gates itself to NaN naturally.
+    Reuses the `<metric>_goodness` columns already computed by `_goodness_columns`
+    (one goodness per metric, never recomputed). The only weighted metric without a
+    stored twin is `rs_rank`, whose goodness == itself — computed live via the same
+    canonical path. Missing metrics drop out and weights renormalize, so a fund with
+    no fundamentals gates itself to NaN naturally.
     """
     total = pd.Series(0.0, index=df.index)
     wsum = pd.Series(0.0, index=df.index)
     for metric, w in weights.items():
         if metric not in df.columns:
             continue
-        g = scoring_rules.metric_goodness(df, metric, rules)
+        gcol = f"{metric}_goodness"
+        g = (pd.to_numeric(df[gcol], errors="coerce") if gcol in df.columns
+             else scoring_rules.metric_goodness(df, metric, rules))
         present = g.notna()
         total[present] += g[present] * w
         wsum[present] += w

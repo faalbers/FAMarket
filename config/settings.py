@@ -288,10 +288,13 @@ CATEGORY_METRIC_WEIGHTS: dict[str, dict[str, float]] = {
         "current_ratio": 0.5, "interest_coverage": 0.5, "operating_margin": 0.25,
         "roa": 0.25, "debt_to_ebitda": 0.25,
     },
-    "growth": {  # already near-independent; trim 3y/5y window overlap (~0.55)
+    "growth": {  # historical CAGRs anchor; forward signals add at half weight
         "eps_cagr_3y": 1.0, "revenue_cagr_3y": 1.0, "eps_yoy_q": 0.75,
         "revenue_yoy_q": 0.75, "fcf_cagr_3y": 0.5, "eps_growth_r2": 0.5,
         "eps_cagr_5y": 0.5, "revenue_cagr_5y": 0.5,
+        # forward-looking (analyst estimates) — sparse, so they drop out & renormalize
+        # for no-coverage names; for covered names they tilt growth toward what's NEXT.
+        "forward_eps_growth": 0.5, "eps_revision_1m": 0.5, "revenue_accel": 0.5,
     },
     "momentum": {  # rs_rank is the canonical factor; collapse the MA trio
         "rs_rank": 1.0, "pct_from_52w_high": 0.75, "price_vs_ma_50": 0.5,

@@ -149,8 +149,8 @@ def _b(key, name, category, applies, growth=False) -> Base:
 
 # Categories in display order.
 CATEGORY_ORDER = [
-    "Price", "Size", "Valuation", "Profitability", "Balance Sheet", "Growth", "Income",
-    "Technical", "Intrinsic Value", "Relative Strength", "Score", "Classification",
+    "Price", "Size", "Valuation", "Profitability", "Balance Sheet", "Growth", "Estimates",
+    "Income", "Technical", "Intrinsic Value", "Relative Strength", "Score", "Classification",
 ]
 
 # Fund types — for classification bases that only apply to funds.
@@ -197,6 +197,14 @@ BASES: list[Base] = [
     _b("revenue_accel", "Revenue acceleration", "Growth", frozenset({STANDARD, BANK, INSURANCE, REIT})),
     _b("eps_accel", "EPS acceleration", "Growth", frozenset({STANDARD, BANK, INSURANCE})),
     _b("share_count_chg_1y", "Share count change (1y)", "Growth", frozenset({STANDARD, BANK, INSURANCE})),
+    # -- Estimates (forward analyst data; only fetched for stock/reit/adr) --- #
+    _b("forward_eps_growth", "Forward EPS growth", "Estimates", COMPANY),
+    _b("forward_rev_growth", "Forward revenue growth", "Estimates", COMPANY),
+    _b("forward_peg", "Forward PEG", "Estimates", COMPANY),
+    _b("eps_revision_1m", "EPS revision (1m)", "Estimates", COMPANY),
+    _b("eps_revision_3m", "EPS revision (3m)", "Estimates", COMPANY),
+    _b("eps_revision_breadth", "EPS revision breadth", "Estimates", COMPANY),
+    _b("analyst_count", "Analyst count", "Estimates", COMPANY),
     # -- Income ------------------------------------------------------------- #
     _b("div_yield_ttm", "Dividend yield (TTM)", "Income", DIVIDEND_PAYERS),
     _b("div_rate_ttm", "Dividend rate (TTM)", "Income", DIVIDEND_PAYERS),
@@ -276,6 +284,15 @@ def peer_columns(column: str) -> dict[str, str]:
         if c in cols:
             out[suffix] = c
     return out
+
+
+def score_column(column: str) -> str | None:
+    """The stored per-metric goodness ("Score") column for a concrete column, if the
+    analysis layer computed one. Data-driven mirror of `peer_columns` — the Filter
+    page offers the "Score" variant only when this column actually exists.
+    """
+    c = f"{column}_goodness"
+    return c if c in analysis_columns() else None
 
 
 def bases_for_types(selected: set[str]) -> list[Base]:
