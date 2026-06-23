@@ -248,8 +248,10 @@ def _render_block(block: dict, selected: set[str], opt_keys: list[str], opt_labe
     base = R.BASE_BY_KEY.get(param)
     has_window = bool(base and base.growth)
     window = st.session_state.get(f"{pfx}:win", block.get("window")) if has_window else None
-    peers = R.peer_columns(E.resolve_column(param, window, "value"))
-    has_compare = bool(peers)
+    value_col = E.resolve_column(param, window, "value")
+    peers = R.peer_columns(value_col)
+    has_score = R.score_column(value_col) is not None
+    has_compare = bool(peers) or has_score
 
     # Categorical column? -> offer membership ops + a multi-pick value list instead
     # of the numeric/text box. Detection is on the raw value column (categorical
@@ -310,14 +312,17 @@ def _render_block(block: dict, selected: set[str], opt_keys: list[str], opt_labe
     else:
         block["window"] = None
 
-    # peer compare (only when the resolved column has _vs_* siblings)
+    # compare mode: raw value, peer-relative (_vs_* siblings), and/or the per-metric
+    # 0-100 goodness Score — each offered only when that column exists in analysis.db
     if has_compare:
-        modes = ["value"] + list(peers)
-        labels = {"value": "Value", "vs_sector": "vs Sector", "vs_industry": "vs Industry"}
+        modes = ["value"] + list(peers) + (["score"] if has_score else [])
+        labels = {"value": "Value", "vs_sector": "vs Sector",
+                  "vs_industry": "vs Industry", "score": "Score"}
         ci = modes.index(block["compare"]) if block.get("compare") in modes else 0
         block["compare"] = C["cmp"].selectbox("compare", options=modes, index=ci, key=f"{pfx}:cmp",
                                               format_func=lambda m: labels[m], label_visibility="collapsed",
-                                              help="Raw value, or distance vs sector/industry median")
+                                              help="Raw value, distance vs sector/industry median, "
+                                                   "or the 0-100 goodness Score")
     else:
         block["compare"] = "value"
 

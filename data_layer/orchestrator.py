@@ -37,6 +37,7 @@ from data_layer.fetchers.yfinance_fetcher import (
     YFinanceFinancials,
     YFinanceOHLCV,
     YFinanceQuotes,
+    YFinanceSignals,
 )
 
 log = get_logger("orchestrator")
@@ -80,6 +81,7 @@ def _report_fetchers() -> list[tuple[str, object]]:
         ("yfinance quotes", YFinanceQuotes()),
         ("yfinance OHLCV", YFinanceOHLCV()),
         ("yfinance financials", YFinanceFinancials()),
+        ("yfinance signals", YFinanceSignals()),
         ("EDGAR financials", EDGARFinancials()),
     ]
 
@@ -236,6 +238,12 @@ def _run_fetch_groups(
         if _cancelled():
             return
         summary["financials"] = YFinanceFinancials().run(universe, sdb, respect_lock)
+        if _cancelled():
+            return
+        # yfinance signals — same universe (resolved types), one pass over the same
+        # Ticker: forward estimates + earnings-surprise history + ownership snapshot
+        # into signals.db (~5 requests/symbol, under the Financials envelope).
+        summary["signals"] = YFinanceSignals().run(universe, sdb, respect_lock)
         if _cancelled():
             return
         # EDGAR runs AFTER yfinance so yfinance owns the recent window first; EDGAR

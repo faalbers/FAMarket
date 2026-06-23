@@ -165,6 +165,45 @@
        - Multiple time horizons (current/next quarter, current/next year)
        - Stored in financials.db; used in Analysis layer for forward-looking metrics
        - Coverage sparse for small caps — NULL where unavailable
+       - ✅ IMPLEMENTED — FETCH side (2026-06-21; expanded + renamed 2026-06-22):
+         `YFinanceSignals` (was `YFinanceEstimates`; data_layer/fetchers/yfinance_fetcher.py)
+         pulls earnings_estimate + revenue_estimate + growth_estimates AND eps_trend +
+         eps_revisions (the revision-momentum signal — yfinance gives 7/30/60/90d-ago in one
+         snapshot). Stored in **signals.db** (renamed from estimates.db; NOT financials.db —
+         different key shape: the `estimates` table is tidy/long keyed (symbol, horizon) with
+         horizon 0q/+1q/0y/+1y/LTG), upsert-replaced each run. applies_to stock/reit/adr;
+         standard weekly lock; no-coverage names self-abandon. Wired into the orchestrator
+         Group 2 (after financials, before EDGAR) + backup/restore.
+         **2026-06-22 — same fetcher now also reads, off the SAME Ticker (one throttle pass,
+         ~5 req/symbol under the Financials envelope), two NEW raw tables in signals.db:**
+         `earnings_surprise` (tidy per-quarter from earnings_history: eps est/actual/diff +
+         surprise%) and `ownership` (one row/symbol from calendar + the Holders request:
+         next earnings/ex-div dates, net insider buy/sell activity, institutions_count).
+         Stored RAW. Multi-table write via a `_write` split (no base.py change). Ownership %s NOT
+         duplicated (already in quotes.db `info`).
+       - ✅ IMPLEMENTED — ANALYSIS side (2026-06-23): `analysis_layer/signals.py` derives 6 metrics
+         from those tables → `earnings_surprise_avg/_last`, `earnings_beat_rate`,
+         `days_to_next_earnings`, `insider_net_buy_pct`, `institutions_count` (new **Earnings** +
+         **Ownership** filter categories, applies COMPANY; param_hints + filter_registry). Scoring
+         rules (scoring_rules.py): surprise/insider `absolute@0`, beat-rate `universe` → goodness +
+         Score variant + heatmap; days/institutions filter-only. Category weighting:
+         `earnings_surprise_avg`→growth 0.5, `insider_net_buy_pct`→momentum 0.25. analysis.db
+         216→226 cols. Verified end-to-end (AAPL surprise +6.1/beat 100%; REIT O insider net-buy +40.7%).
+       - ✅ IMPLEMENTED — ANALYSIS side (2026-06-22): `analysis_layer/estimates.py` derives seven
+         forward filter metrics from the `estimates` table in signals.db, wired into `pipeline.run_analysis()` (per-symbol,
+         pre-grouped O(1) like the other panels) and surfaced as a new **Estimates** filter category
+         (param_hints.py + filter_registry.py): `forward_eps_growth`, `forward_rev_growth`,
+         `forward_peg`, `eps_revision_1m`, `eps_revision_3m`, `eps_revision_breadth`, `analyst_count`.
+         REVISED from the original plan: a true **LTG-based PEG/Lynch is NOT derivable** — yfinance's
+         LTG horizon carries only the *index* long-term constant (~12% for every symbol), never a
+         per-stock stockTrend, so the forward PEG uses the **+1y (next fiscal year)** consensus EPS
+         growth instead. Revision momentum/breadth read the FY0 (current-year) consensus.
+       - ✅ SCORING (2026-06-22): all the new metrics (these + the cheap-win batch) got scoring
+         RULES in `scoring_rules.py` (heatmap coloring + Rules-page tunable; new **Estimates** rule
+         category) — except `market_cap`/`analyst_count`, left ruleless as size/coverage gates. And
+         three forward signals — `forward_eps_growth`, `eps_revision_1m`, `revenue_accel` — now feed
+         `growth_score` at 0.5 weight each (`CATEGORY_METRIC_WEIGHTS`); sparse, so they drop out and
+         renormalize for no-coverage names. Values populate on a full analysis run.
      - Data completeness checked before appending — is_complete flag on all records
      - yfinance values cross-checked against calculated values; fallback to calculated if info returns None/NaN
      - data_source field per metric: "info", "calculated", or "fallback_calculated"
@@ -181,9 +220,10 @@
 
 ✅ Topic 4 — Analysis Layer
    - ✅ Subtopic 4.1 — Metric categories defined
+     - Size: Market cap (price × shares outstanding)
      - Valuation: P/E, Forward P/E, PEG, P/B, P/S, P/FCF, EV/EBITDA, EV/Revenue
-     - Profitability: ROE, ROA, ROIC, gross/operating/net margins, FCF margin, EPS
-     - Growth: Revenue, EPS, FCF, book value growth (1y, 3y, 5y CAGR)
+     - Profitability: ROE, ROA, ROIC, gross/operating/net margins, FCF margin, EPS, 3y gross/operating margin trend
+     - Growth: Revenue, EPS, FCF, book value growth (1y, 3y, 5y CAGR); revenue/EPS acceleration (latest YoY − 3y CAGR); 1y diluted share-count change (buybacks)
      - Income: dividend yield (TTM, annual, quarterly), growth rate, payout ratio, consecutive growth years, consistency, coverage ratio
      - Dividend yield calculation:
        - Source: Dividends column from yfinance history() — included in OHLCV fetch, no separate API call needed
@@ -197,6 +237,12 @@
        - Peter Lynch Fair Value (EPS + growth rate)
        - Simple DCF (FCF history + growth estimates + FRED risk-free rate + beta)
        - Results: intrinsic_value_graham, intrinsic_value_lynch, intrinsic_value_dcf, margin_of_safety
+     - ✅ IMPLEMENTED amendment (2026-06-21): added six filter-only "cheap win" metrics
+       derived from data already loaded — market_cap (new Size category),
+       gross_margin_trend_3y / operating_margin_trend_3y (pct-point change vs ~3y ago),
+       revenue_accel / eps_accel (latest YoY − 3y CAGR), share_count_chg_1y (1y diluted
+       share-count change; negative = buybacks). Filter metrics ONLY — deliberately NOT
+       wired into category scores or peer-relative (_vs_sector/_vs_industry) variants.
    - ✅ Subtopic 4.2 — Technical indicators
      FETCH / ANALYSIS PHASE DESIGN:
      - Fetch ALL data first (all APIs, all symbols) → analysis runs automatically after fetch completes
@@ -340,10 +386,20 @@
        - SCOPE (Option A): heatmap is the ONLY consumer for now — `scoring.py` category/overall
          scores are NOT rewired yet. Category `*_score`s are RESULTS, not rules (excluded from
          the rules page; the rewire must DERIVE them from rule goodness).
+       - ✅ PER-PARAMETER SCORE as a filter/Output VARIANT (2026-06-22): `scoring.py` now stores
+         a `<metric>_goodness` (0-100) column per scorable metric in analysis.db — computed once
+         via `metric_goodness`, reused as the input to the category scores (parameter goodness →
+         category → overall). Surfaced as a 4th Filter **compare** variant **"Score"** (beside
+         Value / vs Sector / vs Industry; `filter_engine.resolve_column`→`_goodness`,
+         data-driven `filter_registry.score_column`), and labelled "· Score" + sortable in
+         Output. Editing a rule + Save runs `scoring.refresh_scores()` — a ~4s recompute of the
+         goodness + category/overall columns on the stored analysis.db (no fetch/per-symbol pass),
+         so the filterable scores track the heatmap. 76 goodness cols (excludes `*_score`/peer
+         variants + `rs_rank`); analysis.db 140→226 cols.
        - PARKED (next): ⚠️ **rank-within-security-type** for price metrics (RS Rank etc. — the
          universe is 65% mutual funds, which distorts universe ranking); per-type override
-         EDITING UI (works seeded-in-code; P/B a candidate); rewire scoring.py to read the
-         rules; categorical metrics → numeric encoding; yield heat map variant.
+         EDITING UI (works seeded-in-code; P/B a candidate); categorical metrics → numeric
+         encoding; yield heat map variant.
 
    - ✅ Subtopic 4.5 — Sector & sub-industry index series (added + IMPLEMENTED 2026-06-14)
      - WHAT: a daily base-100 level series for every Yahoo sector and every

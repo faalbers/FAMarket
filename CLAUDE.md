@@ -16,10 +16,11 @@ to.
 
 Build status: the **data layer** (`core/`, `config/`, symbol discovery, and the
 yfinance/EDGAR/FRED fetchers) is functional. The **analysis layer** is now
-complete — `_periods`, `metrics`, `technical`, `intrinsic_value`, `_stats`,
+complete — `_periods`, `metrics`, `technical`, `intrinsic_value`, `estimates`
+(forward analyst metrics from the `estimates` table in `signals.db`), `_stats`,
 `peers`, `scoring` (category scores + Overall, percentile-rank) and universe-wide
 `rs_rank` all work; `pipeline.run_analysis()` assembles and writes `analysis.db`
-(126 cols — includes a sector/industry-derived `screen_type` column via
+(226 cols — includes a sector/industry-derived `screen_type` column via
 `analysis_layer/screen_type.py`, and a persisted `rs_raw` input column for
 subset-run re-ranking) and is wired into the orchestrator as Group 3
 after each fetch. On **full runs only** it also builds daily base-100 **sector &
@@ -92,9 +93,14 @@ Three intentionally decoupled layers plus shared infrastructure:
   its rows are spliced into the existing table (`pipeline._merge_existing`), and
   peers/scoring/rs_rank re-run over the merged frame so ranks stay
   universe-wide (`rs_raw` is persisted in `analysis.db` for this). Modules:
-  `metrics`, `technical`, `peers`, `intrinsic_value`, `scoring`, orchestrated by
-  `pipeline.run_analysis()`. Only processes symbols with `is_active=True` AND
-  `is_validated=True`.
+  `metrics`, `technical`, `peers`, `intrinsic_value`, `estimates` (forward
+  analyst metrics — forward EPS/rev growth, forward PEG, EPS-revision
+  momentum/breadth, analyst count — read from the `estimates` table in `signals.db`),
+  `signals` (earnings-surprise + ownership metrics — avg/last/beat-rate surprise,
+  days-to-next-earnings, insider net buying, institutions count — from the
+  `earnings_surprise`/`ownership` tables in `signals.db`),
+  `scoring`, orchestrated by `pipeline.run_analysis()`. Only processes symbols with
+  `is_active=True` AND `is_validated=True`.
 - **`ui/`** + **`app.py`** — Streamlit multipage app (registered via
   `st.navigation` in `app.py`, pages under `ui/pages/`): Fetch Control, Filter,
   Output, Sector Indices, Parameters, Settings (Settings embeds the peak-detection
@@ -107,7 +113,7 @@ Three intentionally decoupled layers plus shared infrastructure:
 ### Conventions that cut across the codebase
 
 - **Separate SQLite DBs per data type** (`symbols`, `quotes`, `ohlcv`,
-  `financials`, `analysis`, `macro`, `indices` — paths in `config/settings.py`). There are
+  `financials`, `estimates`, `analysis`, `macro`, `indices` — paths in `config/settings.py`). There are
   **no cross-database SQL joins**; merge in pandas instead.
 - **The SQLite wrapper is opinionated by design** (`core/database.py`): never a
   generic write. Use the verb that names the intent — `append` (add rows, e.g.
@@ -141,7 +147,23 @@ Three intentionally decoupled layers plus shared infrastructure:
   `goodness()` turns a column into 0-100. **Both the Scoring Rules page and the rule-colored
   heatmap consume `scoring_rules.goodness()` — never reimplement strong/weak coloring
   elsewhere.** Category `*_score`s are **results, not rules** (excluded from the rules page;
-  the future `scoring.py` rewire must DERIVE them from rule goodness, not give them a rule).
+  `scoring.py` DERIVES them from rule goodness). `scoring.py` also **stores a
+  `<metric>_goodness` (0-100) column per scorable metric** in `analysis.db` (computed
+  ONCE via `metric_goodness`, then reused as the input to the category scores —
+  parameter goodness → category → overall). These power the Filter **"Score" variant**
+  (alongside Value / vs Sector / vs Industry; `resolve_column`→`_goodness`,
+  `filter_registry.score_column`) and are viewable/sortable in Output (label "· Score").
+  Editing a rule + Save calls `scoring.refresh_scores()` — a fast (~4s) recompute of
+  the goodness + category/overall columns on the stored `analysis.db` (no fetch /
+  per-symbol pass), so the stored/filterable scores match the heatmap immediately.
+- **Filterable/sortable derived values are computed in the analysis layer and
+  stored** as `analysis.db` columns (peer `_vs_*`, category `*_score`, per-metric
+  `*_goodness`) — never computed live in the UI at filter time, so
+  Filter/Output/heatmap all read one consistent number. When a config/rule changes
+  them, provide a fast refresh that recomputes just those columns on the stored
+  `analysis.db` (e.g. `scoring.refresh_scores()`) instead of forcing a full
+  re-analysis. (Reserve live UI compute for purely presentational things — chart
+  overlays — that aren't filtered or sorted.)
 - **TLS / certificates**: this machine sits behind TLS interception (a proxy/AV
   re-signs HTTPS with a private CA in the Windows trust store). `certifi` alone
   fails with CERTIFICATE_VERIFY_FAILED, so `core/net.configure_tls()` MUST run
@@ -156,7 +178,11 @@ Three intentionally decoupled layers plus shared infrastructure:
   security types they handle. Each owns a paired sanitize function; flow is
   `fetch raw → sanitize → conditional enrichment → sanitize → write`. Rate
   limiting via `ratelimit`, retries via `tenacity`, both keyed off
-  `settings.RATE_LIMITS` / `RETRY_*`.
+  `settings.RATE_LIMITS` / `RETRY_*`. **For yfinance fetchers**, group the Ticker
+  properties you read by their shared `quoteSummary` request (one cached request =
+  one real Yahoo hit; `@limits` counts `fetch_one` not requests, so a multi-request
+  fetcher needs a lower rate) — the full property→request map is in
+  `dev_docs/yfinance_request_groups.md`.
 - **Resumability**: `fetch_status` (composite PK `symbol, fetcher_name`) tracks
   the last successful fetch and an error counter; a 5-day per-fetcher lock skips
   recently-fetched pairs. Financials additionally defer symbols whose next
@@ -187,7 +213,7 @@ Three intentionally decoupled layers plus shared infrastructure:
   reads hints ONLY from here (Filter picker ▸ info, Output column headers, the radar's
   category info row, etc.) — never hardcode a description in a page. Category scores
   (`*_score`) are registry keys too (`category: "Score"`). To verify nothing slipped:
-  cross-check `R.BASE_BY_KEY` against `PARAM_HINTS` (currently 69/69, 0 missing).
+  cross-check `R.BASE_BY_KEY` against `PARAM_HINTS` (currently 78/78, 0 missing).
 - **No explainer text in the UI** — don't add `st.caption`/`st.markdown` blurbs that
   describe what a control does or how to use it (they clutter the UI, 2026-06-21). The
   sanctioned hint mechanism is `config/param_hints.py` hint boxes + widget `help=`

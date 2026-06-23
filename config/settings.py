@@ -37,6 +37,7 @@ FINANCIALS_DB: Path = DB_DIR / "financials.db"
 ANALYSIS_DB: Path = DB_DIR / "analysis.db"
 MACRO_DB: Path = DB_DIR / "macro.db"
 INDICES_DB: Path = DB_DIR / "indices.db"  # sector / sub-industry index level series
+SIGNALS_DB: Path = DB_DIR / "signals.db"  # yfinance per-symbol signals: estimates + earnings_surprise + ownership
 
 # Rotating backups of every .db file, taken before each fetch run.
 BACKUP_DIR: Path = BASE_DIR / "backups"
@@ -155,8 +156,16 @@ DEFAULT_BATCH_SIZE: int = 100
 
 # Per-API rate limits: (max_calls, period_seconds). Tune with the rate-limit
 # testing utility (Topic 2.3) and store the safe ceiling here.
+#
+# NOTE: the throttle counts one slot per `fetch_one` (per SYMBOL), not per real
+# HTTP request — see base.py. A single fetch_one may make several Yahoo requests
+# (one per cached quoteSummary group), so the real load ≈ limit × requests-per-
+# symbol. The heaviest yfinance fetcher, YFinanceFinancials (~6 requests/symbol ≈
+# 600 req/min at 100/60), runs safely here and sets the proven envelope: a new
+# yfinance fetcher making ≤6 requests/symbol needs no rate change. See the per-
+# property request-group map in dev_docs/yfinance_request_groups.md.
 RATE_LIMITS: dict[str, tuple[int, int]] = {
-    "yfinance": (100, 60),  # tested safe by Frank
+    "yfinance": (100, 60),  # tested safe by Frank (per-symbol; see note above)
     "polygon": (5, 60),    # free tier: 5 req/min
     "fmp": (250, 86400),   # free tier: ~250 req/day
     "fred": (120, 60),
@@ -287,14 +296,21 @@ CATEGORY_METRIC_WEIGHTS: dict[str, dict[str, float]] = {
         "current_ratio": 0.5, "interest_coverage": 0.5, "operating_margin": 0.25,
         "roa": 0.25, "debt_to_ebitda": 0.25,
     },
-    "growth": {  # already near-independent; trim 3y/5y window overlap (~0.55)
+    "growth": {  # historical CAGRs anchor; forward signals add at half weight
         "eps_cagr_3y": 1.0, "revenue_cagr_3y": 1.0, "eps_yoy_q": 0.75,
         "revenue_yoy_q": 0.75, "fcf_cagr_3y": 0.5, "eps_growth_r2": 0.5,
         "eps_cagr_5y": 0.5, "revenue_cagr_5y": 0.5,
+        # forward-looking (analyst estimates) — sparse, so they drop out & renormalize
+        # for no-coverage names; for covered names they tilt growth toward what's NEXT.
+        "forward_eps_growth": 0.5, "eps_revision_1m": 0.5, "revenue_accel": 0.5,
+        # earnings beating estimates = growth surprising to the upside (sparse).
+        "earnings_surprise_avg": 0.5,
     },
     "momentum": {  # rs_rank is the canonical factor; collapse the MA trio
         "rs_rank": 1.0, "pct_from_52w_high": 0.75, "price_vs_ma_50": 0.5,
         "price_vs_ma_200": 0.5, "price_vs_ma_150": 0.25,
+        # net insider buying — the CAN-SLIM "smart money confirms" signal (sparse).
+        "insider_net_buy_pct": 0.25,
     },
     "income": {  # near-independent already; keep sustainability weighted
         "div_yield_ttm": 1.0, "div_growth_5y": 0.75, "div_coverage": 0.75,

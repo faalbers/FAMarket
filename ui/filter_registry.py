@@ -149,8 +149,9 @@ def _b(key, name, category, applies, growth=False) -> Base:
 
 # Categories in display order.
 CATEGORY_ORDER = [
-    "Price", "Valuation", "Profitability", "Balance Sheet", "Growth", "Income",
-    "Technical", "Intrinsic Value", "Relative Strength", "Score", "Classification",
+    "Price", "Size", "Valuation", "Profitability", "Balance Sheet", "Growth", "Estimates",
+    "Earnings", "Ownership", "Income", "Technical", "Intrinsic Value", "Relative Strength",
+    "Score", "Classification",
 ]
 
 # Fund types — for classification bases that only apply to funds.
@@ -159,6 +160,8 @@ FUNDS = frozenset({ETF, CEF, MUTUAL_FUND})
 BASES: list[Base] = [
     # -- Price -------------------------------------------------------------- #
     _b("price", "Price", "Price", ALL_TRADED),
+    # -- Size --------------------------------------------------------------- #
+    _b("market_cap", "Market cap", "Size", COMPANY),
     # -- Valuation ---------------------------------------------------------- #
     _b("pe", "P/E", "Valuation", frozenset({STANDARD, BANK, INSURANCE})),
     _b("forward_pe", "Forward P/E", "Valuation", frozenset({STANDARD, BANK, INSURANCE})),
@@ -177,6 +180,8 @@ BASES: list[Base] = [
     _b("operating_margin", "Operating margin", "Profitability", frozenset({STANDARD})),
     _b("net_margin", "Net margin", "Profitability", frozenset({STANDARD, BANK, INSURANCE})),
     _b("fcf_margin", "FCF margin", "Profitability", frozenset({STANDARD})),
+    _b("gross_margin_trend_3y", "Gross margin trend (3y)", "Profitability", frozenset({STANDARD})),
+    _b("operating_margin_trend_3y", "Operating margin trend (3y)", "Profitability", frozenset({STANDARD})),
     # -- Balance sheet ------------------------------------------------------ #
     _b("debt_to_equity", "Debt/Equity", "Balance Sheet", frozenset({STANDARD, REIT})),
     _b("debt_to_ebitda", "Debt/EBITDA", "Balance Sheet", frozenset({STANDARD, REIT})),
@@ -190,6 +195,25 @@ BASES: list[Base] = [
     _b("eps", "EPS growth", "Growth", frozenset({STANDARD, BANK, INSURANCE}), growth=True),
     _b("fcf", "FCF growth", "Growth", frozenset({STANDARD}), growth=True),
     _b("book_value", "Book-value growth", "Growth", frozenset({STANDARD, BANK, INSURANCE}), growth=True),
+    _b("revenue_accel", "Revenue acceleration", "Growth", frozenset({STANDARD, BANK, INSURANCE, REIT})),
+    _b("eps_accel", "EPS acceleration", "Growth", frozenset({STANDARD, BANK, INSURANCE})),
+    _b("share_count_chg_1y", "Share count change (1y)", "Growth", frozenset({STANDARD, BANK, INSURANCE})),
+    # -- Estimates (forward analyst data; only fetched for stock/reit/adr) --- #
+    _b("forward_eps_growth", "Forward EPS growth", "Estimates", COMPANY),
+    _b("forward_rev_growth", "Forward revenue growth", "Estimates", COMPANY),
+    _b("forward_peg", "Forward PEG", "Estimates", COMPANY),
+    _b("eps_revision_1m", "EPS revision (1m)", "Estimates", COMPANY),
+    _b("eps_revision_3m", "EPS revision (3m)", "Estimates", COMPANY),
+    _b("eps_revision_breadth", "EPS revision breadth", "Estimates", COMPANY),
+    _b("analyst_count", "Analyst count", "Estimates", COMPANY),
+    # -- Earnings (surprise history + next earnings date; stock/reit/adr only) - #
+    _b("earnings_surprise_avg", "Earnings surprise (avg)", "Earnings", COMPANY),
+    _b("earnings_surprise_last", "Earnings surprise (last)", "Earnings", COMPANY),
+    _b("earnings_beat_rate", "Earnings beat rate", "Earnings", COMPANY),
+    _b("days_to_next_earnings", "Days to next earnings", "Earnings", COMPANY),
+    # -- Ownership (insider + institutional; stock/reit/adr only) ------------ #
+    _b("insider_net_buy_pct", "Insider net buying", "Ownership", COMPANY),
+    _b("institutions_count", "Institutional holders", "Ownership", COMPANY),
     # -- Income ------------------------------------------------------------- #
     _b("div_yield_ttm", "Dividend yield (TTM)", "Income", DIVIDEND_PAYERS),
     _b("div_rate_ttm", "Dividend rate (TTM)", "Income", DIVIDEND_PAYERS),
@@ -269,6 +293,15 @@ def peer_columns(column: str) -> dict[str, str]:
         if c in cols:
             out[suffix] = c
     return out
+
+
+def score_column(column: str) -> str | None:
+    """The stored per-metric goodness ("Score") column for a concrete column, if the
+    analysis layer computed one. Data-driven mirror of `peer_columns` — the Filter
+    page offers the "Score" variant only when this column actually exists.
+    """
+    c = f"{column}_goodness"
+    return c if c in analysis_columns() else None
 
 
 def bases_for_types(selected: set[str]) -> list[Base]:

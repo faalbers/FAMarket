@@ -10,7 +10,7 @@ Block model (one dict per block; the same shape nests one level deep as OR child
       "enabled": true,
       "param":   "roe",          # base-metric key (filter_registry.BASE_BY_KEY)
       "window":  null,           # growth suffix for growth bases (e.g. "cagr_3y")
-      "compare": "value",        # "value" | "vs_sector" | "vs_industry"
+      "compare": "value",        # "value" | "vs_sector" | "vs_industry" | "score"
       "op":      ">",            # see OPERATORS
       "vmode":   "V",            # "V" fixed value | "P" another parameter
       "value":   12,             # number / text, or a base-key when vmode == "P"
@@ -76,11 +76,17 @@ def new_block() -> dict:
 # Column resolution
 # --------------------------------------------------------------------------- #
 def resolve_column(param: str, window: str | None, compare: str) -> str:
-    """(base, growth-window, peer-compare) -> concrete analysis.db column name."""
+    """(base, growth-window, compare) -> concrete analysis.db column name.
+
+    compare: "value" (raw), "vs_sector"/"vs_industry" (peer-relative), or "score"
+    (the per-metric 0-100 goodness column the analysis layer stores).
+    """
     base = R.BASE_BY_KEY.get(param)
     col = f"{param}_{window}" if (base and base.growth and window) else param
     if compare in ("vs_sector", "vs_industry"):
         return f"{col}_{compare}"
+    if compare == "score":
+        return f"{col}_goodness"
     return col
 
 

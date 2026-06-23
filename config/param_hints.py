@@ -59,6 +59,20 @@ PARAM_HINTS: dict[str, dict] = {
         "vs_peers": "No — raw price says nothing about value; use the multiples instead.",
     },
     # ------------------------------------------------------------------ #
+    # Size
+    # ------------------------------------------------------------------ #
+    "market_cap": {
+        "name": "Market cap",
+        "category": "Size",
+        "unit": "$",
+        "what_it_is": "Company size: last completed session's price × shares outstanding.",
+        "how_to_use": [
+            "Smaller companies have more room to grow (and more risk); giants compound slowly.",
+            "Use as a band — e.g. small/mid-cap hunting (300M–10B) — or a floor to drop micro-caps.",
+        ],
+        "vs_peers": "No — it's an absolute size; compare valuation multiples instead.",
+    },
+    # ------------------------------------------------------------------ #
     # Valuation
     # ------------------------------------------------------------------ #
     "pe": {
@@ -240,6 +254,28 @@ PARAM_HINTS: dict[str, dict] = {
         ],
         "vs_peers": "Yes — capital intensity drives the achievable level.",
     },
+    "gross_margin_trend_3y": {
+        "name": "Gross mgn trend 3y",
+        "category": "Profitability",
+        "unit": "%",
+        "what_it_is": "Change in gross margin over ~3 years (latest annual margin minus the margin ~3 years earlier), in percentage points.",
+        "how_to_use": [
+            "Positive = widening margins = pricing power; often precedes a re-rating.",
+            "Negative = margin erosion — an early warning even while sales still grow.",
+        ],
+        "vs_peers": "No — read the direction on its own; compare the level via gross margin.",
+    },
+    "operating_margin_trend_3y": {
+        "name": "Op mgn trend 3y",
+        "category": "Profitability",
+        "unit": "%",
+        "what_it_is": "Change in operating margin over ~3 years (latest annual margin minus the margin ~3 years earlier), in percentage points.",
+        "how_to_use": [
+            "Positive = the core business is getting more efficient — the cleanest quality-trend signal.",
+            "Negative = costs outpacing sales; profit quality slipping.",
+        ],
+        "vs_peers": "No — read the direction on its own; compare the level via operating margin.",
+    },
     # ------------------------------------------------------------------ #
     # Balance Sheet
     # ------------------------------------------------------------------ #
@@ -368,6 +404,194 @@ PARAM_HINTS: dict[str, dict] = {
             "Steady ~10%+ book growth plus reasonable P/B is the classic financial-sector screen.",
         ],
         "vs_peers": "Yes — compare within banks/insurance specifically.",
+    },
+    "revenue_accel": {
+        "name": "Rev accel",
+        "category": "Growth",
+        "unit": "%",
+        "what_it_is": "Revenue acceleration: latest quarter's YoY growth minus the 3-year revenue CAGR, in percentage points.",
+        "how_to_use": [
+            "Positive = growth speeding up vs its own recent pace — a strong forward signal.",
+            "Negative = decelerating; read alongside the raw growth rates.",
+        ],
+        "vs_peers": "No — it's self-relative (a stock vs its own trend).",
+    },
+    "eps_accel": {
+        "name": "EPS accel",
+        "category": "Growth",
+        "unit": "%",
+        "what_it_is": "EPS acceleration: latest quarter's YoY EPS growth minus the 3-year EPS CAGR, in percentage points.",
+        "how_to_use": [
+            "Positive = earnings growth accelerating — often what drives a fresh price run.",
+            "Negative = earnings momentum fading even if still growing.",
+        ],
+        "vs_peers": "No — it's self-relative (a stock vs its own trend).",
+    },
+    "share_count_chg_1y": {
+        "name": "Share count chg 1y",
+        "category": "Growth",
+        "unit": "%",
+        "what_it_is": "Year-over-year change in diluted share count (the EPS denominator).",
+        "how_to_use": [
+            "Negative = net buybacks — fewer shares quietly lift EPS and per-share value.",
+            "Positive = dilution (new shares, stock comp, raises) — a per-share headwind.",
+            "Filter < 0 to find companies shrinking their share count.",
+        ],
+        "vs_peers": "No — read it as an absolute capital-return signal.",
+    },
+    # ------------------------------------------------------------------ #
+    # Estimates (forward-looking analyst data, from the `estimates` table in signals.db)
+    # ------------------------------------------------------------------ #
+    "forward_eps_growth": {
+        "name": "Fwd EPS gr",
+        "category": "Estimates",
+        "unit": "%",
+        "what_it_is": "Analysts' consensus EPS growth for the NEXT fiscal year vs the current one.",
+        "how_to_use": [
+            "The forward complement to historical EPS growth — what the Street expects next.",
+            "High + accelerating vs trailing growth is the GARP sweet spot; it's a forecast, not fact.",
+        ],
+        "vs_peers": "Yes — expected growth norms differ by sector; compare within the group.",
+    },
+    "forward_rev_growth": {
+        "name": "Fwd rev gr",
+        "category": "Estimates",
+        "unit": "%",
+        "what_it_is": "Analysts' consensus revenue growth for the next fiscal year vs the current one.",
+        "how_to_use": [
+            "Top-line forward growth — cleaner than EPS for early-stage / thin-margin names.",
+            "Pair with forward EPS growth: revenue growing faster than EPS hints at margin pressure.",
+        ],
+        "vs_peers": "Yes — compare within sector/industry.",
+    },
+    "forward_peg": {
+        "name": "Fwd PEG",
+        "category": "Estimates",
+        "unit": "x",
+        "what_it_is": "Forward P/E divided by next-year EPS growth (%). (yfinance gives no usable "
+                      "per-stock long-term rate, so the 1-year-forward growth is used.)",
+        "how_to_use": [
+            "Around 1 is fairly priced for its expected growth; under 1 is growth at a discount.",
+            "NULL when forward growth is zero or negative. More forward-looking than trailing PEG.",
+        ],
+        "vs_peers": "Somewhat — it already adjusts for growth, but sector norms still differ.",
+    },
+    "eps_revision_1m": {
+        "name": "EPS rev 1m",
+        "category": "Estimates",
+        "unit": "%",
+        "what_it_is": "Percent change in the current-year consensus EPS estimate over the last 30 days.",
+        "how_to_use": [
+            "Positive = analysts raising estimates — one of the strongest forward-return signals.",
+            "Negative = downgrades in progress; a warning even on a cheap-looking stock.",
+        ],
+        "vs_peers": "No — it's self-relative (the estimate vs its own level a month ago).",
+    },
+    "eps_revision_3m": {
+        "name": "EPS rev 3m",
+        "category": "Estimates",
+        "unit": "%",
+        "what_it_is": "Percent change in the current-year consensus EPS estimate over the last 90 days.",
+        "how_to_use": [
+            "The slower-moving revision trend — confirms the 1-month signal isn't just noise.",
+            "Both 1m and 3m positive = sustained upgrade momentum.",
+        ],
+        "vs_peers": "No — it's self-relative (the estimate vs its own level three months ago).",
+    },
+    "eps_revision_breadth": {
+        "name": "EPS rev breadth",
+        "category": "Estimates",
+        "unit": "",
+        "what_it_is": "Net analysts revising the current-year EPS estimate UP minus DOWN over the last 30 days (a count).",
+        "how_to_use": [
+            "Positive = more raised than cut (broad agreement on improvement); filter > 0.",
+            "Reads the breadth of the revision, not just the size — pair with EPS rev 1m.",
+        ],
+        "vs_peers": "No — it's an absolute count of analyst actions.",
+    },
+    "analyst_count": {
+        "name": "Analysts",
+        "category": "Estimates",
+        "unit": "",
+        "what_it_is": "Number of analysts behind the current-year EPS estimate.",
+        "how_to_use": [
+            "More analysts = a more reliable consensus; very low counts make the estimates noisy.",
+            "Use a floor (e.g. >= 3) to keep estimate-based screens trustworthy.",
+        ],
+        "vs_peers": "No — it's coverage depth, not a valuation; read it as a confidence gate.",
+    },
+    # ------------------------------------------------------------------ #
+    # Earnings (surprise history + next earnings date, from signals.db)
+    # ------------------------------------------------------------------ #
+    "earnings_surprise_avg": {
+        "name": "Surprise avg",
+        "category": "Earnings",
+        "unit": "%",
+        "what_it_is": "Average earnings surprise (actual vs estimate EPS) over the last 4 reported quarters.",
+        "how_to_use": [
+            "Positive = a habit of beating estimates; post-earnings drift tends to follow beats.",
+            "A consistent beater is executing above expectations — pair with the beat rate for consistency.",
+        ],
+        "vs_peers": "No — beating estimates is good in any sector; judged on an absolute basis (line at 0).",
+    },
+    "earnings_surprise_last": {
+        "name": "Surprise last",
+        "category": "Earnings",
+        "unit": "%",
+        "what_it_is": "Earnings surprise (actual vs estimate EPS) for the most recent reported quarter.",
+        "how_to_use": [
+            "The freshest beat/miss — a big positive can kick off post-earnings drift.",
+            "Read next to the 4-quarter average: one beat after misses is weaker than a steady streak.",
+        ],
+        "vs_peers": "No — absolute beat/miss (line at 0), not a sector comparison.",
+    },
+    "earnings_beat_rate": {
+        "name": "Beat rate",
+        "category": "Earnings",
+        "unit": "%",
+        "what_it_is": "Share of the last 4 reported quarters where actual EPS beat the estimate.",
+        "how_to_use": [
+            "Higher = more consistent execution above expectations (100 = beat every quarter).",
+            "Consistency matters more than a single lucky beat — use with the surprise average.",
+        ],
+        "vs_peers": "No — ranked across the whole universe; consistency is good everywhere.",
+    },
+    "days_to_next_earnings": {
+        "name": "Days to earnings",
+        "category": "Earnings",
+        "unit": "days",
+        "what_it_is": "Calendar days until the next expected earnings report (from the analyst calendar).",
+        "how_to_use": [
+            "A RISK GATE, not a quality score — a report can gap a stock either way.",
+            "Avoid initiating right before earnings (small number), or target a post-report window.",
+        ],
+        "vs_peers": "No — it's an event date, not a comparative metric.",
+    },
+    # ------------------------------------------------------------------ #
+    # Ownership (insider + institutional, from signals.db)
+    # ------------------------------------------------------------------ #
+    "insider_net_buy_pct": {
+        "name": "Insider net buy",
+        "category": "Ownership",
+        "unit": "%",
+        "what_it_is": "Net insider share buying over the last ~6 months as a percent of insider-held shares "
+                      "(buys minus sells).",
+        "how_to_use": [
+            "Positive = insiders net BUYING — the 'smart money confirms' signal; filter > 0.",
+            "Insiders buy for one reason (they expect upside) but sell for many — buying is the stronger tell.",
+        ],
+        "vs_peers": "No — net insider buying is bullish in any sector; absolute (line at 0).",
+    },
+    "institutions_count": {
+        "name": "Institutions",
+        "category": "Ownership",
+        "unit": "",
+        "what_it_is": "Number of institutional holders on record for the stock.",
+        "how_to_use": [
+            "More institutions = deeper professional ownership and liquidity; very low = under-the-radar.",
+            "A context/liquidity read, not a buy signal on its own — pair with insider buying.",
+        ],
+        "vs_peers": "No — a raw count (size/liquidity-correlated); read it as context.",
     },
     # ------------------------------------------------------------------ #
     # Income
