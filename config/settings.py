@@ -156,8 +156,16 @@ DEFAULT_BATCH_SIZE: int = 100
 
 # Per-API rate limits: (max_calls, period_seconds). Tune with the rate-limit
 # testing utility (Topic 2.3) and store the safe ceiling here.
+#
+# NOTE: the throttle counts one slot per `fetch_one` (per SYMBOL), not per real
+# HTTP request — see base.py. A single fetch_one may make several Yahoo requests
+# (one per cached quoteSummary group), so the real load ≈ limit × requests-per-
+# symbol. The heaviest yfinance fetcher, YFinanceFinancials (~6 requests/symbol ≈
+# 600 req/min at 100/60), runs safely here and sets the proven envelope: a new
+# yfinance fetcher making ≤6 requests/symbol needs no rate change. See the per-
+# property request-group map in dev_docs/yfinance_request_groups.md.
 RATE_LIMITS: dict[str, tuple[int, int]] = {
-    "yfinance": (100, 60),  # tested safe by Frank
+    "yfinance": (100, 60),  # tested safe by Frank (per-symbol; see note above)
     "polygon": (5, 60),    # free tier: 5 req/min
     "fmp": (250, 86400),   # free tier: ~250 req/day
     "fred": (120, 60),

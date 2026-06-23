@@ -175,7 +175,11 @@ Three intentionally decoupled layers plus shared infrastructure:
   security types they handle. Each owns a paired sanitize function; flow is
   `fetch raw → sanitize → conditional enrichment → sanitize → write`. Rate
   limiting via `ratelimit`, retries via `tenacity`, both keyed off
-  `settings.RATE_LIMITS` / `RETRY_*`.
+  `settings.RATE_LIMITS` / `RETRY_*`. **For yfinance fetchers**, group the Ticker
+  properties you read by their shared `quoteSummary` request (one cached request =
+  one real Yahoo hit; `@limits` counts `fetch_one` not requests, so a multi-request
+  fetcher needs a lower rate) — the full property→request map is in
+  `dev_docs/yfinance_request_groups.md`.
 - **Resumability**: `fetch_status` (composite PK `symbol, fetcher_name`) tracks
   the last successful fetch and an error counter; a 5-day per-fetcher lock skips
   recently-fetched pairs. Financials additionally defer symbols whose next
