@@ -78,6 +78,15 @@ FILTERS_DIR: Path = BASE_DIR / "filters"        # .filt files (saved filter sets
 # and parameter/column sets (.prms). The suffix distinguishes the kind.
 SELECTIONS_DIR: Path = BASE_DIR / "selections"
 
+# Email sending (Utilities ▸ Email a symbol selection). Non-sensitive SMTP config;
+# the username + password are secrets and live in .env (SMTP_USER / SMTP_PASSWORD,
+# see config/secrets.py + .env.template). Defaults target Gmail — change HOST/PORT
+# for another provider. Port 587 = STARTTLS (SMTP_USE_TLS), 465 = implicit SSL.
+SMTP_HOST: str = "smtp.gmail.com"
+SMTP_PORT: int = 587
+SMTP_USE_TLS: bool = True
+EMAIL_FROM: str = ""   # sender address; blank falls back to SMTP_USER from .env
+
 # Per-parameter scoring RULES (heatmap coloring / future scoring). A dedicated JSON
 # file (like the .filt filter sets) holding the user's edits on top of the committed
 # defaults in analysis_layer/scoring_rules.py. Delete it to reset rules to defaults.
