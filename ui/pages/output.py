@@ -166,6 +166,9 @@ def _render_actions(symbols: list[str], cols: list[str] | None = None) -> None:
     _dv = st.columns(2)
     _dv[0].link_button("💰 Dividend yield ↗",
                        _charts_url(symbols, "dividend_line"), width="stretch")
+    st.markdown("**News**")
+    _nw = st.columns(2)
+    _nw[0].link_button("📰 Latest news ↗", _charts_url(symbols, "news"), width="stretch")
     st.markdown("**Analyze on external site**")
     _ext = st.columns(2)
     _ext[0].link_button("Finviz ↗", sites["finviz"].format(symbols=syms_csv), width="stretch")

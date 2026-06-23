@@ -40,6 +40,7 @@ from analysis_layer import scoring_rules as _SR
 from config import settings
 from config import param_hints
 from core.database import Database
+from data_layer import news as _news
 from ui import param_picker as P
 from ui import selection_io as SEL
 from ui.chart_theme import (
@@ -1391,6 +1392,86 @@ def _symbol_selection_bar(symbols: list[str], *, keyp: str,
 
 
 # --------------------------------------------------------------------------- #
+# view=news: aggregated, de-duplicated recent headlines for the selected symbols
+# (yfinance + Polygon + finviz), one sortable table with clickable titles. Fetched
+# on demand — NOT part of the main fetch runs — and cached briefly per tab.
+# --------------------------------------------------------------------------- #
+@st.cache_data(ttl=900, show_spinner=False)
+def _load_news(symbols: tuple[str, ...], sources: tuple[str, ...]) -> pd.DataFrame:
+    return _news.fetch_news(symbols, sources)
+
+
+def _toggle_flag(key: str) -> None:
+    """Flip a session boolean — for the self-managed per-symbol collapse headers
+    (st.expander can mount a dataframe at 0-width / snap shut on interaction)."""
+    st.session_state[key] = not st.session_state.get(key, False)
+
+
+def _render_news(symbols: list[str]) -> None:
+    st.subheader(f"📰 Latest news — {', '.join(symbols[:12])}"
+                 + ("…" if len(symbols) > 12 else ""))
+    sources = tuple(settings.NEWS_SOURCES)
+    with st.spinner("Fetching news… (Polygon is rate-limited to 5/min, so larger "
+                    "selections take a moment)"):
+        df = _load_news(tuple(symbols), sources)
+    if df.empty:
+        st.info("No recent news found for the selected symbols.")
+        return
+    # Code-only relevance split: does the article name/center on the company, or is it
+    # about its broader environment (sector / peers / market)? Uses Company name etc.
+    df = _news.classify_relevance(df, SEL.symbol_info(list(dict.fromkeys(symbols))))
+    st.caption(f"Sources: {', '.join(sources)} · newest first · duplicate stories "
+               "merged · split into company-specific vs broader-context news")
+
+    # One table per symbol, in the selection's order. The article URL is its own narrow
+    # 🔗 column — only that icon is the clickable link (LinkColumn with a constant icon:
+    # no parentheses, so Streamlit shows it literally, not as a regex). The Title beside
+    # it is plain, non-clickable text. A clean URL in its own column also avoids the
+    # invalid-URL breakage you get from embedding the headline into the link.
+    col_cfg = {
+        "Open": st.column_config.LinkColumn("🔗", display_text="🔗", width=48),
+        "Published": st.column_config.DatetimeColumn(
+            "Published (UTC)", format="YYYY-MM-DD HH:mm", width="small"),
+        "Title": st.column_config.TextColumn("Title", width="large"),
+        "Publisher": st.column_config.TextColumn("Publisher", width="small"),
+        "Sentiment": st.column_config.TextColumn("Sentiment", width="small"),
+    }
+    order = ["Open", "Title", "Published", "Publisher", "Sentiment"]
+
+    def _table(rows: pd.DataFrame) -> None:
+        disp = rows.drop(columns=["Symbol"]).rename(columns={"Url": "Open"})
+        st.dataframe(disp, hide_index=True, width="stretch",
+                     column_config=col_cfg, column_order=order)
+
+    for sym in dict.fromkeys(symbols):  # selection order, de-duplicated
+        sub = df[df["Symbol"] == sym]
+        # Self-managed collapse: a header button toggling a session flag (collapsed by
+        # default), body under `if is_open` — not st.expander (see _toggle_flag).
+        open_key = f"news_open_{sym}"
+        is_open = st.session_state.setdefault(open_key, False)
+        st.button(f"{'▾' if is_open else '▸'}  {sym}  ·  {len(sub)} article(s)",
+                  key=f"news_tgl_{sym}", on_click=_toggle_flag, args=(open_key,),
+                  width="stretch")
+        if not is_open:
+            continue
+        if sub.empty:
+            st.caption("No recent news.")
+            continue
+        about = sub[sub["Relevance"] == "Company"]
+        context = sub[sub["Relevance"] == "Context"]
+        st.markdown(f"**About {sym}**")
+        if about.empty:
+            st.caption("No company-specific articles.")
+        else:
+            _table(about)
+        st.markdown("**Broader context** (sector · peers · market)")
+        if context.empty:
+            st.caption("None.")
+        else:
+            _table(context)
+
+
+# --------------------------------------------------------------------------- #
 # page
 # --------------------------------------------------------------------------- #
 st.title("Charts")
@@ -1432,11 +1513,15 @@ if view == "scores_heatmap":
     _render_scores_heatmap(symbols)
     st.stop()
 
+if view == "news":
+    _render_news(symbols)
+    st.stop()
+
 if view != "price":
     st.info(f"Chart view '{view}' isn't built yet — the normalized price chart, the "
             "fundamentals bar + growth-line charts, the category-scores radar, the "
-            "dividend-yield growth line and the metrics + scores heat maps are available "
-            "so far.")
+            "dividend-yield growth line, the metrics + scores heat maps and the news "
+            "table are available so far.")
     st.stop()
 
 _mtime = settings.OHLCV_DB.stat().st_mtime if settings.OHLCV_DB.exists() else 0.0

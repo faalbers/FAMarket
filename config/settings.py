@@ -180,6 +180,7 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {
     "fred": (120, 60),
     "etrade": (10, 1),
     "edgar": (9, 1),       # SEC fair-access policy: max ~10 req/sec
+    "finviz": (3, 1),      # on-demand news scrape; gentle 3/sec avoids IP blocks
 }
 
 # Retry policy for tenacity (auto-retry on transient API failure).
@@ -350,6 +351,14 @@ EXTERNAL_SITES: dict[str, str] = {
     "tradingview": "https://www.tradingview.com/symbols/{symbol}/",    # one tab per symbol
     # "koyfin": URL format confirmed during coding phase
 }
+
+# --------------------------------------------------------------------------- #
+# Symbol news (Output "Latest news" action — on-demand, NOT part of fetch runs)
+# --------------------------------------------------------------------------- #
+# Aggregated from yfinance + Polygon + finviz into one de-duplicated table.
+NEWS_SOURCES: tuple[str, ...] = ("yfinance", "polygon", "finviz")
+NEWS_ARTICLES_PER_SOURCE: int = 10   # cap fetched per symbol per source
+NEWS_LOOKBACK_DAYS: int = 30         # drop articles older than this (0 = no limit)
 
 # FRED macro series pulled into macro.db (Topic 8 — FRED DATA).
 FRED_SERIES: dict[str, str] = {

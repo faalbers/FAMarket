@@ -5,6 +5,7 @@
 yfinance            # primary: quotes, financials, OHLCV, dividends
 polygon-api-client  # symbol universe, OHLCV, reference data
 fredapi             # macro series -> macro.db
+finvizfinance       # on-demand symbol news (Output news action; NOT in fetch runs)
 requests            # SEC EDGAR + generic HTTP
 requests-oauthlib   # E*Trade OAuth1
 

@@ -50,6 +50,11 @@ The price view also has a **sector/industry relative-strength** selector (the fi
 that, when one is picked, replaces the chart with each in-group symbol plotted as
 `symbol_norm − index_norm + 100` against that group's index — with a 3-way toggle
 (Relative / Symbols / Index) that swaps content at the same window + base-100.
+A **News** action (`view=news`, `ui/pages/charts.py` + standalone `data_layer/news.py`)
+aggregates on-demand headlines per selected symbol from yfinance + Polygon + finviz into
+de-duplicated, per-symbol collapsible tables, split into company-specific vs
+broader-context news via a code-only heuristic. It is **on-demand only** — never part of
+the fetch/analysis runs, not a `BaseFetcher`, no DB.
 The
 Filter page (Topic 5) is backed by `ui/filter_registry.py` (per-`screen_type` metric
 applicability) + `ui/filter_engine.py` (block model + `.filt` JSON). Each Run Filter
