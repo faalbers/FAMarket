@@ -150,7 +150,8 @@ def _b(key, name, category, applies, growth=False) -> Base:
 # Categories in display order.
 CATEGORY_ORDER = [
     "Price", "Size", "Valuation", "Profitability", "Balance Sheet", "Growth", "Estimates",
-    "Income", "Technical", "Intrinsic Value", "Relative Strength", "Score", "Classification",
+    "Earnings", "Ownership", "Income", "Technical", "Intrinsic Value", "Relative Strength",
+    "Score", "Classification",
 ]
 
 # Fund types — for classification bases that only apply to funds.
@@ -205,6 +206,14 @@ BASES: list[Base] = [
     _b("eps_revision_3m", "EPS revision (3m)", "Estimates", COMPANY),
     _b("eps_revision_breadth", "EPS revision breadth", "Estimates", COMPANY),
     _b("analyst_count", "Analyst count", "Estimates", COMPANY),
+    # -- Earnings (surprise history + next earnings date; stock/reit/adr only) - #
+    _b("earnings_surprise_avg", "Earnings surprise (avg)", "Earnings", COMPANY),
+    _b("earnings_surprise_last", "Earnings surprise (last)", "Earnings", COMPANY),
+    _b("earnings_beat_rate", "Earnings beat rate", "Earnings", COMPANY),
+    _b("days_to_next_earnings", "Days to next earnings", "Earnings", COMPANY),
+    # -- Ownership (insider + institutional; stock/reit/adr only) ------------ #
+    _b("insider_net_buy_pct", "Insider net buying", "Ownership", COMPANY),
+    _b("institutions_count", "Institutional holders", "Ownership", COMPANY),
     # -- Income ------------------------------------------------------------- #
     _b("div_yield_ttm", "Dividend yield (TTM)", "Income", DIVIDEND_PAYERS),
     _b("div_rate_ttm", "Dividend rate (TTM)", "Income", DIVIDEND_PAYERS),

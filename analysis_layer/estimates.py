@@ -1,9 +1,9 @@
 """
 Forward-looking analyst-estimate metrics (Topic 4.1 extension).
 
-Reads each symbol's rows from **estimates.db** (tidy, one row per
-(symbol, horizon)) and derives the forward signals the historical financials
-can't give:
+Reads each symbol's rows from the `estimates` table in **signals.db** (tidy, one
+row per (symbol, horizon)) and derives the forward signals the historical
+financials can't give:
 
   * next-fiscal-year consensus growth (EPS + revenue),
   * a forward PEG (forward P/E over that forward growth),

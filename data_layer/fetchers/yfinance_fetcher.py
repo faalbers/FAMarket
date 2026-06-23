@@ -32,6 +32,7 @@ same controlled-concurrency problem.
 from __future__ import annotations
 
 import math
+import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -473,11 +474,12 @@ def sanitize_estimates(symbol, earnings, revenue, growth, trend, revisions) -> p
 
 
 def _estimate_frame(ticker, prop: str):
-    """One analyst-estimate property as a DataFrame, or None on any failure.
+    """One yfinance Ticker property as a DataFrame, or None on any failure.
 
-    Best-effort per property (mirrors `_fund_overview`): all five share the cached
-    earningsTrend module, but any one can raise or come back unpopulated, and a
-    single missing property must not reject the whole symbol.
+    Best-effort per property (mirrors `_fund_overview`): a single property can raise
+    or come back unpopulated, and that must not reject the whole symbol. Used for
+    every DataFrame-valued property this fetcher reads (the estimate frames, plus
+    earnings_history / insider_purchases / major_holders).
     """
     try:
         df = getattr(ticker, prop)
@@ -488,23 +490,180 @@ def _estimate_frame(ticker, prop: str):
     return df
 
 
-class YFinanceEstimates(BaseFetcher):
-    name = "yfinance_estimates"
+def _safe_calendar(ticker):
+    """`Ticker.calendar` (a dict of next-event dates) or None on any failure."""
+    try:
+        cal = ticker.calendar
+    except Exception:
+        return None
+    return cal if isinstance(cal, dict) else None
+
+
+def _as_iso_date(v):
+    """A date / datetime / Timestamp -> 'YYYY-MM-DD' string, else None."""
+    if v is None:
+        return None
+    try:
+        ts = pd.Timestamp(v)
+    except Exception:
+        return None
+    if pd.isna(ts):
+        return None
+    return ts.date().isoformat()
+
+
+# --------------------------------------------------------------------------- #
+# Earnings-surprise history (one cached `earningsHistory` request)
+# --------------------------------------------------------------------------- #
+# Tidy/long, one row per reported quarter. Stored RAW (surprise_percent is the
+# yfinance fraction, e.g. 0.10; the analysis layer converts to a percent number and
+# derives avg / beat-streak — calculations belong there, not here).
+_SURPRISE_COLS = [
+    "symbol", "period_end", "eps_estimate", "eps_actual",
+    "eps_difference", "surprise_percent", "fetched_at",
+]
+
+
+def sanitize_earnings_surprise(symbol: str, eh) -> pd.DataFrame:
+    """`earnings_history` -> tidy (symbol, period_end) rows. Empty -> no rows."""
+    if eh is None or not hasattr(eh, "empty") or eh.empty:
+        return pd.DataFrame()
+    fetched = datetime.now(timezone.utc).isoformat()
+    rows = []
+    for q in eh.index:
+        period = _as_iso_date(q)
+        if not period:
+            continue
+        rows.append({
+            "symbol": symbol,
+            "period_end": period,
+            "eps_estimate": pd.to_numeric(eh.at[q, "epsEstimate"], errors="coerce")
+                if "epsEstimate" in eh.columns else float("nan"),
+            "eps_actual": pd.to_numeric(eh.at[q, "epsActual"], errors="coerce")
+                if "epsActual" in eh.columns else float("nan"),
+            "eps_difference": pd.to_numeric(eh.at[q, "epsDifference"], errors="coerce")
+                if "epsDifference" in eh.columns else float("nan"),
+            "surprise_percent": pd.to_numeric(eh.at[q, "surprisePercent"], errors="coerce")
+                if "surprisePercent" in eh.columns else float("nan"),
+            "fetched_at": fetched,
+        })
+    if not rows:
+        return pd.DataFrame()
+    out = pd.DataFrame(rows)
+    return out[[c for c in _SURPRISE_COLS if c in out.columns]]
+
+
+# --------------------------------------------------------------------------- #
+# Ownership / events snapshot (calendar + Holders request)
+# --------------------------------------------------------------------------- #
+# One row per symbol. calendar = next-event dates; insider_purchases
+# (netSharePurchaseActivity) + major_holders both come from the single Holders
+# request. Ownership PERCENTAGES (heldPercentInsiders / heldPercentInstitutions)
+# already ride in quotes.db `info`, so we keep only the new institutionsCount here.
+_INSIDER_SHARES = {  # netSharePurchaseActivity label -> "Shares" column dest
+    "Purchases": "insider_buy_shares",
+    "Sales": "insider_sell_shares",
+    "Net Shares Purchased (Sold)": "insider_net_shares",
+    "Total Insider Shares Held": "insider_total_held",
+    "% Net Shares Purchased (Sold)": "insider_pct_net",
+    "% Buy Shares": "insider_buy_pct",
+    "% Sell Shares": "insider_sell_pct",
+}
+_INSIDER_TRANS = {  # netSharePurchaseActivity label -> "Trans" column dest
+    "Purchases": "insider_buy_trans",
+    "Sales": "insider_sell_trans",
+    "Net Shares Purchased (Sold)": "insider_net_trans",
+}
+_OWNERSHIP_COLS = [
+    "symbol", "next_earnings_date", "ex_dividend_date", "dividend_date",
+    "insider_buy_shares", "insider_sell_shares", "insider_net_shares",
+    "insider_total_held", "insider_pct_net", "insider_buy_pct", "insider_sell_pct",
+    "insider_buy_trans", "insider_sell_trans", "insider_net_trans",
+    "insider_period_months", "institutions_count", "fetched_at",
+]
+
+
+def sanitize_ownership(symbol: str, calendar, insider, major) -> pd.DataFrame:
+    """calendar + insider_purchases + major_holders -> one snapshot row. Empty when
+    nothing usable survives (record-level reject)."""
+    vals: dict = {}
+
+    if isinstance(calendar, dict):
+        ed = calendar.get("Earnings Date")
+        if isinstance(ed, (list, tuple)) and ed:
+            vals["next_earnings_date"] = _as_iso_date(min(ed))
+        elif ed:
+            vals["next_earnings_date"] = _as_iso_date(ed)
+        vals["ex_dividend_date"] = _as_iso_date(calendar.get("Ex-Dividend Date"))
+        vals["dividend_date"] = _as_iso_date(calendar.get("Dividend Date"))
+
+    if insider is not None and hasattr(insider, "empty") and not insider.empty:
+        label_col = insider.columns[0]  # header carries the window, e.g. "...Last 6m"
+        m = re.search(r"(\d+)\s*m", str(label_col))
+        if m:
+            vals["insider_period_months"] = int(m.group(1))
+        for _, r in insider.iterrows():
+            label = str(r[label_col]).strip()
+            if label in _INSIDER_SHARES and "Shares" in insider.columns:
+                vals[_INSIDER_SHARES[label]] = pd.to_numeric(r["Shares"], errors="coerce")
+            if label in _INSIDER_TRANS and "Trans" in insider.columns:
+                vals[_INSIDER_TRANS[label]] = pd.to_numeric(r["Trans"], errors="coerce")
+
+    if major is not None and hasattr(major, "empty") and not major.empty:
+        col = major.columns[0]
+        if "institutionsCount" in major.index:
+            vals["institutions_count"] = pd.to_numeric(
+                major.at["institutionsCount", col], errors="coerce")
+
+    meaningful = any(
+        (isinstance(v, str) and v) or (not isinstance(v, str) and pd.notna(v))
+        for v in vals.values()
+    )
+    if not meaningful:
+        return pd.DataFrame()
+
+    vals["symbol"] = symbol
+    vals["fetched_at"] = datetime.now(timezone.utc).isoformat()
+    out = pd.DataFrame([vals])
+    return out[[c for c in _OWNERSHIP_COLS if c in out.columns]]
+
+
+class YFinanceSignals(BaseFetcher):
+    """Per-symbol forward / ownership signals — read off ONE Ticker, written RAW.
+
+    Folds three yfinance request groups into one fetch_one (one throttle pass):
+      * estimates       — earningsTrend + growth_estimates (existing)   -> `estimates`
+      * earnings_history — earningsHistory                              -> `earnings_surprise`
+      * calendar + Holders — calendarEvents + the 7-module Holders req  -> `ownership`
+    ~5 Yahoo requests/symbol (under the Financials ~6 envelope — see
+    dev_docs/yfinance_request_groups.md). Each property is best-effort; one missing
+    property never rejects the symbol. fetch_one returns one frame tagged by
+    `__table__`; `_write` splits it to the three tables (each its own key) in
+    signals.db. Calculations are deferred to the analysis layer (raw storage).
+    """
+
+    name = "yfinance_signals"
     api = "yfinance"
-    applies_to = ("stock", "reit", "adr")  # analyst estimates exist only for these
-    target_db = "ESTIMATES_DB"
-    table = "estimates"
+    applies_to = ("stock", "reit", "adr")  # these signals exist only for operating cos.
+    target_db = "SIGNALS_DB"
+    table = "estimates"          # primary; `_write` fans out per `__table__`
     write_mode = "upsert"
     upsert_key = ["symbol", "horizon"]
     # Standard weekly lock (inherits FETCH_LOCK_DAYS); no not_due/stale overrides —
-    # estimates revise continuously (no filing cycle) and the snapshot is replaced in
-    # place, so no-coverage names self-abandon via the no-data strike counter.
+    # this data revises continuously (no filing cycle) and the snapshot is replaced
+    # in place, so no-coverage names self-abandon via the no-data strike counter.
+
+    _TABLE_KEYS = {
+        "estimates": ["symbol", "horizon"],
+        "earnings_surprise": ["symbol", "period_end"],
+        "ownership": "symbol",
+    }
 
     def fetch_one(self, symbol: str) -> pd.DataFrame | None:
         import yfinance as yf
 
         t = yf.Ticker(symbol)
-        rows = sanitize_estimates(
+        estimates = sanitize_estimates(
             symbol,
             _estimate_frame(t, "earnings_estimate"),
             _estimate_frame(t, "revenue_estimate"),
@@ -512,4 +671,42 @@ class YFinanceEstimates(BaseFetcher):
             _estimate_frame(t, "eps_trend"),
             _estimate_frame(t, "eps_revisions"),
         )
-        return rows if not rows.empty else None
+        surprise = sanitize_earnings_surprise(
+            symbol, _estimate_frame(t, "earnings_history")
+        )
+        ownership = sanitize_ownership(
+            symbol,
+            _safe_calendar(t),
+            _estimate_frame(t, "insider_purchases"),
+            _estimate_frame(t, "major_holders"),
+        )
+
+        frames = []
+        for tbl, df in (
+            ("estimates", estimates),
+            ("earnings_surprise", surprise),
+            ("ownership", ownership),
+        ):
+            if df is not None and not df.empty:
+                df = df.copy()
+                df["__table__"] = tbl
+                frames.append(df)
+        if not frames:
+            return None
+        return pd.concat(frames, ignore_index=True)
+
+    def _write(self, db: Database, rows: pd.DataFrame) -> None:
+        """Fan the tagged frame out to its tables, each with its own upsert key.
+
+        The base run() concats per-symbol frames (union columns, NaN-filled) before
+        calling _write; we split back on `__table__` and drop the all-NaN columns a
+        table didn't fill, so each table keeps only its own schema (added dynamically
+        on first write). One signals.db connection — no base-loop change needed.
+        """
+        if rows is None or rows.empty or "__table__" not in rows.columns:
+            return
+        for tbl, sub in rows.groupby("__table__"):
+            sub = sub.drop(columns="__table__").dropna(axis=1, how="all")
+            if sub.empty:
+                continue
+            db.upsert(str(tbl), sub, key=self._TABLE_KEYS[str(tbl)])

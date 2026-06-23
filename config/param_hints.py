@@ -440,7 +440,7 @@ PARAM_HINTS: dict[str, dict] = {
         "vs_peers": "No — read it as an absolute capital-return signal.",
     },
     # ------------------------------------------------------------------ #
-    # Estimates (forward-looking analyst data, from estimates.db)
+    # Estimates (forward-looking analyst data, from the `estimates` table in signals.db)
     # ------------------------------------------------------------------ #
     "forward_eps_growth": {
         "name": "Fwd EPS gr",
@@ -519,6 +519,79 @@ PARAM_HINTS: dict[str, dict] = {
             "Use a floor (e.g. >= 3) to keep estimate-based screens trustworthy.",
         ],
         "vs_peers": "No — it's coverage depth, not a valuation; read it as a confidence gate.",
+    },
+    # ------------------------------------------------------------------ #
+    # Earnings (surprise history + next earnings date, from signals.db)
+    # ------------------------------------------------------------------ #
+    "earnings_surprise_avg": {
+        "name": "Surprise avg",
+        "category": "Earnings",
+        "unit": "%",
+        "what_it_is": "Average earnings surprise (actual vs estimate EPS) over the last 4 reported quarters.",
+        "how_to_use": [
+            "Positive = a habit of beating estimates; post-earnings drift tends to follow beats.",
+            "A consistent beater is executing above expectations — pair with the beat rate for consistency.",
+        ],
+        "vs_peers": "No — beating estimates is good in any sector; judged on an absolute basis (line at 0).",
+    },
+    "earnings_surprise_last": {
+        "name": "Surprise last",
+        "category": "Earnings",
+        "unit": "%",
+        "what_it_is": "Earnings surprise (actual vs estimate EPS) for the most recent reported quarter.",
+        "how_to_use": [
+            "The freshest beat/miss — a big positive can kick off post-earnings drift.",
+            "Read next to the 4-quarter average: one beat after misses is weaker than a steady streak.",
+        ],
+        "vs_peers": "No — absolute beat/miss (line at 0), not a sector comparison.",
+    },
+    "earnings_beat_rate": {
+        "name": "Beat rate",
+        "category": "Earnings",
+        "unit": "%",
+        "what_it_is": "Share of the last 4 reported quarters where actual EPS beat the estimate.",
+        "how_to_use": [
+            "Higher = more consistent execution above expectations (100 = beat every quarter).",
+            "Consistency matters more than a single lucky beat — use with the surprise average.",
+        ],
+        "vs_peers": "No — ranked across the whole universe; consistency is good everywhere.",
+    },
+    "days_to_next_earnings": {
+        "name": "Days to earnings",
+        "category": "Earnings",
+        "unit": "days",
+        "what_it_is": "Calendar days until the next expected earnings report (from the analyst calendar).",
+        "how_to_use": [
+            "A RISK GATE, not a quality score — a report can gap a stock either way.",
+            "Avoid initiating right before earnings (small number), or target a post-report window.",
+        ],
+        "vs_peers": "No — it's an event date, not a comparative metric.",
+    },
+    # ------------------------------------------------------------------ #
+    # Ownership (insider + institutional, from signals.db)
+    # ------------------------------------------------------------------ #
+    "insider_net_buy_pct": {
+        "name": "Insider net buy",
+        "category": "Ownership",
+        "unit": "%",
+        "what_it_is": "Net insider share buying over the last ~6 months as a percent of insider-held shares "
+                      "(buys minus sells).",
+        "how_to_use": [
+            "Positive = insiders net BUYING — the 'smart money confirms' signal; filter > 0.",
+            "Insiders buy for one reason (they expect upside) but sell for many — buying is the stronger tell.",
+        ],
+        "vs_peers": "No — net insider buying is bullish in any sector; absolute (line at 0).",
+    },
+    "institutions_count": {
+        "name": "Institutions",
+        "category": "Ownership",
+        "unit": "",
+        "what_it_is": "Number of institutional holders on record for the stock.",
+        "how_to_use": [
+            "More institutions = deeper professional ownership and liquidity; very low = under-the-radar.",
+            "A context/liquidity read, not a buy signal on its own — pair with insider buying.",
+        ],
+        "vs_peers": "No — a raw count (size/liquidity-correlated); read it as context.",
     },
     # ------------------------------------------------------------------ #
     # Income

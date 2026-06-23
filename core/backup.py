@@ -46,7 +46,7 @@ def database_paths() -> list[Path]:
         settings.ANALYSIS_DB,
         settings.MACRO_DB,
         settings.INDICES_DB,
-        settings.ESTIMATES_DB,
+        settings.SIGNALS_DB,
     ]
 
 

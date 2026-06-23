@@ -37,7 +37,7 @@ FINANCIALS_DB: Path = DB_DIR / "financials.db"
 ANALYSIS_DB: Path = DB_DIR / "analysis.db"
 MACRO_DB: Path = DB_DIR / "macro.db"
 INDICES_DB: Path = DB_DIR / "indices.db"  # sector / sub-industry index level series
-ESTIMATES_DB: Path = DB_DIR / "estimates.db"  # yfinance analyst estimates (per forward horizon)
+SIGNALS_DB: Path = DB_DIR / "signals.db"  # yfinance per-symbol signals: estimates + earnings_surprise + ownership
 
 # Rotating backups of every .db file, taken before each fetch run.
 BACKUP_DIR: Path = BASE_DIR / "backups"
@@ -303,10 +303,14 @@ CATEGORY_METRIC_WEIGHTS: dict[str, dict[str, float]] = {
         # forward-looking (analyst estimates) — sparse, so they drop out & renormalize
         # for no-coverage names; for covered names they tilt growth toward what's NEXT.
         "forward_eps_growth": 0.5, "eps_revision_1m": 0.5, "revenue_accel": 0.5,
+        # earnings beating estimates = growth surprising to the upside (sparse).
+        "earnings_surprise_avg": 0.5,
     },
     "momentum": {  # rs_rank is the canonical factor; collapse the MA trio
         "rs_rank": 1.0, "pct_from_52w_high": 0.75, "price_vs_ma_50": 0.5,
         "price_vs_ma_200": 0.5, "price_vs_ma_150": 0.25,
+        # net insider buying — the CAN-SLIM "smart money confirms" signal (sparse).
+        "insider_net_buy_pct": 0.25,
     },
     "income": {  # near-independent already; keep sustainability weighted
         "div_yield_ttm": 1.0, "div_growth_5y": 0.75, "div_coverage": 0.75,

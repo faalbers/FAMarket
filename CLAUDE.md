@@ -17,10 +17,10 @@ to.
 Build status: the **data layer** (`core/`, `config/`, symbol discovery, and the
 yfinance/EDGAR/FRED fetchers) is functional. The **analysis layer** is now
 complete — `_periods`, `metrics`, `technical`, `intrinsic_value`, `estimates`
-(forward analyst metrics from `estimates.db`), `_stats`,
+(forward analyst metrics from the `estimates` table in `signals.db`), `_stats`,
 `peers`, `scoring` (category scores + Overall, percentile-rank) and universe-wide
 `rs_rank` all work; `pipeline.run_analysis()` assembles and writes `analysis.db`
-(216 cols — includes a sector/industry-derived `screen_type` column via
+(226 cols — includes a sector/industry-derived `screen_type` column via
 `analysis_layer/screen_type.py`, and a persisted `rs_raw` input column for
 subset-run re-ranking) and is wired into the orchestrator as Group 3
 after each fetch. On **full runs only** it also builds daily base-100 **sector &
@@ -95,9 +95,12 @@ Three intentionally decoupled layers plus shared infrastructure:
   universe-wide (`rs_raw` is persisted in `analysis.db` for this). Modules:
   `metrics`, `technical`, `peers`, `intrinsic_value`, `estimates` (forward
   analyst metrics — forward EPS/rev growth, forward PEG, EPS-revision
-  momentum/breadth, analyst count — read from `estimates.db`), `scoring`,
-  orchestrated by `pipeline.run_analysis()`. Only processes symbols with `is_active=True` AND
-  `is_validated=True`.
+  momentum/breadth, analyst count — read from the `estimates` table in `signals.db`),
+  `signals` (earnings-surprise + ownership metrics — avg/last/beat-rate surprise,
+  days-to-next-earnings, insider net buying, institutions count — from the
+  `earnings_surprise`/`ownership` tables in `signals.db`),
+  `scoring`, orchestrated by `pipeline.run_analysis()`. Only processes symbols with
+  `is_active=True` AND `is_validated=True`.
 - **`ui/`** + **`app.py`** — Streamlit multipage app (registered via
   `st.navigation` in `app.py`, pages under `ui/pages/`): Fetch Control, Filter,
   Output, Sector Indices, Parameters, Settings (Settings embeds the peak-detection

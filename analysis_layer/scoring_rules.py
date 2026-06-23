@@ -104,6 +104,14 @@ DEFAULT_RULES: dict[str, dict] = {
     "eps_revision_1m":      {"shape": "higher_better", "anchor": "absolute", "value": 0.0},
     "eps_revision_3m":      {"shape": "higher_better", "anchor": "absolute", "value": 0.0},
     "eps_revision_breadth": {"shape": "higher_better", "anchor": "absolute", "value": 0.0},
+    # -- Earnings surprise: beat/miss pivots on 0 (good everywhere, not a peer call);
+    #    beat-rate ranked universe-wide. days_to_next_earnings/institutions_count are
+    #    filter-only (no rule). --
+    "earnings_surprise_avg":  {"shape": "higher_better", "anchor": "absolute", "value": 0.0},
+    "earnings_surprise_last": {"shape": "higher_better", "anchor": "absolute", "value": 0.0},
+    "earnings_beat_rate":     {"shape": "higher_better", "anchor": "universe"},
+    # -- Ownership: net insider buying pivots on 0 (positive = net buying) --
+    "insider_net_buy_pct":    {"shape": "higher_better", "anchor": "absolute", "value": 0.0},
     # -- Income: ABSOLUTE bands (goal is absolute "good income") --
     "div_yield_ttm":   {"shape": "sweet_spot", "anchor": "absolute", "lo": 2.0, "hi": 6.0,
                         "overrides": {"reit": {"lo": 4.0, "hi": 10.0}}},
@@ -149,6 +157,8 @@ RULE_CATEGORIES: dict[str, list[str]] = {
                "share_count_chg_1y"],
     "Estimates": ["forward_eps_growth", "forward_rev_growth", "forward_peg",
                   "eps_revision_1m", "eps_revision_3m", "eps_revision_breadth"],
+    "Earnings": ["earnings_surprise_avg", "earnings_surprise_last", "earnings_beat_rate"],
+    "Ownership": ["insider_net_buy_pct"],
     "Income": ["div_yield_ttm", "div_growth_5y", "div_consecutive_years",
                "div_consistency", "div_payout_ratio", "div_coverage"],
     "Momentum / Technical": ["rs_rank", "price_vs_ma_50", "price_vs_ma_150",
