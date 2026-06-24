@@ -33,6 +33,12 @@ selections/*.prms
 results/*.parquet
 results/*.json
 
+# --- Generated PDF reports (newest REPORTS_KEEP kept; see reporting/) ---
+reports/*.pdf
+
+# --- Per-symbol AI news reports (scraped article text; see reporting/ai_news_report.py) ---
+ai_news_reports/
+
 # --- Detached-fetch control state (machine-local; see data_layer/run_state.py) ---
 state/
 

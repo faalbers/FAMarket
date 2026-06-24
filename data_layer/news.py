@@ -127,6 +127,69 @@ def _finviz_getter():
 
 
 # --------------------------------------------------------------------------- #
+# article-body scrape (the "Generate AI news reports" action — NOT used by the
+# news table). Fetches a single article page and extracts clean main text + date
+# with trafilatura. Throttled like the source getters; fails soft per URL.
+# --------------------------------------------------------------------------- #
+# A realistic desktop User-Agent: many publishers serve a stub / block obvious bots.
+_SCRAPE_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+
+
+def _article_getter():
+    """Rate-limited HTTP GET of an article page, returning raw HTML (or '')."""
+    import requests
+
+    from core.net import configure_tls
+    configure_tls()  # idempotent; route the scrape through the OS trust store
+
+    calls, period = settings.RATE_LIMITS.get("article_scrape", (10, 1))
+
+    @retry(stop=stop_after_attempt(settings.RETRY_MAX_ATTEMPTS),
+           wait=wait_fixed(settings.RETRY_WAIT_SECONDS), reraise=True)
+    @sleep_and_retry
+    @limits(calls=calls, period=period)
+    def _get(url: str) -> str:
+        resp = requests.get(url, headers={"User-Agent": _SCRAPE_UA},
+                            timeout=settings.ARTICLE_SCRAPE_TIMEOUT)
+        resp.raise_for_status()
+        return resp.text or ""
+
+    return _get
+
+
+def fetch_article(url: str, get=None) -> tuple[str | None, pd.Timestamp | None]:
+    """Scrape one article URL → (clean_text, published_date) or (None, None).
+
+    Fails soft: any network error, paywall stub, or empty extraction returns
+    (None, None) with a WARNING — many publishers block scrapers, which is expected
+    and never treated as a hard error. Pass a shared `get` (from `_article_getter()`)
+    to reuse one throttle across a batch; omitted, it builds its own."""
+    if not url:
+        return None, None
+    get = get or _article_getter()
+    try:
+        html = get(url)
+    except Exception as exc:  # noqa: BLE001 - fail soft per article
+        log.warning("article fetch failed for %s: %s", url, exc)
+        return None, None
+    if not html:
+        return None, None
+    try:
+        import trafilatura
+        text = trafilatura.extract(html, include_comments=False, include_tables=False)
+        date = None
+        meta = trafilatura.extract_metadata(html)
+        if meta is not None and getattr(meta, "date", None):
+            date = _to_utc(meta.date)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("article extract failed for %s: %s", url, exc)
+        return None, None
+    text = (text or "").strip()
+    return (text or None), date
+
+
+# --------------------------------------------------------------------------- #
 # per-source normalizers -> list of normalized article dicts
 # --------------------------------------------------------------------------- #
 def _from_yfinance(get, symbol: str, count: int) -> list[dict]:

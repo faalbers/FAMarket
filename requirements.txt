@@ -24,6 +24,10 @@ streamlit           # local web UI (streamlit run app.py)
 plotly              # interactive charts (normalized prices, heatmaps, radar)
 streamlit-echarts==0.4.0  # Apache ECharts price chart (pinned: 0.7.0 breaks on current Streamlit)
 
+# --- Reports ---
+reportlab           # generate PDF reports (core/pdf.py + reporting/); pure-Python, no native deps
+trafilatura         # extract clean article main-text + date from news pages (AI news reports)
+
 # --- Config ---
 python-dotenv       # load API keys from .env
 truststore          # trust the OS cert store (corporate TLS interception) — see core/net.py

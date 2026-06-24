@@ -29,12 +29,15 @@ selected symbol on a time axis. Yield = period dividends ÷ the period-end RAW c
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 from types import SimpleNamespace
 
 import pandas as pd
 import streamlit as st
 from streamlit_echarts import JsCode, st_echarts
 
+import reporting
+from reporting import ai_news_report
 from analysis_layer import metrics
 from analysis_layer import scoring_rules as _SR
 from config import settings
@@ -1419,7 +1422,8 @@ def _render_news(symbols: list[str]) -> None:
         return
     # Code-only relevance split: does the article name/center on the company, or is it
     # about its broader environment (sector / peers / market)? Uses Company name etc.
-    df = _news.classify_relevance(df, SEL.symbol_info(list(dict.fromkeys(symbols))))
+    sym_meta = SEL.symbol_info(list(dict.fromkeys(symbols)))
+    df = _news.classify_relevance(df, sym_meta)
     st.caption(f"Sources: {', '.join(sources)} · newest first · duplicate stories "
                "merged · split into company-specific vs broader-context news")
 
@@ -1469,6 +1473,33 @@ def _render_news(symbols: list[str]) -> None:
             st.caption("None.")
         else:
             _table(context)
+
+    # --- PDF report: the same news, same order, headlines as clickable links ---
+    st.divider()
+    if st.button("📄 Generate news PDF", key="news_pdf_gen"):
+        pdf = reporting.generate("news", df=df, sources=list(sources),
+                                 order=list(dict.fromkeys(symbols)), sym_meta=sym_meta)
+        path = reporting.store.save(pdf, name="News Report")
+        st.session_state["news_pdf"] = {"bytes": pdf, "path": str(path)}
+
+    made = st.session_state.get("news_pdf")
+    if made:
+        st.success(f"Saved to {made['path']}")
+        st.download_button("⬇️ Download PDF", data=made["bytes"],
+                           file_name=Path(made["path"]).name, mime="application/pdf",
+                           key="news_pdf_dl")
+
+    # --- AI news reports: scrape the "About" article bodies into per-symbol .md ---
+    if st.button("📝 Generate AI news reports", key="ai_news_gen"):
+        with st.spinner("Scraping article text… (some publishers block scraping)"):
+            paths = ai_news_report.generate_reports(
+                df, order=list(dict.fromkeys(symbols)), sym_meta=sym_meta)
+        st.session_state["ai_news_paths"] = [str(p) for p in paths]
+
+    ai_paths = st.session_state.get("ai_news_paths")
+    if ai_paths:
+        st.success(f"Wrote {len(ai_paths)} report(s) to {settings.AI_NEWS_REPORTS_DIR}")
+        st.code("\n".join(Path(p).name for p in ai_paths), language="text")
 
 
 # --------------------------------------------------------------------------- #

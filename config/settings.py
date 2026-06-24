@@ -98,6 +98,19 @@ SCORING_RULES_PATH: Path = BASE_DIR / "scoring_rules.json"
 OUTPUT_RUNS_DIR: Path = BASE_DIR / "results"
 OUTPUT_RUNS_KEEP: int = 20
 
+# Generated PDF reports (the report pipeline — core/pdf.py + reporting/). Every
+# report a screen requests is written here as a timestamped .pdf; newest N kept,
+# pruned on each save (same scheme as OUTPUT_RUNS / core/backup.py). A data
+# directory like the rest: override REPORTS_DIR in settings.local.json to relocate.
+REPORTS_DIR: Path = BASE_DIR / "reports"
+REPORTS_KEEP: int = 50
+
+# Per-symbol AI news reports (the Charts news "Generate AI news reports" action):
+# one <symbol>_ai_news_report.md per symbol, scraped article text in plain markdown
+# for an AI to read. Overwritten each run (no count cap). Machine-local / gitignored.
+AI_NEWS_REPORTS_DIR: Path = BASE_DIR / "ai_news_reports"
+ARTICLE_SCRAPE_TIMEOUT: int = 20   # per-article HTTP timeout (seconds)
+
 # Filter page — categorical multi-pick. A filter column with few distinct values is
 # offered as a searchable multi-pick list ("is any of" / "is none of") instead of a
 # free-text/number box. Two caps so continuous numerics stay range filters:
@@ -181,6 +194,7 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {
     "etrade": (10, 1),
     "edgar": (9, 1),       # SEC fair-access policy: max ~10 req/sec
     "finviz": (3, 1),      # on-demand news scrape; gentle 3/sec avoids IP blocks
+    "article_scrape": (10, 1),  # AI news report: polite article-page fetch throttle
 }
 
 # Retry policy for tenacity (auto-retry on transient API failure).
@@ -372,7 +386,7 @@ FRED_SERIES: dict[str, str] = {
 def ensure_runtime_dirs() -> None:
     """Create the directories the app writes to. Safe to call on every startup."""
     for path in (DB_DIR, BACKUP_DIR, LOG_DIR, FILTERS_DIR, SELECTIONS_DIR, OUTPUT_RUNS_DIR,
-                 STATE_DIR):
+                 REPORTS_DIR, AI_NEWS_REPORTS_DIR, STATE_DIR):
         path.mkdir(parents=True, exist_ok=True)
 
 
