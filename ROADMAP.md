@@ -400,8 +400,12 @@
          c2619b3 scoring rewire): `scoring._rs_rank` ranks `rs_raw` WITHIN each
          `security_type` via `_stats.percentile_rank_tiered` (thin types < RS_RANK_MIN_PER_TYPE
          fall back to the universe percentile). Funds (~65% of the universe) no longer
-         distort real stocks. STILL OPEN: whether the OTHER `universe`-anchored scoring-rule
-         metrics (not RS Rank) should likewise be tiered by type.
+         distort real stocks. PROBABLY-A-NON-ISSUE for the OTHER `universe`-anchored
+         scoring-rule metrics (not RS Rank): they are all FUNDAMENTALS (growth CAGRs, margin
+         trends) which mutual funds DON'T HAVE → funds are NaN there → they already drop out
+         of the ranking, so the ~65%-funds flood that hurt RS Rank (a PRICE metric funds DO
+         have) doesn't reach them. LEAVE PARKED — only revisit if a future metric is BOTH
+         `universe`-anchored AND price-based (funds would then re-enter that pool).
        - PARKED (next): ⚠️ per-type override EDITING UI (works seeded-in-code; P/B a
          candidate); categorical metrics → numeric encoding. (Yield heat map DROPPED
          2026-06-24 — see 6.2.)
