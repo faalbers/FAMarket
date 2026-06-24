@@ -396,10 +396,15 @@
          goodness + category/overall columns on the stored analysis.db (no fetch/per-symbol pass),
          so the filterable scores track the heatmap. 76 goodness cols (excludes `*_score`/peer
          variants + `rs_rank`); analysis.db 140→226 cols.
-       - PARKED (next): ⚠️ **rank-within-security-type** for price metrics (RS Rank etc. — the
-         universe is 65% mutual funds, which distorts universe ranking); per-type override
-         EDITING UI (works seeded-in-code; P/B a candidate); categorical metrics → numeric
-         encoding; yield heat map variant.
+       - ✅ RANK-WITHIN-SECURITY-TYPE for RS Rank (2026-06-24 confirmed; shipped in the
+         c2619b3 scoring rewire): `scoring._rs_rank` ranks `rs_raw` WITHIN each
+         `security_type` via `_stats.percentile_rank_tiered` (thin types < RS_RANK_MIN_PER_TYPE
+         fall back to the universe percentile). Funds (~65% of the universe) no longer
+         distort real stocks. STILL OPEN: whether the OTHER `universe`-anchored scoring-rule
+         metrics (not RS Rank) should likewise be tiered by type.
+       - PARKED (next): ⚠️ per-type override EDITING UI (works seeded-in-code; P/B a
+         candidate); categorical metrics → numeric encoding. (Yield heat map DROPPED
+         2026-06-24 — see 6.2.)
 
    - ✅ Subtopic 4.5 — Sector & sub-industry index series (added + IMPLEMENTED 2026-06-14)
      - WHAT: a daily base-100 level series for every Yahoo sector and every
@@ -740,9 +745,11 @@
        symbol rows by that metric's strength (single-column, toggles direction); (c) a NEW
        SCORES heat map (view=scores_heatmap, action "🏅 Scores heat map") — the 5 category
        scores + Overall + RS Rank for the selected symbols, same grid/sort via a shared
-       _heatmap_core. Still pending in 6.2: the YIELD heat map variant (rows × periods) and
-       the Koyfin link. (Dividend yield BAR dropped 2026-06-16 — practically identical to
-       the line, per the user.)
+       _heatmap_core. Still pending in 6.2: the Koyfin link. (Dividend yield BAR dropped
+       2026-06-16 — practically identical to the line, per the user. The YIELD heat map
+       variant was DROPPED 2026-06-24 — current yield is already a column in the metrics
+       heat map and yield-over-periods is the dividend line chart, so the rows×periods grid
+       added no new data; the user reviewed and judged the existing views enough.)
      - [ Action ] button opens grouped dropdown, one action at a time, each opens a new browser tab
      - Action menu structure:
        - Normalized Charts
@@ -759,7 +766,9 @@
            - ✅ Parameter growth line charts (annual/quarterly selector, all periods, gaps shown as breaks) — shipped 2026-06-15, see 6.2 above (multi-symbol, Actual/Normalized scale toggle)
        - Dividends
            - ~~Yield bar chart~~ — DROPPED 2026-06-16 (practically identical to the line)
-           - Yield heat map chart — PENDING (the fundamentals metrics heat map shipped 2026-06-20; this rows×periods yield variant is the remaining heat-map work)
+           - ~~Yield heat map chart~~ — DROPPED 2026-06-24 (no new data over what already
+             ships: current yield is a column in the metrics heat map and yield-over-periods
+             is the dividend line chart; user reviewed and judged those enough)
            - ✅ Yield line chart (annual and quarterly only — TTM excluded) — shipped 2026-06-15, refined 2026-06-16, see 6.2 above (multi-symbol, calendar-period yield, Actual/Normalized, view=dividend_line)
        - Analyze on external site
            - Finviz → https://finviz.com/screener?v=111&t=SYM1,SYM2,...
@@ -804,6 +813,20 @@
   - **Find the "golden speed" empirically on the VM:** gentle ramp-up probe (step the rate, hold each step 20–30 min, watch the *sustained* error rate), take ~70–80% of the highest clean rate; ideally wire **AIMD adaptive backoff** into the fetcher so it rides the drifting limit instead of a hardcoded number. The IP has memory — stop and wait out any block before continuing a probe.
   - **RAM-reduce analysis to fit a small/cheap VM (user wants this):** current ~6.6 GB peak is the deliberate "load 2 yr OHLCV once, index into a per-symbol dict, go fast" trade. Since a VM has all night, trade time for RAM: **batch the per-symbol phase** (read a batch's OHLCV → compute snapshot rows → drop → next batch), then run the **universe-wide steps once** (`peers`/`scoring` percentile ranks/`rs_rank`) over the small accumulated 126-col snapshot frame — those need every symbol but only the *small* rows, never the OHLCV, so heavy memory and all-symbols need never overlap. Peak RAM → O(batch); batch size is the RAM dial; **float32 OHLCV** roughly halves the frame for ~free. The subset-merge path (`pipeline._merge_existing`) is partial existing machinery. Plausibly a **4 GB VM at ~2–4× runtime**. Real refactor of `run_analysis()` (not a config knob); universe-wide steps MUST run after all batches accumulate.
 - News sentiment analysis — fetch news via Finviz and Polygon news APIs, derive sentiment scoring per symbol from article content. Never designed in detail — start fresh when the time comes.
+  - ✅ NEWS FOUNDATION SHIPPED (the on-demand pieces this would build on, NOT sentiment itself):
+    - On-demand **News action** (Charts `view=news`, `data_layer/news.py`): per-symbol
+      headlines from yfinance + Polygon + finviz, deduped, code-only Company-vs-Context split.
+      On-demand only — never in a fetch/analysis run, no DB.
+    - **Report pipeline** (committed e5e4a6c, 2026-06-24, verified end-to-end): generic
+      reportlab PDF engine (`core/pdf.py`) + `reporting/` package (`generate()` registry +
+      `store`). Two Charts-news actions: **"Generate news PDF"** (headlines as clickable
+      links → `reports/`, newest `REPORTS_KEEP` kept) and **"Generate AI news reports"** —
+      scrapes the full article bodies behind the Company links (`news.fetch_article`,
+      trafilatura, soft-fail on paywall/bot-block) into per-symbol
+      `<symbol>_ai_news_report.md` in `AI_NEWS_REPORTS_DIR`, designed to be read by an AI.
+    - WORKFLOW NOTE: turning a scraped `.md` into a SUMMARY (and a `_summary.pdf`) is
+      currently a MANUAL Claude step — the shipped code stops at writing the `.md`.
+      Automating summary→PDF (e.g. via the Claude API) is a possible next step, NOT built.
 - Standalone executable (added 2026-06-12) — package the whole app so it launches by double-click, no manual `streamlit run`.
   - **Feasible, not blocked.** The app is a local web server, so the "exe" starts the Streamlit server, opens the browser at localhost, and quits on tab close (autoshutdown.py already does the quit).
   - **Recommended approach:** freeze a bundled Python env + a small launcher, OR a PyInstaller / Nuitka one-folder build. NOT stlite/WASM — it can't run the native deps (curl_cffi, pyarrow, SQLite writes, truststore).
