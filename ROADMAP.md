@@ -406,9 +406,23 @@
          of the ranking, so the ~65%-funds flood that hurt RS Rank (a PRICE metric funds DO
          have) doesn't reach them. LEAVE PARKED — only revisit if a future metric is BOTH
          `universe`-anchored AND price-based (funds would then re-enter that pool).
-       - PARKED (next): ⚠️ per-type override EDITING UI (works seeded-in-code; P/B a
-         candidate); categorical metrics → numeric encoding. (Yield heat map DROPPED
-         2026-06-24 — see 6.2.)
+       - PER-TYPE OVERRIDE EDITING UI — PARKED (decided 2026-06-24, with a trigger).
+         Per-`screen_type` overrides already WORK (`scoring_rules.resolve()` /
+         `metric_goodness()`); only 2 are seeded in code (REIT `div_yield_ttm` +
+         `div_payout_ratio`). A UI to add/edit more fits the visual-tuning workflow but only
+         pays off given a concrete per-type tuning need. REVISIT TRIGGER: a metric
+         demonstrably mis-scored across types — standing candidate **P/B** (banks/REITs sit
+         at very different "normal" P/B, so one universal rule mis-ranks them). If/when built:
+         verify a base-rule edit doesn't drop the seeded `overrides` from `scoring_rules.json`,
+         and make `_preview()` reflect the selected screen_type.
+       - CATEGORICAL METRICS → NUMERIC ENCODING — NOT PLANNED (decided 2026-06-24).
+         `trend`/`macd_crossover`/`bb_position`/`vol_trend`/`macd_hist_trend` are text,
+         excluded from scoring (`goodness()` coerces to numeric → NaN). They're already
+         filterable BY VALUE, which for an enum is clearer/more honest than a fuzzy 0-100
+         score; the only gain (heatmap color on `trend`) doesn't justify per-metric ordinal
+         encoding + an ordinal goodness path + a dual filter UI. Same "redundant, no new data"
+         call as the dropped yield heat map.
+       - (Yield heat map DROPPED 2026-06-24 — see 6.2.)
 
    - ✅ Subtopic 4.5 — Sector & sub-industry index series (added + IMPLEMENTED 2026-06-14)
      - WHAT: a daily base-100 level series for every Yahoo sector and every
