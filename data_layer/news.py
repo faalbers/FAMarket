@@ -284,11 +284,16 @@ def fetch_news(symbols, sources=None) -> pd.DataFrame:
 # Heuristic, code-only — no article-body fetch, no LLM. (See the Charts news view,
 # which groups each symbol's table into "About <SYMBOL>" vs "Broader context".)
 # --------------------------------------------------------------------------- #
-# Trailing corporate-form tokens stripped to a matchable company core.
+# Trailing corporate-form tokens stripped to a matchable company core. Includes
+# share-class / listing descriptors (e.g. "... Common Shares", "Ordinary Shares",
+# "Common Stock", "Depositary Receipts") that exchanges append to the name.
 _NAME_SUFFIXES = {
     "incorporated", "inc", "corporation", "corp", "company", "co", "limited", "ltd",
     "plc", "llc", "lp", "holdings", "holding", "group", "ag", "nv", "sa", "se",
     "adr", "reit", "trust", "class", "a", "b", "c", "&", "the",
+    "common", "ordinary", "shares", "share", "stock", "shs", "units", "unit",
+    "depositary", "depository", "receipt", "receipts", "sponsored", "registered",
+    "new", "cl", "series",
 }
 
 
