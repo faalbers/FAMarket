@@ -135,6 +135,12 @@ def _finviz_getter():
 _SCRAPE_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 
+# Jina AI Reader — a free reader proxy that renders JS and returns clean article
+# text. Used as a FALLBACK when the direct fetch comes back empty (publisher served
+# a JS shell / light bot-block). Prefix the article URL with this. No key needed for
+# the free tier; an optional JINA_API_KEY raises the rate limit if set.
+_JINA_READER_BASE = "https://r.jina.ai/"
+
 
 def _article_getter():
     """Rate-limited HTTP GET of an article page, returning raw HTML (or '')."""
@@ -158,35 +164,129 @@ def _article_getter():
     return _get
 
 
-def fetch_article(url: str, get=None) -> tuple[str | None, pd.Timestamp | None]:
-    """Scrape one article URL → (clean_text, published_date) or (None, None).
+def _jina_getter():
+    """Rate-limited GET of the Jina Reader proxy → clean article TEXT (or '').
 
-    Fails soft: any network error, paywall stub, or empty extraction returns
-    (None, None) with a WARNING — many publishers block scrapers, which is expected
-    and never treated as a hard error. Pass a shared `get` (from `_article_getter()`)
-    to reuse one throttle across a batch; omitted, it builds its own."""
-    if not url:
-        return None, None
-    get = get or _article_getter()
-    try:
-        html = get(url)
-    except Exception as exc:  # noqa: BLE001 - fail soft per article
-        log.warning("article fetch failed for %s: %s", url, exc)
-        return None, None
+    Gentler throttle than the direct getter (free Jina tier is ~20/min). An optional
+    JINA_API_KEY (in .env) is sent as a bearer token when present — never required."""
+    import requests
+
+    from core.net import configure_tls
+    configure_tls()
+
+    calls, period = settings.RATE_LIMITS.get("jina_reader", (15, 60))
+    key = secrets.get("JINA_API_KEY").strip()  # optional; "" when unset
+    headers = {"User-Agent": _SCRAPE_UA}
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
+    # Strip page chrome (nav/ads/footer/related) before extraction — deterministic,
+    # keeps the full article. Optional readerlm engine for cleaner-but-riskier output.
+    remove = (getattr(settings, "JINA_READER_REMOVE_SELECTOR", "") or "").strip()
+    if remove:
+        headers["X-Remove-Selector"] = remove
+    engine = (getattr(settings, "JINA_READER_ENGINE", "") or "").strip()
+    if engine:
+        headers["X-Engine"] = engine
+
+    @retry(stop=stop_after_attempt(settings.RETRY_MAX_ATTEMPTS),
+           wait=wait_fixed(settings.RETRY_WAIT_SECONDS), reraise=True)
+    @sleep_and_retry
+    @limits(calls=calls, period=period)
+    def _get(url: str) -> str:
+        resp = requests.get(_JINA_READER_BASE + url, headers=headers,
+                            timeout=settings.ARTICLE_SCRAPE_TIMEOUT)
+        resp.raise_for_status()
+        return resp.text or ""
+
+    return _get
+
+
+def build_scrapers() -> dict:
+    """Build the article scrapers ONCE so a batch shares their throttles. Pass the
+    result to `fetch_article(url, scrapers=…)`. Mirrors the old single-getter pattern."""
+    return {"direct": _article_getter(), "jina": _jina_getter()}
+
+
+# Jina markdown leftovers we strip: standalone image lines, code-fence wrappers
+# (```/```markdown), and Jina's "Markdown Content:" label line.
+_MD_IMAGE_LINE = re.compile(r"^\s*!\[[^\]]*\]\([^)]*\)\s*$", re.MULTILINE)
+_MD_FENCE_LINE = re.compile(r"^\s*```[a-zA-Z]*\s*$", re.MULTILINE)
+_MD_CONTENT_LABEL = re.compile(r"^\s*Markdown Content:\s*$", re.MULTILINE)
+
+
+def _clean_jina(text: str) -> str:
+    """Tidy Jina Reader markdown: drop standalone image lines, code fences and the
+    'Markdown Content:' label, then collapse blank-line runs. Leaves real text intact."""
+    text = _MD_IMAGE_LINE.sub("", text)
+    text = _MD_FENCE_LINE.sub("", text)
+    text = _MD_CONTENT_LABEL.sub("", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _extract(html: str) -> tuple[str | None, pd.Timestamp | None]:
+    """Pull clean main text + published date from raw article HTML via trafilatura."""
     if not html:
         return None, None
     try:
+        import logging
+
         import trafilatura
+        # trafilatura logs a per-page "discarding data: None" WARNING when a page has
+        # no extractable body — expected here (we fall back to Jina), so quiet it.
+        logging.getLogger("trafilatura").setLevel(logging.ERROR)
         text = trafilatura.extract(html, include_comments=False, include_tables=False)
         date = None
         meta = trafilatura.extract_metadata(html)
         if meta is not None and getattr(meta, "date", None):
             date = _to_utc(meta.date)
     except Exception as exc:  # noqa: BLE001
-        log.warning("article extract failed for %s: %s", url, exc)
+        log.warning("article extract failed: %s", exc)
         return None, None
     text = (text or "").strip()
     return (text or None), date
+
+
+def fetch_article(url: str, scrapers=None) -> tuple[str | None, pd.Timestamp | None]:
+    """Scrape one article URL → (clean_text, published_date) or (None, None).
+
+    Fail-soft chain (each hop swallows its own errors):
+      1. direct fetch (`requests` + trafilatura) — fast, fully local;
+      2. if `settings.ARTICLE_SCRAPE_USE_JINA`, retry via the Jina Reader proxy
+         (renders JS / clears light bot-blocks) — recovers many free pages a plain
+         fetch can't, but sends the URL to a third party.
+    Both empty → (None, None); the caller then falls back to the news-API summary.
+    Pass a shared `scrapers` (from `build_scrapers()`) to reuse one throttle across a
+    batch; omitted, it builds its own."""
+    if not url:
+        return None, None
+    scrapers = scrapers or build_scrapers()
+
+    # 1) direct fetch. A block here is EXPECTED (many publishers 403/401 bots) and is
+    # just the cue to try Jina next — log at DEBUG, not WARNING, to keep the log clean.
+    try:
+        html = scrapers["direct"](url)
+    except Exception as exc:  # noqa: BLE001 - fail soft per article
+        log.debug("direct fetch blocked for %s (%s); trying Jina", url, exc)
+        html = ""
+    text, date = _extract(html)
+    if text:
+        return text, date
+
+    # 2) Jina Reader fallback (returns clean markdown directly — no trafilatura needed)
+    if settings.ARTICLE_SCRAPE_USE_JINA:
+        try:
+            jina_text = _clean_jina(scrapers["jina"](url) or "")
+        except Exception as exc:  # noqa: BLE001 - fail soft
+            log.debug("Jina Reader failed for %s: %s", url, exc)
+            jina_text = ""
+        if jina_text:
+            log.debug("recovered article via Jina Reader: %s", url)
+            return jina_text, None
+
+    # Only now is the article truly unretrievable — the one signal worth a WARNING.
+    log.warning("could not retrieve article text for %s", url)
+    return None, None
 
 
 # --------------------------------------------------------------------------- #

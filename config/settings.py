@@ -110,6 +110,21 @@ REPORTS_KEEP: int = 50
 # for an AI to read. Overwritten each run (no count cap). Machine-local / gitignored.
 AI_NEWS_REPORTS_DIR: Path = BASE_DIR / "ai_news_reports"
 ARTICLE_SCRAPE_TIMEOUT: int = 20   # per-article HTTP timeout (seconds)
+# When a direct article fetch comes back empty (JS shell / light bot-block), retry
+# via the Jina Reader proxy (data_layer/news.fetch_article). Recovers many free pages
+# a plain fetch can't, but sends the article URL to a third party — set False to stay
+# fully local (direct fetch only). Won't crack true paywalls either way.
+ARTICLE_SCRAPE_USE_JINA: bool = True
+# Jina Reader boilerplate control. X-Remove-Selector drops these page elements
+# (nav/ads/footer/related) before extraction — deterministic and keeps the FULL
+# article (e.g. an IBD page 38k -> ~8k chars). Set "" to disable.
+JINA_READER_REMOVE_SELECTOR: str = (
+    "header,footer,nav,aside,form,.related,.newsletter,.ad,.ads,.advertisement,figure,iframe"
+)
+# Optional Jina extraction engine. "readerlm-v2" uses Jina's reader language model
+# for the cleanest main-text (~4k chars) BUT is non-deterministic and can truncate
+# the article on some runs — so it's OFF by default. "" = Jina's default engine.
+JINA_READER_ENGINE: str = ""
 
 # Filter page — categorical multi-pick. A filter column with few distinct values is
 # offered as a searchable multi-pick list ("is any of" / "is none of") instead of a
@@ -195,6 +210,7 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {
     "edgar": (9, 1),       # SEC fair-access policy: max ~10 req/sec
     "finviz": (3, 1),      # on-demand news scrape; gentle 3/sec avoids IP blocks
     "article_scrape": (10, 1),  # AI news report: polite article-page fetch throttle
+    "jina_reader": (15, 60),    # Jina Reader fallback; free no-key tier is ~20/min
 }
 
 # Retry policy for tenacity (auto-retry on transient API failure).

@@ -64,7 +64,7 @@ def _article_block(n: int, *, title: str, date, publisher: str, url: str,
     return "\n".join(head)
 
 
-def _build_markdown(symbol: str, company: str, about: pd.DataFrame, get) -> str:
+def _build_markdown(symbol: str, company: str, about: pd.DataFrame, scrapers) -> str:
     """Scrape each About row and render the symbol's full markdown document."""
     header = f"{symbol} ({company})" if company else symbol
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -83,7 +83,7 @@ def _build_markdown(symbol: str, company: str, about: pd.DataFrame, get) -> str:
 
     for i, r in enumerate(about.itertuples(index=False), start=1):
         url = getattr(r, "Url", "") or ""
-        text, scraped_date = _news.fetch_article(url, get=get)
+        text, scraped_date = _news.fetch_article(url, scrapers=scrapers)
         date = scraped_date if scraped_date is not None else getattr(r, "Published", None)
         lines += ["", "---", "", _article_block(
             i,
@@ -118,7 +118,7 @@ def generate_reports(df: pd.DataFrame, *, order=None, sym_meta=None) -> list[Pat
 
     out_dir = settings.AI_NEWS_REPORTS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
-    get = _news._article_getter()  # one shared throttle across the whole batch
+    scrapers = _news.build_scrapers()  # one shared throttle (direct + Jina) per batch
 
     has_rel = (not df.empty) and "Relevance" in df.columns
     written: list[Path] = []
@@ -126,7 +126,7 @@ def generate_reports(df: pd.DataFrame, *, order=None, sym_meta=None) -> list[Pat
         sub = df[df["Symbol"] == sym] if not df.empty else df
         about = sub[sub["Relevance"] == "Company"] if has_rel else sub
         company = ((sym_meta.get(sym) or {}).get("company") or "").strip()
-        md = _build_markdown(sym, company, about, get)
+        md = _build_markdown(sym, company, about, scrapers)
         path = out_dir / f"{_slug(sym)}_ai_news_report.md"
         path.write_text(md, encoding="utf-8")
         written.append(path)

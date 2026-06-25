@@ -55,6 +55,14 @@ aggregates on-demand headlines per selected symbol from yfinance + Polygon + fin
 de-duplicated, per-symbol collapsible tables, split into company-specific vs
 broader-context news via a code-only heuristic. It is **on-demand only** — never part of
 the fetch/analysis runs, not a `BaseFetcher`, no DB.
+Two report actions build on this News view: **Generate news PDF** (headlines → `reports/`) and
+**Generate AI news reports** (`reporting/ai_news_report.py`), which scrapes full article bodies
+via `data_layer.news.fetch_article` — a direct-fetch → **Jina Reader** fallback chain
+(`r.jina.ai`; optional free `JINA_API_KEY`, toggle `ARTICLE_SCRAPE_USE_JINA`; `X-Remove-Selector`
+strips boilerplate) — into per-symbol `<sym>_ai_news_report.md`. The **`/make_news_reports`** skill
+turns each `.md` into a plain-language, dyslexia-friendly `<sym>_ai_news_report_summary.pdf`
+(`reporting/ai_news_summary.py` on the generic `core/pdf.py` PDF engine). Generated `reports/` +
+`ai_news_reports/` are gitignored.
 The
 Filter page (Topic 5) is backed by `ui/filter_registry.py` (per-`screen_type` metric
 applicability) + `ui/filter_engine.py` (block model + `.filt` JSON). Each Run Filter

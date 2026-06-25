@@ -18,6 +18,7 @@ headline cell is real clickable text in the PDF, not a separate URL column.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from html import escape
 from io import BytesIO
@@ -48,6 +49,15 @@ HEADER_TEXT = colors.white
 
 _MARGIN = 0.6 * inch
 
+# Inline **bold** -> reportlab <b> markup. We escape the text FIRST (so the body
+# stays safe), then turn the bold markers back into the one tag reportlab needs.
+_BOLD = re.compile(r"\*\*(.+?)\*\*")
+
+
+def _inline(text) -> str:
+    """Escape `text`, then render `**x**` as bold — for body/bullet inline emphasis."""
+    return _BOLD.sub(r"<b>\1</b>", escape("" if text is None else str(text)))
+
 
 def _styles() -> dict[str, ParagraphStyle]:
     """The shared paragraph styles, derived once from reportlab's sample sheet."""
@@ -65,6 +75,11 @@ def _styles() -> dict[str, ParagraphStyle]:
                                       fontSize=10.5, leading=13, textColor=INK,
                                       spaceBefore=8, spaceAfter=3),
         "body": ParagraphStyle("bd", parent=base, fontSize=10, **common),
+        # easy-read bullet: hanging indent so wrapped lines align under the text,
+        # and spaceAfter for white space between points (dyslexia-friendly).
+        "bullet": ParagraphStyle("bu", parent=base, fontSize=10, leading=14,
+                                 textColor=INK, alignment=TA_LEFT,
+                                 leftIndent=16, bulletIndent=4, spaceAfter=4),
         "muted": ParagraphStyle("mu", parent=base, fontSize=9, leading=12,
                                 textColor=MUTED),
         "cell": ParagraphStyle("cl", parent=base, fontSize=8.5, leading=11,
@@ -115,6 +130,16 @@ class ReportBuilder:
 
     def paragraph(self, text: str):
         self._flow.append(Paragraph(escape(text), self._s["body"]))
+        return self
+
+    def body(self, text: str):
+        """Like `paragraph()` but renders inline `**bold**` (for summary prose)."""
+        self._flow.append(Paragraph(_inline(text), self._s["body"]))
+        return self
+
+    def bullet(self, text: str):
+        """A "• …" bullet point with inline `**bold**` anchor words (easy-read)."""
+        self._flow.append(Paragraph(_inline(text), self._s["bullet"], bulletText="•"))
         return self
 
     def muted(self, text: str):
