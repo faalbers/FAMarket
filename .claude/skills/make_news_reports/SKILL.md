@@ -93,18 +93,29 @@ takeaway, in plain words.
    now, and why people are talking about it.
 2. **What's happening** — bullets of the main news items in plain words; each
    ends with (date · source). Merge repeats.
-3. **Why it could be good** — plain-language bullets (only points the articles
+3. **Timeline of key events** — a chronological dates list of the important
+   events, OLDEST first, newest last. One event per bullet.
+   - Start each bullet with the **date in bold**, then the event in plain words.
+     e.g. "**2026-03-12** — They reported earnings; sales beat expectations."
+   - Use the actual dates from the articles (the **Date** field or dates in the
+     text). Use a consistent format (YYYY-MM-DD, or "Month YYYY" if that's all
+     you know).
+   - If an event has no clear date, leave it out of this list (it can still
+     appear in other sections). Never guess a date.
+   - Only include events the articles actually support. Merge duplicates of the
+     same event into one dated bullet.
+4. **Why it could be good** — plain-language bullets (only points the articles
    actually support).
-4. **Why it could be risky** — plain-language bullets (same rule).
-5. **Key numbers, explained** — one number per bullet. For EACH: the number,
+5. **Why it could be risky** — plain-language bullets (same rule).
+6. **Key numbers, explained** — one number per bullet. For EACH: the number,
    then a plain "what this means" in everyday terms. Mark any numbers that
    disagree between articles.
-6. **What the experts think** — what analysts/sources conclude, in plain words
+7. **What the experts think** — what analysts/sources conclude, in plain words
    (e.g. "most rate it a Buy; their price targets suggest the stock could rise
    about X%").
-7. **How solid is this summary** — 1–2 sentences: how many articles had full
+8. **How solid is this summary** — 1–2 sentences: how many articles had full
    text vs just a headline, the date range covered, and how much to trust it.
-8. **Jargon buster** — a short list: any finance/tech term you had to use,
+9. **Jargon buster** — a short list: any finance/tech term you had to use,
    each defined in ONE simple sentence.
 
 Rules:

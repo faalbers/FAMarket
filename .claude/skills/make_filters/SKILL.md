@@ -41,6 +41,73 @@ First you need to prepare yourself with the following steps:
 - Filter variants (Value / vs Sector / vs Industry / Score): Make sure to use these if it makes sense per instructions
 - Where filters are saved: `settings.FILTERS_DIR`
 
+## Metric gotchas
+
+**eps_cagr_1y / 3y / 5y — sign-change gives N/A**
+These metrics return N/A when either the base-year or current-year EPS is ≤ 0
+(a loss-to-profit or profit-to-loss transition makes the CAGR undefined).
+This means the block silently fails for companies that were previously loss-making,
+even if they are now highly profitable (e.g. AMZN, TSLA).
+
+Rule: whenever you write a block using any `eps_cagr_*` metric, always add
+`forward_eps_growth` at the same threshold as an OR child. This lets companies
+that cannot show historical EPS CAGR pass on analyst consensus for future EPS
+growth instead.
+
+Example — instead of:
+  eps_cagr_3y >= 10  (no fallback)
+
+Write:
+  eps_cagr_3y >= 10  OR  forward_eps_growth >= 10
+
+**revenue_cagr_5y / eps_cagr_5y — missing history gives N/A**
+5-year CAGR metrics need 5+ years of annual data. Recent IPOs or data gaps produce
+N/A, which silently fails the block (same symptom as the eps sign-change issue, but
+caused by short history, not a sign change).
+
+Rule: whenever you write a block using any 5y CAGR metric, add the 3y variant at
+the same threshold as an OR child.
+
+Example:
+  revenue_cagr_5y >= 7  OR  revenue_cagr_3y >= 7
+
+**altman_z — N/A for tech/software companies**
+Altman Z-score was designed for manufacturing companies. It is not computable for
+asset-light tech, software, or streaming businesses (the formula relies on tangible-
+asset ratios that don't apply), so it returns N/A and silently fails those stocks
+even when they are financially healthy by every other measure.
+
+Rule: if the filter already includes other financial health blocks (debt_to_ebitda,
+interest_coverage, current_ratio), add `altman_z is null` as an OR child. Companies
+for which the metric is inapplicable are not penalised; the other blocks still guard
+financial health.
+
+Example:
+  altman_z >= 2.5  OR  altman_z is null
+
+## Calibration guidance
+
+This section records threshold values that turned out to be too tight in practice,
+discovered by reviewing Filter Fail results together. It will be updated over time
+as new findings come up — if a future Filter Fail review reveals another param that
+needs a better default, add it here.
+
+Use these as informed starting points, not hard rules. Adjust up or down based on
+the filter's stated intent (a strict value screen may want tighter values; a broad
+growth screen should use the looser ones below).
+
+**current_ratio**
+Textbook floor is 1.2, but retailers and e-commerce companies (e.g. AMZN) structurally
+run below this — they collect cash from customers before paying suppliers, so a low
+current ratio is a sign of business model strength, not risk.
+Recommended floor for broad growth screens: **1.1**
+
+**atr_pct**
+A 5.0% ceiling is very tight and catches solid industrials and construction companies
+by small margins (e.g. FIX at 5.08%). These are not high-risk stocks — the ATR just
+reflects normal sector volatility.
+Recommended ceiling for broad growth screens: **5.5%**
+
 ## End Report
 
 After creating the filters, create a full report that replaces or creates a file under dev_docs/filters_report.md with the following information:
@@ -54,5 +121,8 @@ After creating the filters, create a full report that replaces or creates a file
 2. Read the plain-English instructions that you only read in dev_docs/create_filters.md to create the filters
 3. Find all the stock market analysis knowledge you can find with web search to get the best results on the instructions in create_filters.md
 4. Go through Inputs you need from the user explained above before creating the filters
-5. Validate / save the filters using a version suffix if they already exist/ report using the End Report explained above.
+5. Before saving, check whether `<name>.filt` already exists in FILTERS_DIR.
+   - If it does NOT exist (and no `<name>_v2.filt` etc. exist either): save as `<name>.filt`.
+   - If `<name>.filt` exists: find the next free version suffix (`_v2`, `_v3`, …) and save there.
+   Then write the End Report.
 
