@@ -46,6 +46,11 @@ from core.database import Database
 from data_layer import news as _news
 from ui import param_picker as P
 from ui import selection_io as SEL
+from ui.filter_engine import (
+    load_filterset_from, evaluate, _block_mask,
+    resolve_column, is_complete,
+)
+from ui.file_io import ask_open_path
 from ui.chart_theme import (
     COLORWAY as _COLORWAY,
     DARK_BG as _DARK_BG,
@@ -1503,6 +1508,226 @@ def _render_news(symbols: list[str]) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# view=filter_fail: per-symbol diagnostic — which filter blocks each symbol
+# failed, and the actual value vs. threshold for each failure.
+# --------------------------------------------------------------------------- #
+@st.cache_data(show_spinner=False)
+def _load_analysis_ff(symbols: tuple[str, ...], _mtime: float) -> pd.DataFrame:
+    if not settings.ANALYSIS_DB.exists():
+        return pd.DataFrame()
+    db = Database(settings.ANALYSIS_DB)
+    ph = ",".join("?" * len(symbols))
+    return db.read("analysis", where=f"symbol IN ({ph})", params=list(symbols))
+
+
+def _block_label(block: dict) -> str:
+    """Readable string for one filter block including any OR children."""
+    def _one(b: dict) -> str:
+        col = resolve_column(b.get("param", "?"), b.get("window"), b.get("compare", "value"))
+        op = b.get("op", "?")
+        v, v2 = b.get("value", ""), b.get("value2", "")
+        if op in ("is null", "is not null"):
+            return f"{col} {op}"
+        if op == "between":
+            return f"{col} between {v} and {v2}"
+        if op in ("is any of", "is none of"):
+            items = list(v) if isinstance(v, (list, tuple)) else ([v] if v not in (None, "") else [])
+            return f"{col} {op} [{', '.join(str(x) for x in items)}]"
+        return f"{col} {op} {v}"
+
+    parts: list[str] = []
+    if is_complete(block):
+        parts.append(_one(block))
+    for child in block.get("or_children", []):
+        if child.get("enabled", True) and is_complete(child):
+            parts.append(_one(child))
+    return "  OR  ".join(parts) if parts else "(no conditions)"
+
+
+def _build_fail_report(
+    df: pd.DataFrame,
+    fset: dict,
+    filt_path: Path,
+    symbols: list[str],
+) -> str:
+    selected_types: list[str] = fset.get("selected_types", [])
+    blocks: list[dict] = fset.get("blocks", [])
+    SEP = "─" * 32
+
+    L: list[str] = [
+        "FILTER FAIL REPORT",
+        "=" * 40,
+        f"Filter:  {filt_path.name}",
+        f"Symbols: {len(symbols)} selected",
+        "",
+    ]
+
+    in_db: set[str] = (
+        set(df["symbol"].tolist()) if not df.empty and "symbol" in df.columns else set()
+    )
+    not_in_db = [s for s in symbols if s not in in_db]
+
+    if df.empty:
+        L.append("No analysis data found for selected symbols.")
+        if not_in_db:
+            L.append(f"  Symbols not in DB: {', '.join(not_in_db)}")
+        return "\n".join(L)
+
+    if "screen_type" not in df.columns:
+        df = df.copy()
+        df["screen_type"] = df["security_type"] if "security_type" in df.columns else "standard"
+
+    L += ["SCOPE", SEP]
+
+    if selected_types:
+        L.append(f"  Filter targets: {', '.join(selected_types)}")
+        in_mask = df["screen_type"].isin(selected_types)
+        df_scope = df[in_mask].copy()
+        df_out = df[~in_mask]
+        in_syms = df_scope["symbol"].tolist()
+        out_syms = df_out["symbol"].tolist()
+        if in_syms:
+            L.append(f"  In scope:     {', '.join(in_syms)}  ({len(in_syms)})")
+        if out_syms:
+            t_map = dict(zip(df_out["symbol"], df_out["screen_type"]))
+            L.append("  Out of scope: " + ", ".join(f"{s} ({t_map.get(s,'?')})" for s in out_syms))
+    else:
+        L.append("  No type filter — all symbols in scope")
+        df_scope = df.copy()
+
+    if not_in_db:
+        L.append(f"  Not in DB:    {', '.join(not_in_db)}")
+    L.append("")
+
+    if df_scope.empty:
+        L.append("No in-scope symbols to evaluate.")
+        return "\n".join(L)
+
+    L += ["RESULT  (in-scope symbols)", SEP]
+    active = [b for b in blocks if b.get("enabled", True)]
+    overall = evaluate(df_scope, active)
+    pass_syms = df_scope.loc[overall, "symbol"].tolist()
+    fail_syms = df_scope.loc[~overall, "symbol"].tolist()
+    L.append(f"  Pass: {', '.join(pass_syms) if pass_syms else '(none)'}  ({len(pass_syms)})")
+    L.append(f"  Fail: {', '.join(fail_syms) if fail_syms else '(none)'}  ({len(fail_syms)})")
+    L.append("")
+
+    n_dis = sum(1 for b in blocks if not b.get("enabled", True))
+    L += ["BLOCK BREAKDOWN", SEP,
+          f"{len(blocks)} block(s)  ·  {len(active)} enabled  ·  {n_dis} disabled", ""]
+
+    def _fmt(v) -> str:
+        if v is None:
+            return "N/A"
+        try:
+            if pd.isna(v):
+                return "N/A"
+        except (TypeError, ValueError):
+            pass
+        return f"{v:.2f}" if isinstance(v, float) else str(v)
+
+    for i, block in enumerate(blocks, 1):
+        label = _block_label(block)
+        if not block.get("enabled", True):
+            L.append(f"[{i}] {label}  [disabled]")
+            continue
+        has_own = is_complete(block)
+        has_child = any(
+            c.get("enabled", True) and is_complete(c)
+            for c in block.get("or_children", [])
+        )
+        if not has_own and not has_child:
+            L.append(f"[{i}] {label}  [incomplete — skipped]")
+            continue
+        bm = _block_mask(df_scope, block)
+        if bm is None:
+            L.append(f"[{i}] {label}  [no conditions]")
+            continue
+
+        fail_b = df_scope.loc[~bm, "symbol"].tolist()
+        pass_b = df_scope.loc[bm, "symbol"].tolist()
+        L.append(f"[{i}] {label}")
+
+        col = resolve_column(
+            block.get("param", "?"), block.get("window"), block.get("compare", "value")
+        )
+        op_str = block.get("op", "?")
+        v1, v2 = block.get("value", ""), block.get("value2", "")
+        if op_str == "between":
+            thresh = f"between {v1} and {v2}"
+        elif op_str in ("is null", "is not null"):
+            thresh = op_str
+        elif op_str in ("is any of", "is none of"):
+            items = list(v1) if isinstance(v1, (list, tuple)) else ([v1] if v1 not in (None, "") else [])
+            thresh = f"{op_str} [{', '.join(str(x) for x in items[:5])}{'…' if len(items) > 5 else ''}]"
+        else:
+            thresh = f"{op_str} {v1}"
+
+        col_ok = col in df_scope.columns
+        if not fail_b:
+            L.append("    All pass")
+        else:
+            for sym in fail_b:
+                row = df_scope[df_scope["symbol"] == sym]
+                actual = (_fmt(row.iloc[0][col]) if not row.empty and col_ok
+                          else ("(column not in DB)" if not col_ok else "N/A"))
+                L.append(f"    ✗  {sym:<8}  {col} = {actual}   (needs {thresh})")
+            if pass_b:
+                if len(pass_b) <= 8:
+                    pv = []
+                    for sym in pass_b:
+                        row = df_scope[df_scope["symbol"] == sym]
+                        pv.append(f"{sym} ({_fmt(row.iloc[0][col])})" if not row.empty and col_ok
+                                  else sym)
+                    L.append(f"    ✓  {',  '.join(pv)}")
+                else:
+                    L.append(f"    ✓  {len(pass_b)} symbols pass")
+        L.append("")
+
+    return "\n".join(L)
+
+
+def _render_filter_fail(symbols: list[str]) -> None:
+    st.subheader("🔍 Filter Fail Analysis")
+    _key = "_".join(sorted(symbols))
+    _ss_path = f"ff_path_{_key}"
+    _ss_report = f"ff_report_{_key}"
+
+    if st.button("📂 Select Filter File…", key=f"ff_pick_{_key}"):
+        path = ask_open_path(
+            initialdir=settings.FILTERS_DIR,
+            filetypes=[("Filter files", "*.filt"), ("All files", "*.*")],
+            title="Select filter to diagnose",
+        )
+        if path:
+            st.session_state[_ss_path] = Path(path)
+            st.session_state[_ss_report] = None
+
+    filt_path: Path | None = st.session_state.get(_ss_path)
+    if filt_path is None:
+        st.info("Select a .filt file to see which conditions the selected symbols failed.")
+        return
+
+    report: str | None = st.session_state.get(_ss_report)
+    if report is None:
+        fset = load_filterset_from(filt_path)
+        _mtime = settings.ANALYSIS_DB.stat().st_mtime if settings.ANALYSIS_DB.exists() else 0.0
+        df = _load_analysis_ff(tuple(symbols), _mtime)
+        report = _build_fail_report(df, fset, filt_path, symbols)
+        st.session_state[_ss_report] = report
+
+    st.caption(f"Filter: {filt_path.name}")
+    st.text_area(
+        "Filter Fail Report",
+        value=report,
+        height=600,
+        disabled=True,
+        key=f"ff_out_{_key}",
+        label_visibility="collapsed",
+    )
+
+
+# --------------------------------------------------------------------------- #
 # page
 # --------------------------------------------------------------------------- #
 st.title("Charts")
@@ -1546,6 +1771,10 @@ if view == "scores_heatmap":
 
 if view == "news":
     _render_news(symbols)
+    st.stop()
+
+if view == "filter_fail":
+    _render_filter_fail(symbols)
     st.stop()
 
 if view != "price":
