@@ -71,6 +71,27 @@ def _canon_url(url: str) -> str:
     return u.rstrip("/").lower()
 
 
+def _abs_url(url: str, base: str = "") -> str:
+    """Force an article URL to absolute so the UI's LinkColumn doesn't resolve it
+    relative to the app (http://localhost:8501/...). Sources sometimes return a
+    scheme-less or path-only URL — e.g. finviz returns its GlobeNewswire links as
+    site-relative paths like '/news/361184/...' (finviz's own redirect pages).
+
+    `base` (e.g. 'https://finviz.com') is the host such site-relative '/path' URLs
+    belong to. Scheme-less hosts get https://; a path-only URL with no `base` has an
+    unknown host and is dropped ("")."""
+    u = (url or "").strip()
+    if not u:
+        return ""
+    if u.startswith(("http://", "https://")):
+        return u
+    if u.startswith("//"):       # protocol-relative
+        return "https:" + u
+    if u.startswith("/"):        # site-relative path: resolve against base host
+        return base.rstrip("/") + u if base else ""
+    return "https://" + u        # bare host, e.g. www.globenewswire.com/...
+
+
 # --------------------------------------------------------------------------- #
 # per-source rate-limited getters (built fresh per fetch_news call so they read
 # current settings; @retry outermost so a retry re-acquires a throttle slot)
@@ -302,9 +323,9 @@ def _from_yfinance(get, symbol: str, count: int) -> list[dict]:
     for item in raw:
         c = item.get("content") or item  # 1.x nests under "content"; tolerate old flat shape
         title = c.get("title") or item.get("title") or ""
-        url = (((c.get("clickThroughUrl") or {}).get("url"))
-               or ((c.get("canonicalUrl") or {}).get("url"))
-               or item.get("link") or "")
+        url = _abs_url(((c.get("clickThroughUrl") or {}).get("url"))
+                       or ((c.get("canonicalUrl") or {}).get("url"))
+                       or item.get("link") or "")
         publisher = ((c.get("provider") or {}).get("displayName")
                      or item.get("publisher") or "")
         published = _to_utc(c.get("pubDate") or item.get("providerPublishTime"))
@@ -331,7 +352,7 @@ def _from_polygon(get, symbol: str, count: int, api_key: str) -> list[dict]:
                 sentiment, has_insight = ins.get("sentiment", "") or "", True
                 break
         related = [str(t).upper() for t in (a.get("tickers") or [])]
-        title, url = a.get("title") or "", a.get("article_url") or ""
+        title, url = a.get("title") or "", _abs_url(a.get("article_url") or "")
         if title and url:
             out.append({"symbol": symbol, "published": _to_utc(a.get("published_utc")),
                         "title": title.strip(), "url": url,
@@ -351,7 +372,10 @@ def _from_finviz(get, symbol: str) -> list[dict]:
         return []
     out = []
     for r in df.to_dict("records"):
-        title, url = str(r.get("Title", "")).strip(), str(r.get("Link", "") or "")
+        # finviz returns some links (e.g. GlobeNewswire) as site-relative paths
+        # like '/news/361184/...' — resolve those against the finviz host.
+        title = str(r.get("Title", "")).strip()
+        url = _abs_url(str(r.get("Link", "") or ""), base="https://finviz.com")
         if title and url:
             out.append({"symbol": symbol, "published": _to_utc(r.get("Date"), assume_et=True),
                         "title": title, "url": url, "publisher": str(r.get("Source", "") or ""),
