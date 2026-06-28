@@ -296,11 +296,16 @@ def _clean_blocks(blocks: list[dict]) -> list[dict]:
 
 
 def save_filterset_to(path: Path | str, selected_types: list[str],
-                      filterset: list[dict], comment: str = "") -> Path:
+                      filterset: list[dict], comment: str = "",
+                      ai_instructions: str = "") -> Path:
     """Write a filter set to `path` as .filt JSON (overwrites).
 
     `comment` is a free-text note (what the filter does / how to tweak / how to sort)
     shown on the Filter + Output pages; the make_filters skill auto-fills it.
+
+    `ai_instructions` is the filter's source spec / provenance (the verbatim plain-English
+    instructions the make_filters skill built it from, or a manual-build note) — shown
+    read-only & collapsed under Comment on the Filter + Output pages, distinct from `comment`.
     """
     path = Path(path)
     payload = {
@@ -308,6 +313,7 @@ def save_filterset_to(path: Path | str, selected_types: list[str],
         "saved_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "selected_types": list(selected_types),
         "comment": comment or "",
+        "ai_instructions": ai_instructions or "",
         "blocks": _clean_blocks(filterset),
     }
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -315,13 +321,15 @@ def save_filterset_to(path: Path | str, selected_types: list[str],
 
 
 def load_filterset_from(path: Path | str) -> dict:
-    """Read a .filt file -> {"selected_types": [...], "comment": str, "blocks": [...]}.
+    """Read a .filt file -> {"selected_types", "comment", "ai_instructions", "blocks"}.
 
-    `comment` defaults to "" for older files written before the field existed.
+    `comment` and `ai_instructions` default to "" for older files written before those
+    fields existed.
     """
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     return {
         "selected_types": data.get("selected_types", []),
         "comment": data.get("comment", ""),
+        "ai_instructions": data.get("ai_instructions", ""),
         "blocks": data.get("blocks", []),
     }

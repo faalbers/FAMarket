@@ -22,6 +22,7 @@ session state; no screening logic lives here.
 from __future__ import annotations
 
 import uuid
+from datetime import date
 
 import pandas as pd
 import streamlit as st
@@ -36,6 +37,12 @@ from ui import param_picker as P
 
 # Native file-dialog filter for .filt files (ui/file_io).
 _FILT_TYPES = [("Filter files", "*.filt"), ("All files", "*.*")]
+
+
+def _manual_provenance() -> str:
+    """The `ai_instructions` note stamped on a hand-built filter (no AI source spec)."""
+    return (f"Manually built in the FAMarket Filter page on {date.today().isoformat()}. "
+            "No AI source spec — assembled block by block by the user.")
 
 # --------------------------------------------------------------------------- #
 # data + state
@@ -81,6 +88,10 @@ def _ensure_state() -> None:
     # editor (self-managed collapse — a text_area reruns, so no st.expander).
     st.session_state.setdefault("filter_comment", "")
     st.session_state.setdefault("show_filter_notes", False)
+    # The filter's AI instructions / source spec (verbatim make_filters instructions, or a
+    # manual-build provenance note). Saved into the .filt and shown read-only & collapsed
+    # under Comment. No editor — it's set by Load (from the file) or Save (provenance).
+    st.session_state.setdefault("filter_ai_instructions", "")
 
 
 def _with_id(block: dict) -> dict:
@@ -111,6 +122,7 @@ def _cb_clear() -> None:
     st.session_state["filter_name"] = "untitled"
     st.session_state["filter_comment"] = ""
     st.session_state["show_filter_notes"] = False
+    st.session_state["filter_ai_instructions"] = ""
 
 
 def _cb_add_child(bid: str) -> None:
@@ -451,8 +463,14 @@ with st.expander("Filters", expanded=True):
             initialdir=settings.FILTERS_DIR, default_name=f"{typed}.filt",
             defaultextension=".filt", filetypes=_FILT_TYPES, title="Save filter")
         if path:
+            # Keep an existing AI source spec (skill-authored) across an app re-save;
+            # only stamp the manual-build provenance note when there is none yet.
+            existing_ai = (st.session_state.get("filter_ai_instructions") or "").strip()
+            ai = existing_ai or _manual_provenance()
             E.save_filterset_to(path, list(selected), st.session_state["filter_blocks"],
-                                comment=st.session_state.get("filter_comment", ""))
+                                comment=st.session_state.get("filter_comment", ""),
+                                ai_instructions=ai)
+            st.session_state["filter_ai_instructions"] = ai  # remember for future re-saves
             st.session_state["filter_name"] = path.stem  # reflect saved name in the box
             st.toast(f"Saved {path.name}")
             st.rerun()
@@ -473,6 +491,8 @@ with st.expander("Filters", expanded=True):
                     st.session_state["_pending_sectypes"] = list(data["selected_types"])
                 # Notes applied the same way (before the text_area renders next run).
                 st.session_state["_pending_comment"] = data.get("comment", "")
+                # AI instructions have no widget — set the session key directly.
+                st.session_state["filter_ai_instructions"] = data.get("ai_instructions", "")
                 st.session_state["filter_name"] = path.stem
                 st.toast(f"Loaded {path.name}")
                 st.rerun()
@@ -493,6 +513,8 @@ with st.expander("Filters", expanded=True):
                 # widget's value when the widget doesn't render unless it's re-pinned.
                 st.session_state["filter_name"] = st.session_state.get("filter_name", "")
                 st.session_state["filter_comment"] = st.session_state.get("filter_comment", "")
+                st.session_state["filter_ai_instructions"] = st.session_state.get(
+                    "filter_ai_instructions", "")
                 st.toast(f"Added blocks from {path.name}")
                 st.rerun()
     bar[3].button("🧹 Clear", on_click=_cb_clear, width="stretch", help="Remove all blocks")
@@ -501,12 +523,13 @@ with st.expander("Filters", expanded=True):
         help="Working name for this filter set. Pre-fills the Save dialog's filename "
              "and is recorded on each run. Leave blank for an ad-hoc run.")
 
-    # Notes — collapsible. Self-managed collapse (header button + session flag), NOT
+    # Comment — collapsible. Self-managed collapse (header button + session flag), NOT
     # st.expander: the text_area below reruns on edit, which would re-collapse an
-    # st.expander mid-typing. The "•" marks that the filter currently carries notes.
+    # st.expander mid-typing. The "•" marks that the filter currently carries a comment.
+    # (Labelled "Comment" to match the .filt `comment` key it edits.)
     _has_notes = bool(st.session_state.get("filter_comment", "").strip())
-    if st.button(f"📝 Notes{' •' if _has_notes else ''}",
-                 help="Notes on this filter — what it does, how to tweak it, what to sort by. "
+    if st.button(f"📝 Comment{' •' if _has_notes else ''}",
+                 help="Comment on this filter — what it does, how to tweak it, what to sort by. "
                       "Saved into the .filt and shown on the Output page."):
         st.session_state["show_filter_notes"] = not st.session_state.get("show_filter_notes", False)
     if st.session_state.get("show_filter_notes"):
@@ -526,14 +549,14 @@ with st.expander("Filters", expanded=True):
 
         def _notes_editor() -> None:
             st.text_area(
-                "Notes", key="filter_comment", height=300, label_visibility="collapsed",
-                placeholder="Notes on this filter — Markdown supported: **bold**, "
+                "Comment", key="filter_comment", height=300, label_visibility="collapsed",
+                placeholder="Comment on this filter — Markdown supported: **bold**, "
                             "- bullets, `code`. What it does, how to tweak it, what to sort by…")
 
         def _notes_preview() -> None:
             txt = (st.session_state.get("filter_comment") or "").strip()
             with st.container(border=True):
-                st.markdown(txt or "_No notes yet._")
+                st.markdown(txt or "_No comment yet._")
 
         if split <= 0:
             _notes_preview()
@@ -545,6 +568,14 @@ with st.expander("Filters", expanded=True):
                 _notes_editor()
             with pv:
                 _notes_preview()
+
+    # AI instructions — read-only, collapsed source spec (verbatim make_filters
+    # instructions or a manual-build note). Static markdown, so a plain st.expander is
+    # safe here (no rerun-triggering widget inside). Shown only when the filter carries one.
+    _ai = (st.session_state.get("filter_ai_instructions") or "").strip()
+    if _ai:
+        with st.expander("🤖 AI instructions", expanded=False):
+            st.markdown(_ai)
 
     st.divider()
 
@@ -611,6 +642,7 @@ if st.button("▶ Run Filter", type="primary"):
             filter_name=(st.session_state.get("filter_name") or "").strip() or None,
             blocks=st.session_state["filter_blocks"],
             comment=(st.session_state.get("filter_comment") or "").strip() or None,
+            ai_instructions=(st.session_state.get("filter_ai_instructions") or "").strip() or None,
         )
         _url = f"/output?run={rid}"
         st.iframe(f"<script>window.parent.open('{_url}', '_blank');</script>", height=1)

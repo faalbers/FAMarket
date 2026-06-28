@@ -419,8 +419,15 @@ else:
 # Static markdown only (no rerun-triggering widgets), so an st.expander is safe here.
 _notes = (meta.get("comment") or "").strip()
 if _notes:
-    with st.expander("📝 Filter notes", expanded=True):
+    with st.expander("📝 Comment", expanded=True):
         st.markdown(_notes)
+
+# The filter's AI instructions / source spec — read-only, collapsed (same pattern as the
+# Filter page). Only filter runs that carried one show it; custom symbol-set runs don't.
+_ai = (meta.get("ai_instructions") or "").strip()
+if _ai:
+    with st.expander("🤖 AI instructions", expanded=False):
+        st.markdown(_ai)
 
 if result.empty:
     st.subheader("Results — 0 matches")

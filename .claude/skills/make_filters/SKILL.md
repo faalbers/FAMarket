@@ -150,6 +150,21 @@ by small margins (e.g. FIX at 5.08%). These are not high-risk stocks — the ATR
 reflects normal sector volatility.
 Recommended ceiling for broad growth screens: **5.5%**
 
+## AI instructions — ALWAYS fill the `.filt` `ai_instructions` field
+
+Every `.filt` carries a top-level **`ai_instructions`** string (alongside `comment`,
+`selected_types`, `blocks`). It round-trips through
+`filter_engine.save_filterset_to` / `load_filterset_from` and shows **read-only and
+collapsed** under **Comment** on both the Filter and Output pages.
+
+Set it to the **verbatim plain-English `instructions:` text** for that specific filter from
+`dev_docs/create_filters.md` — the original spec the filter was built from — as a single
+JSON string using `\n` for line breaks (real newlines aren't valid in JSON).
+
+**Keep it distinct from `comment`** — fill both, don't merge them:
+- **`ai_instructions`** = the *origin spec / source ask*, copied **verbatim and unedited**.
+- **`comment`** = the *usage writeup* (what it does / how to tweak / how to sort) — see below.
+
 ## Filter notes — ALWAYS fill the `.filt` `comment` field
 
 Every `.filt` carries a free-text **`comment`** string (a top-level key in the JSON,
@@ -225,12 +240,16 @@ After creating the filters, create a full report that replaces or creates a file
    is the culprit. Fix it (almost always a wrong **unit/scale** per the Units table, or
    an over-tight threshold per Calibration guidance, or a missing N/A fallback) and
    re-run the dry-run until it returns a sensible set. Only then proceed to save.
-7. **Fill the `comment` field** for each filter (see "Filter notes" above) — what it does,
-   how to tweak, how to sort for best picks — as a `\n`-delimited JSON string.
+7. **Fill the `comment` AND `ai_instructions` fields** for each filter:
+   - `comment` (see "Filter notes" above) — what it does, how to tweak, how to sort for
+     best picks — as a `\n`-delimited JSON string.
+   - `ai_instructions` (see "AI instructions" above) — that filter's **verbatim**
+     `instructions:` text from `create_filters.md`, as a `\n`-delimited JSON string.
 8. Before saving, check whether `<name>.filt` already exists in FILTERS_DIR.
    - If it does NOT exist (and no `<name>_v2.filt` etc. exist either): save as `<name>.filt`.
    - If `<name>.filt` exists: find the next free version suffix (`_v2`, `_v3`, …) and save there.
-   - The saved JSON must include the top-level `comment` key (and `version`, `selected_types`,
-     `blocks`) so it round-trips into the Filter/Output Notes.
+   - The saved JSON must include the top-level `comment` AND `ai_instructions` keys (and
+     `version`, `selected_types`, `blocks`) so both round-trip into the Filter/Output
+     Comment + AI-instructions displays.
    Then write the End Report (include the dry-run match count for each filter).
 

@@ -76,16 +76,19 @@ def _persist(df: pd.DataFrame, meta_extra: dict) -> str:
 
 
 def save_run(df: pd.DataFrame, *, screen_types: list[str], param_cols: list[str],
-             filter_name: str | None, blocks: list[dict], comment: str | None = None) -> str:
+             filter_name: str | None, blocks: list[dict], comment: str | None = None,
+             ai_instructions: str | None = None) -> str:
     """Persist one filter run (rows + metadata); prune old runs; return its id.
 
     `comment` is the filter's free-text note (what it does / how to tweak / how to
-    sort); shown read-only on the Output page.
+    sort); `ai_instructions` is the filter's source spec / provenance. Both are shown
+    read-only on the Output page (a custom symbol-set run carries neither).
     """
     return _persist(df, {
         "kind": "filter",
         "filter_name": filter_name,
         "comment": comment,
+        "ai_instructions": ai_instructions,
         "screen_types": list(screen_types),
         "param_cols": list(param_cols),
         "blocks": blocks,
