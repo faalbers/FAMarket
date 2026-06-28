@@ -414,6 +414,14 @@ else:
     st.caption(f"{meta.get('filter_name') or 'Ad-hoc filter'} · run at {_created} · "
                f"{_type_labels(meta.get('screen_types', []))}")
 
+# The filter's notes (what it does / how to tweak / how to sort), read-only. Shown
+# expanded so the scoring guidance is visible right where the user sorts and picks.
+# Static markdown only (no rerun-triggering widgets), so an st.expander is safe here.
+_notes = (meta.get("comment") or "").strip()
+if _notes:
+    with st.expander("📝 Filter notes", expanded=True):
+        st.markdown(_notes)
+
 if result.empty:
     st.subheader("Results — 0 matches")
     st.info("No symbols matched. Loosen a filter or check the selected types on the **Filter** page.")

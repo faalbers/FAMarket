@@ -65,7 +65,11 @@ turns each `.md` into a plain-language, dyslexia-friendly `<sym>_ai_news_report_
 `ai_news_reports/` are gitignored.
 The
 Filter page (Topic 5) is backed by `ui/filter_registry.py` (per-`screen_type` metric
-applicability) + `ui/filter_engine.py` (block model + `.filt` JSON). Each Run Filter
+applicability) + `ui/filter_engine.py` (block model + `.filt` JSON). Each filter also
+carries a free-text markdown **Notes** (`comment`) field — editable on the Filter page
+(collapsible, live `st.markdown` preview + a width slider), saved in the `.filt`, shown
+read-only on Output, and auto-filled by the `make_filters` skill (what it does / how to
+tweak / how to sort). Each Run Filter
 persists a run file (`ui/output_runs.py`: parquet+json in `results/`, newest
 `OUTPUT_RUNS_KEEP` kept) and auto-opens `/output?run=<id>` in its own browser tab;
 the sidebar Output page is a recent-runs launcher. Column-set save/load (`.prms`),
@@ -262,6 +266,10 @@ Three intentionally decoupled layers plus shared infrastructure:
   Load/preset, drive them purely by key, stash the desired values in a NON-widget key,
   and apply them at the TOP of the next run before the widgets render — never set the
   widget keys inside the handler below them (see `ui/pages/filter.py` Security-Type load).
+  A keyed widget's value is also **dropped on any run where the widget isn't rendered**
+  (a collapsed section, a slider that hides it) unless re-pinned
+  (`st.session_state[k] = st.session_state.get(k, default)`) at the top of the run before
+  it would render (see the Filter Notes editor in `ui/pages/filter.py`).
 - **Streamlit CSS** all lives in the single `app.py` `<style>` block — never per-page
   (it's injected after `set_page_config` and `app.py` reruns on every navigation, so it
   styles all pages). Two gotchas: selectbox/multiselect **dropdown menus render in a

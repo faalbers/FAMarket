@@ -75,6 +75,12 @@ def _ensure_state() -> None:
     # Working name for the filter set, editable in the toolbar. Used as the .filt
     # filename on Save and recorded on each run (Output launcher). Empty = ad-hoc.
     st.session_state.setdefault("filter_name", "untitled")
+    # Free-text notes for this filter (what it does / how to tweak / how to sort).
+    # Saved into the .filt, carried onto each run, shown read-only on Output. The
+    # make_filters skill auto-fills it. `show_filter_notes` toggles the collapsible
+    # editor (self-managed collapse — a text_area reruns, so no st.expander).
+    st.session_state.setdefault("filter_comment", "")
+    st.session_state.setdefault("show_filter_notes", False)
 
 
 def _with_id(block: dict) -> dict:
@@ -103,6 +109,8 @@ def _cb_add_filter() -> None:
 def _cb_clear() -> None:
     st.session_state["filter_blocks"] = [_with_id(E.new_block())]
     st.session_state["filter_name"] = "untitled"
+    st.session_state["filter_comment"] = ""
+    st.session_state["show_filter_notes"] = False
 
 
 def _cb_add_child(bid: str) -> None:
@@ -398,6 +406,19 @@ if _pending_types is not None:
     for k in R.SCREEN_TYPES:
         st.session_state[f"sectype:{k}"] = k in set(_pending_types)
 
+# A Load also applies its saved notes here — before the Notes text_area is instantiated,
+# for the same reason (a widget's key can't be set after it renders this run). Auto-open
+# the Notes section when the loaded filter carries any.
+_pending_comment = st.session_state.pop("_pending_comment", None)
+if _pending_comment is not None:
+    st.session_state["filter_comment"] = _pending_comment
+    st.session_state["show_filter_notes"] = bool(_pending_comment.strip())
+
+# Re-pin the notes so Streamlit doesn't drop them on runs where the editor widget isn't
+# rendered (Notes section collapsed, or the width slider at 0 = preview-only). Runs before
+# the text_area is instantiated, so it's safe. (Documented Streamlit persist-on-hide trick.)
+st.session_state["filter_comment"] = st.session_state.get("filter_comment", "")
+
 # -- Security Type ---------------------------------------------------------- #
 with st.expander("Security Type", expanded=True):
     cols = st.columns(3)
@@ -430,7 +451,8 @@ with st.expander("Filters", expanded=True):
             initialdir=settings.FILTERS_DIR, default_name=f"{typed}.filt",
             defaultextension=".filt", filetypes=_FILT_TYPES, title="Save filter")
         if path:
-            E.save_filterset_to(path, list(selected), st.session_state["filter_blocks"])
+            E.save_filterset_to(path, list(selected), st.session_state["filter_blocks"],
+                                comment=st.session_state.get("filter_comment", ""))
             st.session_state["filter_name"] = path.stem  # reflect saved name in the box
             st.toast(f"Saved {path.name}")
             st.rerun()
@@ -449,6 +471,8 @@ with st.expander("Filters", expanded=True):
                 if data["selected_types"]:
                     # Applied at the top of the next run, before the checkboxes render.
                     st.session_state["_pending_sectypes"] = list(data["selected_types"])
+                # Notes applied the same way (before the text_area renders next run).
+                st.session_state["_pending_comment"] = data.get("comment", "")
                 st.session_state["filter_name"] = path.stem
                 st.toast(f"Loaded {path.name}")
                 st.rerun()
@@ -464,10 +488,11 @@ with st.expander("Filters", expanded=True):
             else:
                 st.session_state["filter_blocks"].extend(
                     _with_id(b) for b in data["blocks"])
-                # Keep the current Filter name across the rerun: its text_input isn't
-                # rendered on this run (we rerun above it), and Streamlit drops a
+                # Keep the current Filter name + notes across the rerun: their widgets
+                # aren't rendered on this run (we rerun above them), and Streamlit drops a
                 # widget's value when the widget doesn't render unless it's re-pinned.
                 st.session_state["filter_name"] = st.session_state.get("filter_name", "")
+                st.session_state["filter_comment"] = st.session_state.get("filter_comment", "")
                 st.toast(f"Added blocks from {path.name}")
                 st.rerun()
     bar[3].button("🧹 Clear", on_click=_cb_clear, width="stretch", help="Remove all blocks")
@@ -475,6 +500,51 @@ with st.expander("Filters", expanded=True):
         "Filter name", key="filter_name", placeholder="untitled",
         help="Working name for this filter set. Pre-fills the Save dialog's filename "
              "and is recorded on each run. Leave blank for an ad-hoc run.")
+
+    # Notes — collapsible. Self-managed collapse (header button + session flag), NOT
+    # st.expander: the text_area below reruns on edit, which would re-collapse an
+    # st.expander mid-typing. The "•" marks that the filter currently carries notes.
+    _has_notes = bool(st.session_state.get("filter_comment", "").strip())
+    if st.button(f"📝 Notes{' •' if _has_notes else ''}",
+                 help="Notes on this filter — what it does, how to tweak it, what to sort by. "
+                      "Saved into the .filt and shown on the Output page."):
+        st.session_state["show_filter_notes"] = not st.session_state.get("show_filter_notes", False)
+    if st.session_state.get("show_filter_notes"):
+        # Raw markdown editor on the left, live rendered preview on the right (same
+        # st.markdown path the Output page uses). Storage stays markdown — the preview
+        # is purely presentational. The preview reads filter_comment AFTER the text_area
+        # renders, so it reflects the committed value (text_area commits on blur /
+        # Ctrl+Enter, which reruns and refreshes the preview).
+        # Width slider sets the editor↔preview split (Streamlit has no draggable column
+        # divider). 0 = preview only, 100 = editor only, between = side by side. The
+        # editor's value survives preview-only runs via the re-pin at the top of the page.
+        # Keyed so the split persists across reruns.
+        split = st.slider(
+            "Editor / preview width", min_value=0, max_value=100, value=0, step=5,
+            key="filter_notes_split", label_visibility="collapsed",
+            help="Editor ↔ preview width: 0 = preview only, 100 = editor only")
+
+        def _notes_editor() -> None:
+            st.text_area(
+                "Notes", key="filter_comment", height=300, label_visibility="collapsed",
+                placeholder="Notes on this filter — Markdown supported: **bold**, "
+                            "- bullets, `code`. What it does, how to tweak it, what to sort by…")
+
+        def _notes_preview() -> None:
+            txt = (st.session_state.get("filter_comment") or "").strip()
+            with st.container(border=True):
+                st.markdown(txt or "_No notes yet._")
+
+        if split <= 0:
+            _notes_preview()
+        elif split >= 100:
+            _notes_editor()
+        else:
+            ed, pv = st.columns([split, 100 - split], gap="medium")
+            with ed:
+                _notes_editor()
+            with pv:
+                _notes_preview()
 
     st.divider()
 
@@ -540,6 +610,7 @@ if st.button("▶ Run Filter", type="primary"):
             param_cols=_used_columns(st.session_state["filter_blocks"]),
             filter_name=(st.session_state.get("filter_name") or "").strip() or None,
             blocks=st.session_state["filter_blocks"],
+            comment=(st.session_state.get("filter_comment") or "").strip() or None,
         )
         _url = f"/output?run={rid}"
         st.iframe(f"<script>window.parent.open('{_url}', '_blank');</script>", height=1)
