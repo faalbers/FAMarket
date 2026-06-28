@@ -526,7 +526,28 @@ def _param_info(col: str) -> dict:
 def _cb_remove_col(col: str) -> None:
     if col in st.session_state["output_columns"]:
         st.session_state["output_columns"].remove(col)
+    st.session_state.pop(f"colactive:{col}", None)
     st.session_state["output_inactive_columns"].discard(col)
+
+
+def _cb_remove_all_cols() -> None:
+    """Drop every parameter column (master-row ✕)."""
+    for c in list(st.session_state["output_columns"]):
+        st.session_state.pop(f"colactive:{c}", None)  # clear the keyed show/hide checkboxes
+    st.session_state["output_columns"] = []
+    st.session_state["output_inactive_columns"] = set()
+
+
+def _cb_toggle_all_cols() -> None:
+    """Master "All columns" checkbox: drive every per-row show/hide checkbox to its new
+    value. The per-row checkboxes are key-only (no value=), so SETTING their session_state
+    here syncs the change all the way to the FRONTEND — a pop+value= reseed would update the
+    backend only and leave the browser checkbox visually stale (which is what we saw)."""
+    show = st.session_state["colactive:__all__"]  # the master's just-clicked value
+    cols = st.session_state["output_columns"]
+    for c in cols:
+        st.session_state[f"colactive:{c}"] = show
+    st.session_state["output_inactive_columns"] = set() if show else set(cols)
 
 
 # Self-managed collapse (NOT st.expander): an expander re-applies its `expanded`
@@ -539,7 +560,10 @@ def _cb_toggle_cols() -> None:
 
 _cols_list = list(st.session_state["output_columns"])
 _inactive = st.session_state["output_inactive_columns"]
-_n_active = sum(1 for c in _cols_list if c not in _inactive)
+# Shown count for the header — read from the live checkbox keys (updated before this rerun),
+# falling back to the persisted inactive set for any column not yet rendered once.
+_n_active = sum(1 for c in _cols_list
+                if st.session_state.get(f"colactive:{c}", c not in _inactive))
 _open = st.session_state.setdefault("output_cols_open", False)
 st.button(f"{'▾' if _open else '▸'}  Parameter columns — {_n_active} shown / "
           f"{len(_cols_list)} total", key="output_cols_toggle",
@@ -597,20 +621,42 @@ if _open:
     # hugs the glyph — targeted by each button's OWN key class (st-key-rmcol…) with a
     # DESCENDANT selector (the <button> is nested below the keyed wrapper in Streamlit
     # 1.58). The narrow first column keeps the ✕ tight against the checkbox.
+    #
+    # Show/hide checkboxes are KEY-ONLY (no value=): seeded once from the persisted inactive
+    # set, after which session_state is the source of truth. This lets the master callback
+    # SET each child's value and have the change reach the FRONTEND — a pop+value= reseed
+    # only updates the backend and leaves the browser checkbox visually stale.
+    for _col in _cols_list:
+        st.session_state.setdefault(f"colactive:{_col}", _col not in _inactive)
     _rows_box = st.container(key="paramcolrows")
+    if _cols_list:
+        # Master row — looks like a column row (same [1, 30] layout, same ✕ + checkbox
+        # widgets): the ✕ removes ALL columns, the "All columns" checkbox shows/hides all.
+        # Keep the master in sync with the per-row checkboxes (derived from their keys, so
+        # toggling one box updates the master the same run) by setting its session value
+        # BEFORE it renders — no value= arg, so no "value set via session_state" warning.
+        _all_shown = all(st.session_state.get(f"colactive:{c}", c not in _inactive)
+                         for c in _cols_list)
+        st.session_state["colactive:__all__"] = _all_shown
+        _h = _rows_box.columns([1, 30], gap="small", vertical_alignment="center")
+        _h[0].button("✕", key="rmcol:__all__", on_click=_cb_remove_all_cols,
+                     help="Remove all columns")
+        _h[1].checkbox("**All columns**", key="colactive:__all__",
+                       on_change=_cb_toggle_all_cols, help="Show or hide all columns")
     for _col in _cols_list:
         # ✕ delete = plain click-button; the checkbox on the right carries the column
-        # name and toggles show/hide (checked = shown in the table).
+        # name and toggles show/hide (checked = shown in the table). Key-only (seeded above).
         _row = _rows_box.columns([1, 30], gap="small", vertical_alignment="center")
         _row[0].button("✕", key=f"rmcol:{_col}", on_click=_cb_remove_col, args=(_col,),
                        help="Remove this column")
-        _on = _row[1].checkbox(_short_label(_col), value=_col not in _inactive,
-                               key=f"colactive:{_col}",
-                               help="Show / hide this column in the table")
-        if _on:
-            _inactive.discard(_col)
-        else:
-            _inactive.add(_col)
+        _row[1].checkbox(_short_label(_col), key=f"colactive:{_col}",
+                         help="Show / hide this column in the table")
+
+    # Recompute the inactive set from the checkbox keys ONLY while the list is open (i.e.
+    # the checkboxes rendered this run). When collapsed, Streamlit drops the unrendered
+    # checkbox keys, so we keep the persisted set instead of resetting hidden columns.
+    _inactive = {c for c in _cols_list if not st.session_state.get(f"colactive:{c}", True)}
+    st.session_state["output_inactive_columns"] = _inactive
 
 chosen: list[str] = [c for c in _cols_list if c not in _inactive]
 
