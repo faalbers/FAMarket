@@ -24,6 +24,9 @@ if it the prompt did NOT use the skill command make_filters.
 ## Inputs you need from the user
 
 List what you must know before producing output, and what to ask for if missing.
+- **FIRST, before anything else, ask the scope question (Procedure step 3):** build
+  **only new filters** (the DEFAULT — ones whose name does not already exist in
+  `settings.FILTERS_DIR`) or **all of them** (including ones that already exist).
 - go through each filter you want o create one by one and do the following things before creating them
 - make sure you give me the name and a comprehensible brief of what each filter does you are about to create.
 - becore creating the filter, ask me the options to save it or chat about it first.
@@ -185,9 +188,18 @@ After creating the filters, create a full report that replaces or creates a file
 
 1. Go through the reference so you get up to date first on what you need to know.
 2. Read the plain-English instructions that you only read in dev_docs/create_filters.md to create the filters
-3. Find all the stock market analysis knowledge you can find with web search to get the best results on the instructions in create_filters.md
-4. Go through Inputs you need from the user explained above before creating the filters
-5. **Dry-run every filter against `analysis.db` BEFORE saving it — never ship a
+3. **Decide scope — ask the user FIRST, before building anything.** From the filter
+   names in `create_filters.md`, list which already exist in `settings.FILTERS_DIR`
+   (a `<name>.filt`, or any `<name>_v*.filt`) and which are new. Then ask the user to
+   choose — make **"only new" the DEFAULT** (assume it if the user doesn't specify):
+   - **Only new filters (DEFAULT)** — skip any whose name already exists; build only
+     the ones that don't exist yet.
+   - **All filters** — build every filter in `create_filters.md`, even ones that
+     already exist (existing files are versioned per the save step, never overwritten).
+   Only the chosen filters go through the rest of the procedure.
+4. Find all the stock market analysis knowledge you can find with web search to get the best results on the instructions in create_filters.md
+5. Go through Inputs you need from the user explained above before creating the filters
+6. **Dry-run every filter against `analysis.db` BEFORE saving it — never ship a
    zero-result filter silently.** Reuse the existing engine (do not reimplement it):
 
    ```python
@@ -213,9 +225,9 @@ After creating the filters, create a full report that replaces or creates a file
    is the culprit. Fix it (almost always a wrong **unit/scale** per the Units table, or
    an over-tight threshold per Calibration guidance, or a missing N/A fallback) and
    re-run the dry-run until it returns a sensible set. Only then proceed to save.
-6. **Fill the `comment` field** for each filter (see "Filter notes" above) — what it does,
+7. **Fill the `comment` field** for each filter (see "Filter notes" above) — what it does,
    how to tweak, how to sort for best picks — as a `\n`-delimited JSON string.
-7. Before saving, check whether `<name>.filt` already exists in FILTERS_DIR.
+8. Before saving, check whether `<name>.filt` already exists in FILTERS_DIR.
    - If it does NOT exist (and no `<name>_v2.filt` etc. exist either): save as `<name>.filt`.
    - If `<name>.filt` exists: find the next free version suffix (`_v2`, `_v3`, …) and save there.
    - The saved JSON must include the top-level `comment` key (and `version`, `selected_types`,
