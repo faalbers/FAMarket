@@ -133,6 +133,33 @@ def _parse_symbols(raw: str) -> list[str]:
     return [p for p in parts if p]
 
 
+def _reconcile_selection(
+    display_symbols: list[str], prev_order: list[str] | None,
+    raw_rows: list[int], pending_syms: list[str] | None,
+) -> tuple[list[str], list[int], bool]:
+    """Keep the results-grid selection stable by SYMBOL across sorts / column changes.
+
+    st.dataframe reports its selection as POSITIONAL row numbers into the frame it was last
+    given, so a reorder silently re-points those rows at different symbols (the user's picks
+    appear to vanish). This maps the grid's positional `raw_rows` — interpreted against
+    `prev_order`, the order the grid LAST displayed — back to symbols, merges any
+    `pending_syms` (a loaded .syms), then re-maps to THIS render's row positions.
+
+    Returns `(selected_syms, target_rows, need_push)` where `need_push` is True when the
+    grid's current rows no longer match the selection (order changed or a load added rows),
+    signalling the caller to push `target_rows` back to the grid + remount.
+    """
+    order_for_rows = prev_order if prev_order is not None else display_symbols
+    grid_syms = [order_for_rows[i] for i in raw_rows if i < len(order_for_rows)]
+    if pending_syms:
+        grid_syms = list(dict.fromkeys([*grid_syms, *pending_syms]))
+    present = set(display_symbols)
+    selected = [s for s in grid_syms if s in present]
+    sym_to_row = {s: i for i, s in enumerate(display_symbols)}
+    target_rows = sorted(sym_to_row[s] for s in selected)
+    return selected, target_rows, target_rows != sorted(raw_rows)
+
+
 def _render_actions(symbols: list[str], cols: list[str] | None = None) -> None:
     """Render the Action-menu body (charts + external links) for `symbols`. Shared by the
     run-results selection popover and the launcher's quick-actions box — keep it body-only
@@ -445,6 +472,11 @@ if st.session_state.get("output_seen_run") != run_id:
         c for c in meta.get("param_cols", []) if c in result.columns
     ]
     st.session_state["output_inactive_columns"] = set()  # all seeded columns start active
+    # Selection is tracked by SYMBOL (so it survives sorting/column changes); reset it and
+    # the remembered display order when this session starts showing a different run.
+    st.session_state["output_selected_syms"] = []
+    st.session_state.pop("output_display_order", None)
+    st.session_state.pop("results_grid", None)
 
 st.session_state.setdefault("output_inactive_columns", set())
 opts = _column_options(types, result, st.session_state.get("output_columns", []))
@@ -699,25 +731,24 @@ if _spec:
     view = view.sort_values(by=[s["col"] for s in _spec], ascending=[s["asc"] for s in _spec],
                             kind="stable", na_position="last")
 
-# -- selected symbols (read the grid's multi-row selection) ------------------- #
-# st.dataframe persists its selection under its key; the Action bar sits ABOVE the
-# table and reads the prior render's selection — same pattern as the launcher's
-# Delete-selected button. Selection rows are positional into the DISPLAYED (sorted)
-# order, so map them through view.index back to the symbol.
+# -- selected symbols (symbol-stable, survives sorting / column changes) ------- #
+# The selection is tracked by SYMBOL (see _reconcile_selection): each run we map the grid's
+# positional rows back to symbols (against the order it LAST showed), merge any pending
+# load, and re-map to this render's positions. The symbol list is the source of truth used
+# by the Action menu / Save; the grid positions are just its current rendering. When the
+# order changed (a sort) or a load added rows, we push the corrected rows back + remount so
+# the SAME symbols stay highlighted; a plain row click maps 1:1 (no remount, no flicker).
 _display_symbols = result.loc[view.index, "symbol"].astype(str).tolist()
-
-# Apply a pending programmatic selection (from "Add Selection") HERE — before the Action
-# bar reads the selection and before the grid renders — so BOTH reflect it this run. The
-# Add handler stashes the rows + reruns; setting the grid's key now keeps it in
-# _new_session_state (so value_changed pushes it to the grid) and the bump forces a fresh
-# mount that accepts it even after a manual clear-all.
-_pending_rows = st.session_state.pop("_pending_grid_rows", None)
-if _pending_rows is not None:
-    st.session_state["results_grid"] = {"selection": {"rows": _pending_rows}}
+_raw_rows = (st.session_state.get("results_grid") or {}).get("selection", {}).get("rows", [])
+_selected, _target_rows, _need_push = _reconcile_selection(
+    _display_symbols, st.session_state.get("output_display_order"), _raw_rows,
+    st.session_state.pop("_pending_select_syms", None))
+st.session_state["output_selected_syms"] = _selected
+if _need_push:
+    st.session_state["results_grid"] = {"selection": {"rows": _target_rows}}
     st.session_state["output_grid_bump"] = st.session_state.get("output_grid_bump", 0) + 1
-
-_grid_sel = (st.session_state.get("results_grid") or {}).get("selection", {})
-_selected = [_display_symbols[i] for i in _grid_sel.get("rows", []) if i < len(_display_symbols)]
+# Remember this render's order so next render can interpret the grid's positional rows.
+st.session_state["output_display_order"] = _display_symbols
 
 # Native header-click sort is browser-only and can't be disabled. The ONLY thing that
 # clears it is a real REMOUNT of the grid's DOM subtree (re-opening the Sort panel does
@@ -746,10 +777,10 @@ _bar[1].button("↺ Reset to sort order", key="grid_reset", on_click=_cb_reset_g
 
 # -- Selection Save / Add (Output-screen UI, just above the table) ------------ #
 # Save the current row selection as a .syms; Add a .syms's symbols to the selection
-# (only those present in this table). Add can't set the grid selection here — the
-# Action bar above already read `_selected` this run — so it stashes the target rows in
-# `_pending_grid_rows` and reruns; the top of the page applies them before _selected and
-# the grid (see that block for why that placement is required).
+# (only those present in this table). Add can't touch the selection here — the Action bar
+# above already read `_selected` this run — so it stashes the symbols in
+# `_pending_select_syms` and reruns; the symbol-stable block above merges them in before
+# _selected and the grid render (see that block for why that placement is required).
 _sel_bar = st.columns([1.5, 1.5, 4], vertical_alignment="center")
 if _sel_bar[0].button("💾 Save selection", disabled=not _selected, width="stretch",
                       help="Save the selected symbols to a .syms file"):
@@ -762,13 +793,13 @@ if _sel_bar[1].button("📂 Add Selection", width="stretch",
                            "(only those present in this table)"):
     data = SEL.load_dialog(kind="symbols")
     if data:
-        loaded = set(data["items"].keys())
+        loaded = list(data["items"].keys())
         present = set(_display_symbols)
-        new_rows = [i for i, s in enumerate(_display_symbols) if s in loaded]
-        cur_rows = list(_grid_sel.get("rows", []))
-        st.session_state["_pending_grid_rows"] = sorted(set(cur_rows) | set(new_rows))
-        _added = len(set(new_rows) - set(cur_rows))
-        _missing = len(loaded - present)
+        in_table = [s for s in loaded if s in present]
+        # Merge into the live selection by symbol; the symbol-stable block applies it.
+        st.session_state["_pending_select_syms"] = in_table
+        _added = len([s for s in in_table if s not in set(_selected)])
+        _missing = len([s for s in loaded if s not in present])
         st.toast(f"Added {_added} to selection"
                  + (f" · {_missing} not in this table" if _missing else ""))
         st.rerun()
