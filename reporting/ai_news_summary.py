@@ -36,9 +36,6 @@ log = get_logger("reporting.ai_news_summary")
 _SLUG = re.compile(r"[^A-Za-z0-9._-]+")
 # "# AI News Report — APH (Amphenol Corporation)" -> company in the parentheses.
 _HEADER = re.compile(r"^#\s*AI News Report.*\(([^)]+)\)\s*$")
-# A numbered section like "1. **The big picture**" or a "**Heading**" line.
-_NUM_HEAD = re.compile(r"^\d+\.\s*\*\*(.+?)\*\*\s*$")
-_BOLD_HEAD = re.compile(r"^\*\*(.+?)\*\*\s*$")
 
 
 def _slug(symbol: str) -> str:
@@ -81,27 +78,7 @@ def summary_to_pdf(symbol: str, summary_md: str, company: str | None = None) -> 
     b.cover_title(title)
     b.subtitle("Plain-language summary of recent news · auto-generated from scraped articles")
     b.spacer(6)
-
-    for raw in (summary_md or "").splitlines():
-        line = raw.rstrip()
-        stripped = line.strip()
-        if not stripped:
-            b.spacer(4)
-            continue
-        # Headings: "## X" / "# X" / "**Heading**" / "1. **X**"
-        if stripped.startswith("## "):
-            b.heading(stripped[3:].strip())
-        elif stripped.startswith("# "):
-            b.heading(stripped[2:].strip())
-        elif _NUM_HEAD.match(stripped):
-            b.heading(_NUM_HEAD.match(stripped).group(1).strip())
-        elif _BOLD_HEAD.match(stripped):
-            b.heading(_BOLD_HEAD.match(stripped).group(1).strip())
-        # Bullets: "- " / "* "
-        elif stripped[:2] in ("- ", "* "):
-            b.bullet(stripped[2:].strip())
-        else:
-            b.body(stripped)
+    b.markdown(summary_md)  # shared markdown-subset renderer (core.pdf.ReportBuilder)
     return b.build()
 
 

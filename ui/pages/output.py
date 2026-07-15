@@ -36,11 +36,13 @@ from __future__ import annotations
 
 import html
 import uuid
+from pathlib import Path
 from urllib.parse import quote
 
 import pandas as pd
 import streamlit as st
 
+import reporting
 from config import settings
 from config import param_hints
 from core.database import Database
@@ -477,6 +479,7 @@ if st.session_state.get("output_seen_run") != run_id:
     st.session_state["output_selected_syms"] = []
     st.session_state.pop("output_display_order", None)
     st.session_state.pop("results_grid", None)
+    st.session_state.pop("output_report_pdf", None)  # drop a prior run's generated report
 
 st.session_state.setdefault("output_inactive_columns", set())
 opts = _column_options(types, result, st.session_state.get("output_columns", []))
@@ -827,7 +830,7 @@ _bar[1].button("↺ Reset to sort order", key="grid_reset", on_click=_cb_reset_g
 # above already read `_selected` this run — so it stashes the symbols in
 # `_pending_select_syms` and reruns; the symbol-stable block above merges them in before
 # _selected and the grid render (see that block for why that placement is required).
-_sel_bar = st.columns([1.5, 1.5, 4], vertical_alignment="center")
+_sel_bar = st.columns([1.5, 1.5, 1.5, 2], vertical_alignment="center")
 if _sel_bar[0].button("💾 Save selection", disabled=not _selected, width="stretch",
                       help="Save the selected symbols to a .syms file"):
     p = SEL.save_dialog(kind="symbols", items=SEL.symbol_info(_selected),
@@ -849,6 +852,30 @@ if _sel_bar[1].button("📂 Add Selection", width="stretch",
         st.toast(f"Added {_added} to selection"
                  + (f" · {_missing} not in this table" if _missing else ""))
         st.rerun()
+# Report — a PDF of the SELECTED rows as shown (visible columns, current sort) on page 1,
+# the filter's Comment + AI instructions on page 2. Disabled until rows are selected.
+if _sel_bar[2].button("📄 Report", width="stretch", disabled=not _selected,
+                      help="Save a PDF of the selected rows (shown columns, current sort) "
+                           "plus the Comment and AI instructions, to the reports folder"):
+    _out_name = (meta.get("filter_name") or "").strip()
+    # Keep only the selected symbols, preserving the table's current sort order.
+    _sel_mask = result.loc[view.index, "symbol"].astype(str).isin(set(_selected)).to_numpy()
+    _report_table = view[_sel_mask]
+    _pdf = reporting.generate(
+        "output", table=_report_table, comment=meta.get("comment", ""),
+        ai_instructions=meta.get("ai_instructions", ""), output_name=_out_name or None,
+        type_labels=_type_labels(meta.get("screen_types", [])),
+        sort_summary=_sort_summary, created_at=_created)
+    _path = reporting.store.save(_pdf, name=f"Output Report {_out_name}".strip())
+    st.session_state["output_report_pdf"] = {"bytes": _pdf, "path": str(_path)}
+    st.rerun()
+
+_made = st.session_state.get("output_report_pdf")
+if _made:
+    st.success(f"Saved to {_made['path']}")
+    st.download_button("⬇️ Download PDF", data=_made["bytes"],
+                       file_name=Path(_made["path"]).name, mime="application/pdf",
+                       key="output_report_dl")
 
 _bump = st.session_state.setdefault("output_grid_bump", 0)
 _wrap = st.container(key=f"results_grid_wrap:{'|'.join(chosen)}:{_bump}")

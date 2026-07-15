@@ -53,6 +53,11 @@ _MARGIN = 0.6 * inch
 # stays safe), then turn the bold markers back into the one tag reportlab needs.
 _BOLD = re.compile(r"\*\*(.+?)\*\*")
 
+# Markdown heading shapes the .markdown() block recognises (besides "# "/"## "):
+# a numbered "1. **X**" section, or a standalone "**Heading**" line.
+_NUM_HEAD = re.compile(r"^\d+\.\s*\*\*(.+?)\*\*\s*$")
+_BOLD_HEAD = re.compile(r"^\*\*(.+?)\*\*\s*$")
+
 
 def _inline(text) -> str:
     """Escape `text`, then render `**x**` as bold — for body/bullet inline emphasis."""
@@ -140,6 +145,28 @@ class ReportBuilder:
     def bullet(self, text: str):
         """A "• …" bullet point with inline `**bold**` anchor words (easy-read)."""
         self._flow.append(Paragraph(_inline(text), self._s["bullet"], bulletText="•"))
+        return self
+
+    def markdown(self, md: str):
+        """Render a small, predictable markdown subset to blocks — the one renderer every
+        report shares. Per line: `## X`/`# X`/`**Heading**`/`1. **X**` -> heading;
+        `- `/`* ` -> bullet; blank -> spacer; anything else -> body (with inline `**bold**`)."""
+        for raw in (md or "").splitlines():
+            stripped = raw.strip()
+            if not stripped:
+                self.spacer(4)
+            elif stripped.startswith("## "):
+                self.heading(stripped[3:].strip())
+            elif stripped.startswith("# "):
+                self.heading(stripped[2:].strip())
+            elif _NUM_HEAD.match(stripped):
+                self.heading(_NUM_HEAD.match(stripped).group(1).strip())
+            elif _BOLD_HEAD.match(stripped):
+                self.heading(_BOLD_HEAD.match(stripped).group(1).strip())
+            elif stripped[:2] in ("- ", "* "):
+                self.bullet(stripped[2:].strip())
+            else:
+                self.body(stripped)
         return self
 
     def muted(self, text: str):

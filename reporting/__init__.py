@@ -16,11 +16,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from reporting import news_report, store  # noqa: F401  (store re-exported for callers)
+from reporting import news_report, output_report, store  # noqa: F401  (store re-exported)
 
 # report id -> builder returning PDF bytes. Each builder takes **kwargs.
 _REGISTRY: dict[str, Callable[..., bytes]] = {
     "news": news_report.build_pdf,
+    "output": output_report.build_pdf,
 }
 
 
