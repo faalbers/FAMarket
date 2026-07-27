@@ -64,6 +64,12 @@ RULE_HINTS: dict[str, str] = {
                         "override).",
     "div_coverage": "**Higher is better**, with an **absolute floor at 1** — below 1 it "
                     "pays out more than it earns.",
+    "div_cagr_3y": "**Higher is better**, judged **across the whole universe** (not peers) "
+                  "— income investors want the strongest dividend growers, period. Shrinking "
+                  "(negative) is real, bad info, so it's kept.\n\n"
+                  "The **streak length** (`div_consecutive_years`) and **consistency** "
+                  "(`div_consistency`, % of years without a cut) share this same "
+                  "higher-is-better, universe-wide logic.",
     # -- Momentum / technical ------------------------------------------------
     "rs_rank": "**Higher is better**, used **as-is** (it's already a 0–99 rank).\n\n"
                "Deep-pass idea: a **peer** anchor would mean 'strongest in its own sector'.",
@@ -112,8 +118,8 @@ _ALIASES = {
     "forward_rev_growth": "forward_eps_growth", "forward_peg": "peg",
     "eps_revision_3m": "eps_revision_1m", "eps_revision_breadth": "eps_revision_1m",
     "price_vs_ma_150": "price_vs_ma_50", "price_vs_ma_200": "price_vs_ma_50",
-    "div_growth_5y": "div_payout_ratio", "div_consecutive_years": "div_payout_ratio",
-    "div_consistency": "div_payout_ratio",
+    "div_cagr_1y": "div_cagr_3y", "div_cagr_5y": "div_cagr_3y",
+    "div_consecutive_years": "div_cagr_3y", "div_consistency": "div_cagr_3y",
 }
 
 _SHAPE_WORDS = {"higher_better": "higher is better", "lower_better": "lower is better",

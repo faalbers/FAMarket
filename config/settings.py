@@ -38,6 +38,7 @@ ANALYSIS_DB: Path = DB_DIR / "analysis.db"
 MACRO_DB: Path = DB_DIR / "macro.db"
 INDICES_DB: Path = DB_DIR / "indices.db"  # sector / sub-industry index level series
 SIGNALS_DB: Path = DB_DIR / "signals.db"  # yfinance per-symbol signals: estimates + earnings_surprise + ownership
+ML_DATA_DB: Path = DB_DIR / "ml_data.db"  # scripts/build_ml_data.py — daily historical ML feature export
 
 # Rotating backups of every .db file, taken before each fetch run.
 BACKUP_DIR: Path = BASE_DIR / "backups"
@@ -233,7 +234,7 @@ RS_RANK_MIN_HISTORY_DAYS: int = 252  # NULL rs_rank below this
 # Daily price history loaded by run_analysis(), in CALENDAR days back from the
 # newest stored bar. Indicators need at most ~253 trading days (rs_rank is the
 # deepest), so ~2 years is generous. Dividends and splits are side-read in full
-# regardless, so deep-history metrics (div_growth_5y, EPS split-adjust) are
+# regardless, so deep-history metrics (div_cagr_1y/3y/5y, EPS split-adjust) are
 # unaffected. The pipeline clamps low values so rs_rank never loses its window.
 # RAISE THIS if a metric is ever added that needs deeper *price* history (e.g.
 # 5y price CAGR, historical P/E bands). RAM scales ~linearly with it: +365 days
@@ -353,7 +354,9 @@ CATEGORY_METRIC_WEIGHTS: dict[str, dict[str, float]] = {
         "insider_net_buy_pct": 0.25,
     },
     "income": {  # near-independent already; keep sustainability weighted
-        "div_yield_ttm": 1.0, "div_growth_5y": 0.75, "div_coverage": 0.75,
+        # cagr_3y is the anchor (like growth's revenue/eps_cagr_3y), cagr_5y half
+        # weight; cagr_1y is filter-only (too noisy for the category score).
+        "div_yield_ttm": 1.0, "div_cagr_3y": 0.75, "div_cagr_5y": 0.375, "div_coverage": 0.75,
         "div_consistency": 0.75, "div_payout_ratio": 0.5, "div_consecutive_years": 0.5,
     },
 }
@@ -363,6 +366,17 @@ CATEGORY_METRIC_WEIGHTS: dict[str, dict[str, float]] = {
 # NULL below RS_RANK_MIN_HISTORY_DAYS of price history.
 RS_RANK_QUARTER_DAYS: int = 63                          # ~3 trading months
 RS_RANK_WEIGHTS: tuple[float, ...] = (0.4, 0.2, 0.2, 0.2)  # newest -> oldest quarter
+
+# orphan_score (expansion idea, Topic 1): "neglected firm effect" candidates —
+# growth_score carried through only for under-covered, still-solvent stocks.
+# Only screen_types where BOTH analyst_count and current_ratio are reliably
+# populated (checked against the live analysis.db, 2026-07-26); current_ratio
+# is missing for most banks/insurers, so they'd unfairly zero out on data
+# availability rather than real risk.
+ORPHAN_ELIGIBLE_SCREEN_TYPES: tuple[str, ...] = ("standard", "reit")
+# Reuses the make_filters skill's validated growth-screen solvency floor
+# (see dev_docs — current_ratio >= 1.1) rather than inventing a second number.
+ORPHAN_CURRENT_RATIO_FLOOR: float = 1.1
 
 # --------------------------------------------------------------------------- #
 # Output / charts

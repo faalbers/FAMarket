@@ -217,7 +217,7 @@ BASES: list[Base] = [
     # -- Income ------------------------------------------------------------- #
     _b("div_yield_ttm", "Dividend yield (TTM)", "Income", DIVIDEND_PAYERS),
     _b("div_rate_ttm", "Dividend rate (TTM)", "Income", DIVIDEND_PAYERS),
-    _b("div_growth_5y", "Dividend growth (5y)", "Income", FUND_DIV),
+    _b("div", "Dividend growth", "Income", FUND_DIV, growth=True),
     _b("div_consecutive_years", "Consecutive years", "Income", FUND_DIV),
     _b("div_consistency", "Dividend consistency", "Income", FUND_DIV),
     _b("div_payout_ratio", "Payout ratio", "Income", frozenset({STANDARD, BANK, INSURANCE})),
@@ -246,6 +246,7 @@ BASES: list[Base] = [
     _b("vol_ratio", "Volume ratio", "Technical", TRADED_NO_MF),
     _b("vol_trend", "Volume trend", "Technical", TRADED_NO_MF),
     _b("atr_pct", "ATR %", "Technical", TRADED_NO_MF),
+    _b("history_years", "History (yrs)", "Technical", ALL_TRADED),
     # -- Intrinsic value ---------------------------------------------------- #
     _b("intrinsic_value_graham", "Graham value", "Intrinsic Value", frozenset({STANDARD, BANK, INSURANCE})),
     _b("intrinsic_value_lynch", "Lynch value", "Intrinsic Value", frozenset({STANDARD, BANK, INSURANCE})),
@@ -258,6 +259,7 @@ BASES: list[Base] = [
     _b("value_score", "Value", "Score", COMPANY),
     _b("quality_score", "Quality", "Score", COMPANY),
     _b("growth_score", "Growth", "Score", COMPANY),
+    _b("orphan_score", "Orphan", "Score", frozenset({STANDARD, REIT})),
     _b("momentum_score", "Momentum", "Score", ALL_TRADED),
     _b("income_score", "Income", "Score", DIVIDEND_PAYERS),
     # -- Classification (text labels; filtered via the multi-pick value list) - #
@@ -304,6 +306,19 @@ def score_column(column: str) -> str | None:
     return c if c in analysis_columns() else None
 
 
+def growth_windows(base_key: str) -> dict[str, str]:
+    """GROWTH_WINDOWS filtered to the suffixes that exist as `{base_key}_{suffix}`
+    columns in analysis.db — not every growth base carries all 7 (dividends have
+    no quarterly cadence, so there's no `div_yoy_q`). Falls back to the full set
+    before analysis.db exists, same as `peer_columns`/`score_column` have nothing
+    to check yet.
+    """
+    cols = analysis_columns()
+    if not cols:
+        return dict(GROWTH_WINDOWS)
+    return {w: label for w, label in GROWTH_WINDOWS.items() if f"{base_key}_{w}" in cols}
+
+
 def bases_for_types(selected: set[str]) -> list[Base]:
     """Bases meaningful for ALL selected screen types (strict intersection).
 
@@ -315,9 +330,11 @@ def bases_for_types(selected: set[str]) -> list[Base]:
 
 
 def bases_by_category(selected: set[str]) -> dict[str, list[Base]]:
-    """`bases_for_types` grouped into ordered categories (skips empty categories)."""
+    """`bases_for_types` grouped into ordered categories (skips empty categories),
+    each category's bases sorted alphabetically by name for the picker lists."""
     chosen = bases_for_types(selected)
     grouped: dict[str, list[Base]] = {cat: [] for cat in CATEGORY_ORDER}
     for b in chosen:
         grouped.setdefault(b.category, []).append(b)
-    return {cat: items for cat, items in grouped.items() if items}
+    return {cat: sorted(items, key=lambda b: b.name.lower())
+            for cat, items in grouped.items() if items}

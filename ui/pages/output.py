@@ -103,7 +103,7 @@ def _column_options(types: set[str], result: pd.DataFrame, current: list[str]) -
     for cat, items in R.bases_by_category(types).items():
         for b in items:
             if b.growth:
-                for w, wlabel in R.GROWTH_WINDOWS.items():
+                for w, wlabel in R.growth_windows(b.key).items():
                     opts[f"{b.key}_{w}"] = f"{cat} · {b.name} · {wlabel}"
             else:
                 opts[b.key] = f"{cat} · {b.name}"

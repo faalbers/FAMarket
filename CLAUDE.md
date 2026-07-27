@@ -320,7 +320,7 @@ Three intentionally decoupled layers plus shared infrastructure:
   past physical RAM in pandas (measured 57 GB commit on 32 GB → heavy paging), so
   `run_analysis()` reads only the trailing `settings.ANALYSIS_OHLCV_LOOKBACK_DAYS`
   (~2 years; indicators need ≤253 trading days) and only the bar columns it uses.
-  Dividends and splits — the sole deep-history consumers (div_growth_5y/streaks,
+  Dividends and splits — the sole deep-history consumers (div_cagr_1y/3y/5y/streaks,
   EPS split-adjust) — are side-read in FULL as sparse event series and passed to
   `metrics.compute()` separately. **If you add a metric that needs deeper *price*
   history (e.g. 5y price CAGR, historical P/E bands), raise that constant** and

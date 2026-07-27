@@ -81,6 +81,22 @@ st.markdown(
         min-width: max-content !important;
         width: max-content !important;
     }
+    /* Param-picker category header buttons ("▸/▾ Category"): visibly brighter than the
+       plain metric-row buttons below, so they stand out as landmarks once expanded.
+       Same portaled-outside-stMain scoping as the rule above. "cathdr" is the one fixed
+       substring in every header's key (st.button(key=f"{keyp}:cathdr:{cat}")) — keyp
+       and the category name vary and get sanitized (":"/" " -> "-"), so match on it via
+       a substring selector rather than an exact/prefixed one. An explicit tinted
+       background (not just filter: brightness()) reads clearly in BOTH themes — a
+       secondary button's default background is already near-white in light mode, so
+       scaling its luminance barely moves it; a real overlay color always shows. */
+    [data-testid="stPopoverBody"]:has(input[placeholder*="search"]) [class*="cathdr"] button {
+        background: rgba(90, 150, 255, 0.35) !important;
+        border-color: rgba(90, 150, 255, 0.7) !important;
+    }
+    [data-testid="stPopoverBody"]:has(input[placeholder*="search"]) [class*="cathdr"] button:is(:hover, :active, :focus, :focus-visible) {
+        background: rgba(90, 150, 255, 0.5) !important;
+    }
     /* Fundamentals chart Period radio (wrapped in st.container(key="fundperiod")):
        shrink it to its content and push it to the right edge of its column so it sits
        right next to the (content-width, resizable) parameter picker beside it. */

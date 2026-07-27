@@ -324,10 +324,11 @@ def _render_block(block: dict, selected: set[str], opt_keys: list[str], opt_labe
 
     # growth window
     if has_window:
-        wins = list(R.GROWTH_WINDOWS)
+        win_opts = R.growth_windows(param)
+        wins = list(win_opts)
         wi = wins.index(window) if window in wins else 0
         block["window"] = C["win"].selectbox("window", options=wins, index=wi, key=f"{pfx}:win",
-                                              format_func=lambda w: R.GROWTH_WINDOWS[w],
+                                              format_func=lambda w: win_opts[w],
                                               label_visibility="collapsed", help="Growth window")
     else:
         block["window"] = None

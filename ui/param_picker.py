@@ -58,6 +58,12 @@ def _toggle_info(info_key: str, k: str) -> None:
     st.session_state[info_key] = None if st.session_state.get(info_key) == k else k
 
 
+def _toggle_category(cat_key: str) -> None:
+    """Expand/collapse one category's row list (self-managed flag, not st.expander —
+    an expander re-collapses on every rerun a click inside it triggers)."""
+    st.session_state[cat_key] = not st.session_state.get(cat_key, False)
+
+
 def _on_pick(k: str, on_pick: Callable[[str], None], nonce_key: str, close: bool) -> None:
     on_pick(k)
     # Re-key the picker's wrapping container so the popover remounts closed —
@@ -98,8 +104,10 @@ def render(
     itself is always sized to its content via CSS (see app.py), independent of this.
 
     ``show_info`` / ``show_categories`` (both default True) drop the per-row ▸ info
-    toggle and the category captions, so the same widget serves plain value lists
-    (the Filter page's categorical multi-pick) that have neither hints nor groups.
+    toggle and the collapsible category headers, so the same widget serves plain
+    value lists (the Filter page's categorical multi-pick) that have neither hints
+    nor groups. Categories start collapsed; a live search overrides collapse and
+    shows every matching row regardless of state.
     """
     nonce_key = f"{keyp}:nonce"
     wrap = container.container(key=f"{keyp}:wrap{st.session_state.get(nonce_key, 0)}")
@@ -109,18 +117,28 @@ def render(
                           label_visibility="collapsed").strip().lower()
         info_key = f"{keyp}:info"
         last_cat = None
-        shown = 0
+        cat_open = True
+        matched = 0
         for k in opt_keys:
             if exclude_selected and is_selected(k):
                 continue
             if q and q not in search_text_of(k):
                 continue
+            matched += 1
             if show_categories:
                 cat = category_of(k)
                 if cat != last_cat:
-                    st.caption(cat)
                     last_cat = cat
-            shown += 1
+                    cat_key = f"{keyp}:cat:{cat}"
+                    # Self-managed collapse (collapsed by default) — not st.expander,
+                    # which would re-collapse on the rerun a row button triggers.
+                    # A live search always shows every matching row regardless.
+                    cat_open = bool(st.session_state.get(cat_key, False))
+                    st.button(f"{'▾' if (cat_open or q) else '▸'}  {cat}",
+                              key=f"{keyp}:cathdr:{cat}", on_click=_toggle_category,
+                              args=(cat_key,), width="stretch")
+                if not (cat_open or q):
+                    continue
             btype = "primary" if is_selected(k) else "secondary"
             if show_info:
                 expanded = st.session_state.get(info_key) == k
@@ -137,7 +155,7 @@ def render(
                 st.button(name_of(k), key=f"{keyp}:opt:{k}",
                           on_click=_on_pick, args=(k, on_pick, nonce_key, close_on_pick),
                           type=btype, width="stretch")
-        if shown == 0:
+        if matched == 0:
             st.caption("Nothing matches your search." if q else "Nothing left to add.")
 
 

@@ -485,9 +485,12 @@ def _income_block(fin, paid: pd.Series | None, price, ni_ttm, fcf_ttm, as_of) ->
     """Dividend metrics from the full-history dividend events (no extra API)."""
     out = {
         "div_yield_ttm": float("nan"), "div_rate_ttm": float("nan"),
-        "div_growth_5y": float("nan"), "div_payout_ratio": float("nan"),
+        "div_cagr_1y": float("nan"), "div_cagr_3y": float("nan"), "div_cagr_5y": float("nan"),
+        "div_payout_ratio": float("nan"),
         "div_consecutive_years": float("nan"), "div_consistency": float("nan"),
         "div_coverage": float("nan"),
+        "div_growth_vol": float("nan"), "div_growth_r2": float("nan"),
+        "div_growth_cv": float("nan"),
     }
     if as_of is None or pd.isna(as_of):  # no price history at all -> not applicable
         return out
@@ -511,10 +514,15 @@ def _income_block(fin, paid: pd.Series | None, price, ni_ttm, fcf_ttm, as_of) ->
     by_year = paid.groupby(paid.index.year).max()
     by_year = by_year[by_year.index < last.year]
     if len(by_year) >= 2:
-        out["div_growth_5y"] = _pct(_cagr_from_yearly(by_year, 5))
+        for w in settings.GROWTH_WINDOWS_YEARS:
+            out[f"div_cagr_{w}y"] = _pct(_cagr_from_yearly(by_year, w))
         steps = by_year.diff().dropna()
         out["div_consistency"] = _pct((steps >= 0).mean())
         out["div_consecutive_years"] = float(_consecutive_increases(by_year))
+        vol, r2, cv = _trend_stats(by_year)
+        out["div_growth_vol"] = vol
+        out["div_growth_r2"] = r2
+        out["div_growth_cv"] = cv
 
     # payout / coverage off the cash-flow statement (currency-neutral ratios)
     div_paid = abs(P.ttm(fin, "cash_dividends_paid"))
