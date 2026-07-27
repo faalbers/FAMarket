@@ -24,6 +24,7 @@ FMP_API_KEY = os.environ.get("FMP_API_KEY", "")
 FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
 ETRADE_CONSUMER_KEY = os.environ.get("ETRADE_CONSUMER_KEY", "")
 ETRADE_CONSUMER_SECRET = os.environ.get("ETRADE_CONSUMER_SECRET", "")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 # SEC requires a descriptive User-Agent (their fair-access policy).
 SEC_USER_AGENT = os.environ.get("SEC_USER_AGENT", "FAMarket contact@example.com")

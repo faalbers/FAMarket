@@ -28,6 +28,9 @@ streamlit-echarts==0.4.0  # Apache ECharts price chart (pinned: 0.7.0 breaks on 
 reportlab           # generate PDF reports (core/pdf.py + reporting/); pure-Python, no native deps
 trafilatura         # extract clean article main-text + date from news pages (AI news reports)
 
+# --- AI-augmented research (Topic 8 expansion; ad-hoc scripts only, not in fetch runs) ---
+anthropic           # Claude API client (scripts/test_guidance_extraction.py)
+
 # --- Config ---
 python-dotenv       # load API keys from .env
 truststore          # trust the OS cert store (corporate TLS interception) — see core/net.py
