@@ -424,6 +424,12 @@ def compute(
     m["interest_coverage"] = interest_coverage(ebit, P.ttm(fin, "interest_expense"))
     m["debt_to_ebitda"] = debt_to_ebitda(total_debt, ebitda)
     m["altman_z"] = _altman_z(fin, ebit, rev, mktcap, total_assets, total_liab) if currency_ok else float("nan")
+    # No currency_ok gate here (unlike altman_z): every Beneish input is a
+    # statement-internal line item (revenue, receivables, assets, debt, cash
+    # flow) — none of the 8 ratios mix a USD price/market-cap figure with
+    # foreign-currency financials, so a financialCurrency/price-currency
+    # mismatch (common for ADRs) doesn't actually invalidate it.
+    m["beneish_m_score"] = _beneish_m_score(fin)
 
     # -- growth ------------------------------------------------------------- #
     eps_a = split_adjust(P.annual(fin, "diluted_eps"), splits)
@@ -479,6 +485,86 @@ def _altman_z(fin, ebit, rev, mktcap, total_assets, total_liab) -> float:
     if any(pd.isna(v) for v in (a, b, c, d, e)):
         return float("nan")
     return 1.2 * a + 1.4 * b + 3.3 * c + 0.6 * d + 1.0 * e
+
+
+def _beneish_pair(fin, field: str) -> tuple[float, float]:
+    """(latest annual value, prior annual value) for `field` — Beneish's 8 ratios
+    are all a most-recent-fiscal-year-vs-the-one-before-it comparison. NaN pair
+    when fewer than 2 annual periods are on file."""
+    s = P.annual(fin, field)
+    if len(s) < 2:
+        return float("nan"), float("nan")
+    return float(s.iloc[-1]), float(s.iloc[-2])
+
+
+def _ratio_index(numer_ratio: float, denom_ratio: float, eps: float = 1e-4) -> float:
+    """numer_ratio / denom_ratio for one of Beneish's 6 ratio-of-ratios terms
+    (DSRI/GMI/AQI/DEPI/SGAI/LVGI). NaN when the base ratio is too close to zero
+    to divide reliably — e.g. a prior-year balance sheet that's ~100%
+    current-assets+PP&E makes AQI's denominator a floating-point-cancellation
+    artifact (~1e-16), not a real economic value, and dividing by it would blow
+    up to an absurd score for what's usually just a thin micro-cap balance sheet.
+    """
+    if pd.isna(denom_ratio) or abs(denom_ratio) < eps:
+        return float("nan")
+    return _div(numer_ratio, denom_ratio)
+
+
+def _beneish_m_score(fin) -> float:
+    """Beneish M-Score: likelihood of earnings manipulation from 8 weighted
+    year-over-year ratios (Beneish 1999). An ABSOLUTE threshold, not
+    industry-relative (same shape as altman_z): above -1.78 flags a likely
+    manipulator. NaN unless both fiscal years report every required line —
+    `_div`/`_ratio_index` propagate NaN/zero-denominator through every ratio
+    below, so no separate missing-data guard is needed. "Securities"
+    (long-term investments, AQI's least-universally-reported line) defaults to
+    0 when absent, since that most often means genuinely none rather than
+    unreported.
+    """
+    pair = _beneish_pair
+    rev_t, rev_p = pair(fin, "total_revenue")
+    recv_t, recv_p = pair(fin, "receivables")
+    gp_t, gp_p = pair(fin, "gross_profit")
+    ca_t, ca_p = pair(fin, "current_assets")
+    ta_t, ta_p = pair(fin, "total_assets")
+    ppe_t, ppe_p = pair(fin, "net_ppe")
+    if pd.isna(ppe_t) or pd.isna(ppe_p):
+        gppe_t, gppe_p = pair(fin, "gross_ppe")
+        ppe_t = gppe_t if pd.isna(ppe_t) else ppe_t
+        ppe_p = gppe_p if pd.isna(ppe_p) else ppe_p
+    sec_t, sec_p = pair(fin, "investments_and_advances")
+    sec_t = 0.0 if pd.isna(sec_t) else sec_t
+    sec_p = 0.0 if pd.isna(sec_p) else sec_p
+    da_t, da_p = pair(fin, "depreciation_and_amortization")
+    sga_t, sga_p = pair(fin, "selling_general_and_administration")
+    debt_t, debt_p = pair(fin, "total_debt")
+    ni_t, _ = pair(fin, "net_income_from_continuing_operations")
+    if pd.isna(ni_t):
+        ni_t, _ = pair(fin, "net_income")
+    ocf_t, _ = pair(fin, "operating_cash_flow")
+
+    dsri = _ratio_index(_div(recv_t, rev_t), _div(recv_p, rev_p))
+    gmi = _ratio_index(_div(gp_p, rev_p), _div(gp_t, rev_t))
+    aqi = _ratio_index(1 - _div(ca_t + ppe_t + sec_t, ta_t), 1 - _div(ca_p + ppe_p + sec_p, ta_p))
+    sgi = _div(rev_t, rev_p)
+    depi = _ratio_index(_div(da_p, da_p + ppe_p), _div(da_t, da_t + ppe_t))
+    sgai = _ratio_index(_div(sga_t, rev_t), _div(sga_p, rev_p))
+    lvgi = _ratio_index(_div(debt_t, ta_t), _div(debt_p, ta_p))
+    tata = _div(ni_t - ocf_t, ta_t)
+
+    score = (-4.84 + 0.92 * dsri + 0.528 * gmi + 0.404 * aqi + 0.892 * sgi
+             + 0.115 * depi - 0.172 * sgai + 4.679 * tata - 0.327 * lvgi)
+
+    # A near-zero prior-year base (e.g. a shell/reverse-merger with ~$0 revenue
+    # the year before) isn't a numerical artifact like the _ratio_index cases
+    # above — it's a REAL number that still makes one of these 8 ratios swing
+    # to an absurd multiple, because the model assumes two economically
+    # comparable years. Bound the OUTPUT rather than each raw ratio: healthy
+    # companies cluster around -2 to -3, flagged ones rarely clear low single
+    # digits (Beneish 1999's own manipulator sample), so anything past +/-10
+    # carries no more signal than "the YoY comparison doesn't apply here" —
+    # NaN it instead of reporting a meaningless four-digit value.
+    return score if abs(score) <= 10 else float("nan")
 
 
 def _income_block(fin, paid: pd.Series | None, price, ni_ttm, fcf_ttm, as_of) -> dict:

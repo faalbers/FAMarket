@@ -74,7 +74,8 @@ DEFAULT_RULES: dict[str, dict] = {
     # margin TREND (3y pp change): widening = improving pricing power, universe-ranked
     "gross_margin_trend_3y":     {"shape": "higher_better", "anchor": "universe"},
     "operating_margin_trend_3y": {"shape": "higher_better", "anchor": "universe"},
-    # -- Balance sheet: leverage lower/peer; liquidity sweet-spots; Altman abs@3 --
+    # -- Balance sheet: leverage lower/peer; liquidity sweet-spots; Altman abs@3;
+    #    Beneish abs@-1.78 (lower = cleaner, unlike Altman's higher = safer) --
     "debt_to_equity":    {"shape": "lower_better", "anchor": "peer", "positive_only": True},
     "debt_to_ebitda":    {"shape": "lower_better", "anchor": "peer", "positive_only": True},
     "interest_coverage": {"shape": "higher_better", "anchor": "peer"},
@@ -82,6 +83,7 @@ DEFAULT_RULES: dict[str, dict] = {
     "quick_ratio":       {"shape": "sweet_spot", "anchor": "absolute", "lo": 1.0, "hi": 2.0},
     "cash_ratio":        {"shape": "sweet_spot", "anchor": "absolute", "lo": 0.2, "hi": 0.75},
     "altman_z":          {"shape": "higher_better", "anchor": "absolute", "value": 3.0},
+    "beneish_m_score":   {"shape": "lower_better", "anchor": "absolute", "value": -1.78},
     # -- Growth: rates higher-better/universe; steadiness flips --
     "revenue_cagr_1y": {"shape": "higher_better", "anchor": "universe"},
     "revenue_cagr_3y": {"shape": "higher_better", "anchor": "universe"},
@@ -152,7 +154,8 @@ RULE_CATEGORIES: dict[str, list[str]] = {
                       "net_margin", "fcf_margin", "gross_margin_trend_3y",
                       "operating_margin_trend_3y"],
     "Balance Sheet": ["debt_to_equity", "debt_to_ebitda", "interest_coverage",
-                      "current_ratio", "quick_ratio", "cash_ratio", "altman_z"],
+                      "current_ratio", "quick_ratio", "cash_ratio", "altman_z",
+                      "beneish_m_score"],
     "Growth": ["revenue_cagr_1y", "revenue_cagr_3y", "revenue_cagr_5y", "eps_cagr_1y",
                "eps_cagr_3y", "eps_cagr_5y", "fcf_cagr_3y", "book_value_cagr_3y",
                "revenue_yoy_q", "eps_yoy_q", "revenue_accel", "eps_accel",

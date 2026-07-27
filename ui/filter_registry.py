@@ -190,6 +190,7 @@ BASES: list[Base] = [
     _b("quick_ratio", "Quick ratio", "Balance Sheet", frozenset({STANDARD})),
     _b("cash_ratio", "Cash ratio", "Balance Sheet", frozenset({STANDARD})),
     _b("altman_z", "Altman Z", "Balance Sheet", frozenset({STANDARD})),
+    _b("beneish_m_score", "Beneish M", "Balance Sheet", frozenset({STANDARD})),
     # -- Growth (base + window) --------------------------------------------- #
     _b("revenue", "Revenue growth", "Growth", frozenset({STANDARD, BANK, INSURANCE, REIT}), growth=True),
     _b("eps", "EPS growth", "Growth", frozenset({STANDARD, BANK, INSURANCE}), growth=True),
@@ -333,6 +334,34 @@ def bases_by_category(selected: set[str]) -> dict[str, list[Base]]:
     """`bases_for_types` grouped into ordered categories (skips empty categories),
     each category's bases sorted alphabetically by name for the picker lists."""
     chosen = bases_for_types(selected)
+    grouped: dict[str, list[Base]] = {cat: [] for cat in CATEGORY_ORDER}
+    for b in chosen:
+        grouped.setdefault(b.category, []).append(b)
+    return {cat: sorted(items, key=lambda b: b.name.lower())
+            for cat, items in grouped.items() if items}
+
+
+def bases_for_types_any(selected: set[str]) -> list[Base]:
+    """Bases meaningful for AT LEAST ONE selected screen type (union, not the
+    strict intersection `bases_for_types` uses).
+
+    For the Output page's Add-columns picker: the "selected" types there are
+    just whatever screen_types happen to be in a loaded/custom result — not a
+    deliberate combined-screen choice the way the Filter page's Security Type
+    checklist is (ROADMAP Topic 5: "mixed types -> only shared metrics shown",
+    so a filter BLOCK never silently zeroes out a whole type it doesn't apply
+    to). A column is just NULL for rows it doesn't apply to — the normal
+    "not applicable" convention — so there's no such downside on Output.
+    """
+    if not selected:
+        return []
+    return [b for b in BASES if selected & b.applies]
+
+
+def bases_by_category_any(selected: set[str]) -> dict[str, list[Base]]:
+    """`bases_for_types_any` grouped into ordered categories (skips empty
+    categories), each category's bases sorted alphabetically by name."""
+    chosen = bases_for_types_any(selected)
     grouped: dict[str, list[Base]] = {cat: [] for cat in CATEGORY_ORDER}
     for b in chosen:
         grouped.setdefault(b.category, []).append(b)

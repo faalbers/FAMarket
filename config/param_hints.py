@@ -290,6 +290,23 @@ PARAM_HINTS: dict[str, dict] = {
         ],
         "vs_peers": "No — the zone thresholds are absolute.",
     },
+    "beneish_m_score": {
+        "name": "Beneish M",
+        "category": "Balance Sheet",
+        "unit": "",
+        "what_it_is": "Beneish M-Score: a weighted blend of 8 year-over-year ratios (receivables "
+                      "vs sales, margin change, asset quality, sales growth, depreciation rate, "
+                      "SG&A vs sales, leverage change, and accruals) estimating how likely a "
+                      "company is manipulating its earnings.",
+        "how_to_use": [
+            "Lower (more negative) is cleaner; most healthy companies sit around -2 to -3.",
+            "Above -1.78 flags a likely manipulator — Beneish's own back-tested cutoff.",
+            "Treat a flag as 'look closer', not an automatic disqualify — fast, legitimately "
+            "growing companies can drift upward too, without any actual manipulation.",
+        ],
+        "vs_peers": "No — an absolute, universal threshold; unlike most ratios here it does "
+                    "NOT need an industry comparison.",
+    },
     "cash_ratio": {
         "name": "Cash ratio",
         "category": "Balance Sheet",

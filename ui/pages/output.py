@@ -96,11 +96,16 @@ def _help(col: str) -> str | None:
 
 
 def _column_options(types: set[str], result: pd.DataFrame, current: list[str]) -> dict[str, str]:
-    """Picker options: every applicable base (growth bases expand per window),
-    in category order — plus any already-selected column (e.g. a vs-sector
-    variant the filter used) so it never silently drops out."""
+    """Picker options: every base applicable to AT LEAST ONE of the result's screen
+    types (growth bases expand per window), in category order — plus any
+    already-selected column (e.g. a vs-sector variant the filter used) so it never
+    silently drops out. Union, not the Filter page's strict intersection: a mixed
+    result (e.g. stocks + a REIT + an ETF) still offers a Standard-only metric like
+    Beneish M — it's just NULL on the rows it doesn't apply to, same as any other
+    "not applicable" value, whereas a FILTER block on that param would silently
+    zero out every non-Standard row (see `bases_for_types_any`)."""
     opts: dict[str, str] = {}
-    for cat, items in R.bases_by_category(types).items():
+    for cat, items in R.bases_by_category_any(types).items():
         for b in items:
             if b.growth:
                 for w, wlabel in R.growth_windows(b.key).items():

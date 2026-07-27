@@ -46,6 +46,12 @@ RULE_HINTS: dict[str, str] = {
                      "nothing.\n\nSo **both extremes read weak** — the band is the strong zone.",
     "altman_z": "**Higher is better**, anchored on an **absolute ~3.0**: above 3 = safe "
                 "zone, 1.8–3 = grey, below 1.8 = distress.",
+    "beneish_m_score": "**Lower is better** (the opposite direction from Altman Z), anchored "
+                       "on an **absolute -1.78**: below it = clean, above it = flagged as a "
+                       "likely earnings manipulator (Beneish's own back-tested cutoff).\n\n"
+                       "Most healthy companies sit around -2 to -3 — it isolates a small "
+                       "minority, not a universe-wide ranking. A flag means 'look closer', "
+                       "not an automatic disqualify.",
     # -- Growth (revenue_cagr_3y family) -------------------------------------
     "revenue_cagr_3y": "**Higher is better**, judged **across the whole universe** (not "
                        "peers) — show me the fastest growers, period. Shrinking (negative) "
