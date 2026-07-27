@@ -72,8 +72,25 @@ def _apply_rule_scores(df: pd.DataFrame, rules: dict[str, dict] | None = None) -
     df = _goodness_columns(df, rules)                       # 1. per-parameter Score
     for category, weights in settings.CATEGORY_METRIC_WEIGHTS.items():
         df[f"{category}_score"] = _category_score(df, weights, rules)  # 2. categories
-    df["overall_score"] = _overall_score(df)               # 3. overall
+    df["orphan_score"] = _orphan_score(df)                  # 3. orphan (growth-derived)
+    df["overall_score"] = _overall_score(df)               # 4. overall
     return df
+
+
+def _orphan_score(df: pd.DataFrame) -> pd.Series:
+    """Neglected-firm candidates: growth_score carried through only for
+    stocks that are BOTH under-covered (NaN analyst_count, or below their own
+    screen_type's median) AND clear the solvency floor (current_ratio) — else NaN.
+
+    Restricted to settings.ORPHAN_ELIGIBLE_SCREEN_TYPES: the coverage/growth
+    concept doesn't apply to funds, and current_ratio is unreliable for
+    banks/insurers, so neither group can be judged here.
+    """
+    eligible = df["screen_type"].isin(settings.ORPHAN_ELIGIBLE_SCREEN_TYPES)
+    coverage_median = df.groupby("screen_type")["analyst_count"].transform("median")
+    low_coverage = df["analyst_count"].isna() | (df["analyst_count"] < coverage_median)
+    solvent = df["current_ratio"] >= settings.ORPHAN_CURRENT_RATIO_FLOOR
+    return df["growth_score"].where(eligible & low_coverage & solvent)
 
 
 def _scorable_columns(df: pd.DataFrame, rules: dict[str, dict]) -> list[str]:

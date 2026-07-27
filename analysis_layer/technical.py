@@ -33,8 +33,12 @@ _TREND_MIN = 60      # too little history to call a trend
 _SQUEEZE_LOOKBACK = 126  # ~6 months to judge "unusually narrow" bands
 
 
-def compute(symbol: str, ohlcv: pd.DataFrame) -> dict:
-    """All technical indicators for one symbol. Empty dict if no price history."""
+def compute(symbol: str, ohlcv: pd.DataFrame, first_date: pd.Timestamp | None = None) -> dict:
+    """All technical indicators for one symbol. Empty dict if no price history.
+
+    `first_date` is the symbol's earliest OHLCV date (full history, independent of
+    the analysis lookback window) — the sole input `history_years` needs.
+    """
     if ohlcv is None or ohlcv.empty:
         return {}
     # The pipeline hands over pre-sorted groups; only sort when that's not true.
@@ -54,7 +58,18 @@ def compute(symbol: str, ohlcv: pd.DataFrame) -> dict:
     out["atr_pct"] = _atr_pct(df, price)
     out.update(_week52(close, price))
     out["trend"] = _trend(close)
+    out["history_years"] = _history_years(df, first_date)
     return out
+
+
+def _history_years(df: pd.DataFrame, first_date: pd.Timestamp | None) -> float:
+    """Years of price history available (fractional), from the earliest stored
+    OHLCV date to the last bar in this window. NaN when the earliest date is
+    unknown (e.g. no OHLCV rows at all for the symbol)."""
+    if first_date is None or pd.isna(first_date):
+        return float("nan")
+    last = df["date"].iloc[-1]
+    return round((last - first_date).days / 365.25, 2)
 
 
 # --------------------------------------------------------------------------- #

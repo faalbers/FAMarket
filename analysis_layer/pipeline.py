@@ -118,11 +118,14 @@ def _load_ohlcv(subset: list[str] | None = None) -> dict[str, pd.DataFrame]:
     The full table (~70M rows at a 50k universe) balloons past physical RAM in
     pandas, but no indicator needs more than ~253 trading days — so only the
     trailing ANALYSIS_OHLCV_LOOKBACK_DAYS of bars are read. The two deep-history
-    consumers — dividends (div_growth_5y, streaks) and splits (EPS adjustment) —
+    consumers — dividends (div_cagr_1y/3y/5y, streaks) and splits (EPS adjustment) —
     are event rows (a handful per symbol-year), read separately with NO floor.
+    `ohlcv_first_date` (one row per symbol, MIN(date)) is a third deep-history
+    side read — cheap aggregate, no bar data — feeding `history_years`.
     `date` is parsed to datetime64 once here, not per symbol in the loop.
     """
-    empty = {"ohlcv": pd.DataFrame(), "dividends": pd.DataFrame(), "splits": pd.DataFrame()}
+    empty = {"ohlcv": pd.DataFrame(), "dividends": pd.DataFrame(), "splits": pd.DataFrame(),
+             "ohlcv_first_date": pd.DataFrame()}
     with Database(settings.OHLCV_DB) as db:
         if db.is_empty("ohlcv"):
             return empty
@@ -150,9 +153,15 @@ def _load_ohlcv(subset: list[str] | None = None) -> dict[str, pd.DataFrame]:
                                   f"WHERE splits != 0 AND splits != 1{sub_sql} "
                                   "ORDER BY symbol, date", sub_params)
                          if "splits" in have else pd.DataFrame())
-    for df in out.values():
-        if not df.empty:
-            df["date"] = pd.to_datetime(df["date"])
+        first_where = f" WHERE {sub_clause}" if sub_clause else ""
+        out["ohlcv_first_date"] = db.query(
+            f"SELECT symbol, MIN(date) AS first_date FROM ohlcv{first_where} "
+            "GROUP BY symbol", sub_params)
+    for key, df in out.items():
+        if df.empty:
+            continue
+        date_col = "first_date" if key == "ohlcv_first_date" else "date"
+        df[date_col] = pd.to_datetime(df[date_col])
     return out
 
 
@@ -214,6 +223,8 @@ def run_analysis(subset: list[str] | None = None) -> dict:
     del ohlcv  # the groups copy the data; don't hold a second full frame alive
     div_by = _events_by_symbol(data.pop("dividends"), "dividends")
     split_by = _events_by_symbol(data.pop("splits"), "splits")
+    fd = data.pop("ohlcv_first_date")
+    first_date_by = (dict(zip(fd["symbol"], fd["first_date"])) if not fd.empty else {})
     # Prepare each symbol's period frames ONCE (freq split + date index + sort);
     # the ~50 _periods calls per symbol then reduce to column lookups. Doing it
     # here moves ~2/3 of the old loop cost into one upfront pass.
@@ -250,7 +261,7 @@ def run_analysis(subset: list[str] | None = None) -> dict:
                             dividends=div_by.get(sym), splits=split_by.get(sym),
                             as_of=(osym["date"].iloc[-1] if len(osym) else None),
                             reconcile=reconcile)
-        t = technical.compute(sym, osym)
+        t = technical.compute(sym, osym, first_date=first_date_by.get(sym))
         iv = intrinsic_value.compute(sym, fsym, quote, price, m, risk_free)
         est_m = estimates_metrics.compute(sym, est_by.get(sym), forward_pe=m.get("forward_pe"))
         sig_m = signals_metrics.compute(sym, surp_by.get(sym), own_by.get(sym), asof=signals_asof)
