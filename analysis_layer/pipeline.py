@@ -256,27 +256,31 @@ def run_analysis(subset: list[str] | None = None) -> dict:
         osym = ohlcv_by.get(sym, empty_ohlcv)
         price = float(osym["adj_close"].iloc[-1]) if len(osym) else float("nan")
         quote = quotes.loc[sym] if sym in quotes.index else None
+        # Computed up front (not after metrics.compute) so metrics.py can gate
+        # concept-Standard-only metrics (e.g. quick_health_score) on it directly.
+        sec = quote.get("sector") if quote is not None else None
+        ind = quote.get("industry") if quote is not None else None
+        sec_type = getattr(rec, "security_type", None)
+        screen_type = classify_screen_type(sec_type, sec, ind)
 
         m = metrics.compute(sym, fsym, quote, price,
                             dividends=div_by.get(sym), splits=split_by.get(sym),
                             as_of=(osym["date"].iloc[-1] if len(osym) else None),
+                            screen_type=screen_type,
                             reconcile=reconcile)
         t = technical.compute(sym, osym, first_date=first_date_by.get(sym))
         iv = intrinsic_value.compute(sym, fsym, quote, price, m, risk_free)
         est_m = estimates_metrics.compute(sym, est_by.get(sym), forward_pe=m.get("forward_pe"))
         sig_m = signals_metrics.compute(sym, surp_by.get(sym), own_by.get(sym), asof=signals_asof)
-        sec = quote.get("sector") if quote is not None else None
-        ind = quote.get("industry") if quote is not None else None
         # Fund provider/sponsor — funds only (NULL for stocks). Filtered as a
         # classification value on the Filter page; lives only in quotes.db, so it
         # must be copied into the analysis row to be screenable (no cross-DB joins).
         fund_family = quote.get("fund_family") if quote is not None else None
-        sec_type = getattr(rec, "security_type", None)
         rows.append({
             "symbol": sym,
             "name": getattr(rec, "name", None),
             "security_type": sec_type,
-            "screen_type": classify_screen_type(sec_type, sec, ind),
+            "screen_type": screen_type,
             "sector": sec,
             "industry": ind,
             "fund_family": fund_family,

@@ -114,7 +114,16 @@ def _goodness_columns(df: pd.DataFrame, rules: dict[str, dict]) -> pd.DataFrame:
     All twins are built against the original frame (goodness never depends on
     another goodness column) and joined in ONE concat — assigning ~76 columns
     individually fragments the DataFrame.
+
+    Drops any `_goodness` columns already on `df` first: on a SUBSET run, `df`
+    is `kept_rows_from_storage + fresh_rows` (`pipeline._merge_existing`), and
+    the kept rows already carry `_goodness` columns from the last time this ran
+    — concatenating a fresh twin on top without dropping the old one first would
+    produce two columns with the same name (`df[gcol]` then returns a DataFrame,
+    not a Series, breaking every downstream `_category_score` call). Same
+    stale-column guard `refresh_scores()` already applies.
     """
+    df = df.drop(columns=[c for c in df.columns if c.endswith("_goodness")], errors="ignore")
     cols = _scorable_columns(df, rules)
     if not cols:
         return df
