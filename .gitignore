@@ -25,7 +25,8 @@ logs/*.log
 logs/*.log.*
 
 # --- User-saved collections (keep the folders, ignore contents) ---
-filters/*.filt
+# .filt filter sets ARE tracked (2026-07-28): briefs + .filt + report live in
+# filters/ under revision as one provenance chain.
 selections/*.syms
 selections/*.prms
 

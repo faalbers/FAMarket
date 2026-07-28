@@ -1,0 +1,147 @@
+{
+  "version": 1,
+  "saved_at": "2026-07-28T16:36:17+00:00",
+  "selected_types": [
+    "reit"
+  ],
+  "comment": "**What it does**\nFinds **solid income REITs** - a fat but sustainable payout.\n- **Pays well** - yield 4-10% (REITs are legally high payers; above ~10% smells\n  like trouble, so capped).\n- **Still growing** - revenue not shrinking (history or forecast).\n- **Debt in check** - leverage within REIT norms, interest comfortably paid;\n  a REIT is never dropped just for missing debt data.\n- **Reliable** - held or raised the dividend in at least 8 of 10 years.\n$1B and bigger, calm-ish movers only.\n\n**How to tweak**\n- More names? Yield floor 3.5, `div_consistency` 70.\n- Safer? `debt_to_ebitda` <= 6 and `interest_coverage` >= 2.5.\n- Bigger only? Raise `market_cap` to $3B.\n\n**How to sort for best picks**\n- **Sort by `income_score`**, tiebreak `quality_score`.\n- **Avoid** `value_score` alone - the cheapest REITs are often cheap for a\n  reason (dying malls, offices); income + quality is the safer lens.",
+  "ai_instructions": "Find solid income REITs \u2014 real-estate trusts with a fat but sustainable payout.\nThis fills the type my other screens exclude.\n- **Goal**: income. **Kinds**: REITs only. **Dividends**: required.\n- **Yield**: roughly 4-10% (REITs are legally high payers; above ~10% smells like\n  trouble).\n- **Still growing**: revenue should not be shrinking.\n- **Debt in check**: leverage within normal REIT norms, interest comfortably paid;\n  never drop a REIT just because a debt metric has no data.\n- **Size**: $1B and bigger. **Risk**: moderate. **Results**: ~30-150 names.\n- **Sorting**: income first, tiebreak quality.",
+  "blocks": [
+    {
+      "enabled": true,
+      "param": "market_cap",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 1000000000,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "div_yield_ttm",
+      "window": null,
+      "compare": "value",
+      "op": "between",
+      "vmode": "V",
+      "value": 4,
+      "vmode2": "V",
+      "value2": 10,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "revenue",
+      "window": "cagr_3y",
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "forward_rev_growth",
+          "window": null,
+          "compare": "value",
+          "op": ">=",
+          "vmode": "V",
+          "value": 0,
+          "vmode2": "V",
+          "value2": "",
+          "or_children": []
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "param": "debt_to_ebitda",
+      "window": null,
+      "compare": "value",
+      "op": "<=",
+      "vmode": "V",
+      "value": 7,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "debt_to_ebitda",
+          "window": null,
+          "compare": "value",
+          "op": "is null",
+          "vmode": "V",
+          "value": "",
+          "vmode2": "V",
+          "value2": "",
+          "or_children": []
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "param": "interest_coverage",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 1.8,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "interest_coverage",
+          "window": null,
+          "compare": "value",
+          "op": "is null",
+          "vmode": "V",
+          "value": "",
+          "vmode2": "V",
+          "value2": "",
+          "or_children": []
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "param": "div_consistency",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 80,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "atr_pct",
+      "window": null,
+      "compare": "value",
+      "op": "<=",
+      "vmode": "V",
+      "value": 5.5,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "atr_pct",
+          "window": null,
+          "compare": "value",
+          "op": "is null",
+          "vmode": "V",
+          "value": "",
+          "vmode2": "V",
+          "value2": "",
+          "or_children": []
+        }
+      ]
+    }
+  ]
+}

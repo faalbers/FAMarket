@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "saved_at": "2026-07-28T16:36:18+00:00",
+  "selected_types": [
+    "standard",
+    "bank",
+    "insurance",
+    "reit"
+  ],
+  "comment": "**What it does**\nFinds stocks where **analysts keep raising their numbers** - the\nearnings-momentum screen (the engine behind the Zacks Rank).\n- **Upgrades in progress** - consensus EPS raised over BOTH the last month and\n  the last 3 months, with at least 2 more analysts raising than cutting.\n- **A habit of beating** - beat estimates in at least 3 of the last 4\n  quarters, positive average surprise.\n- **Confirmed** - above the 200-day line. 5+ analysts. $500M+.\nIncludes banks, insurance and REITs.\n\n**How to tweak**\n- More names? Drop the 3-month revision block or `earnings_beat_rate` to 50.\n- Stricter? `earnings_beat_rate` to 100 (beat all 4 of the last 4 quarters).\n\n**How to sort for best picks**\n- **Sort by `momentum_score`**, tiebreak the raw `eps_revision_1m` column\n  (the freshest upgrade energy).\n- **Avoid** `value_score` - upgrade cycles and cheapness rarely coexist;\n  sorting by value fights the thesis.",
+  "ai_instructions": "Find stocks where the analysts keep raising their numbers \u2014 the earnings-momentum\nscreen (revisions plus a habit of beating estimates).\n- **Goal**: earnings momentum. **Dividends**: ignore.\n- **Upgrades in progress**: consensus EPS estimate raised over BOTH the last month\n  and the last 3 months, with more analysts raising than cutting.\n- **A habit of beating**: beat estimates in at least 3 of the last 4 quarters,\n  positive average surprise.\n- **Trustworthy**: at least 3 analysts. **Confirmation**: above the 200-day line.\n- **Size**: $500M and bigger. **Kinds**: normal stocks, banks, insurance and REITs.\n- **Risk**: moderate. **Results**: ~30-200 names.\n- **Sorting**: momentum first, tiebreak the 1-month EPS revision itself.",
+  "blocks": [
+    {
+      "enabled": true,
+      "param": "market_cap",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 500000000,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "eps_revision_1m",
+      "window": null,
+      "compare": "value",
+      "op": ">",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "eps_revision_3m",
+      "window": null,
+      "compare": "value",
+      "op": ">",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "eps_revision_breadth",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 2,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "analyst_count",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 5,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "earnings_beat_rate",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 75,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "earnings_surprise_avg",
+      "window": null,
+      "compare": "value",
+      "op": ">",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "price_vs_ma_200",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    }
+  ]
+}

@@ -1,0 +1,183 @@
+{
+  "version": 1,
+  "saved_at": "2026-07-28T16:36:18+00:00",
+  "selected_types": [
+    "standard"
+  ],
+  "comment": "**What it does**\nFinds **\"sleep well\" stocks** in the Graham defensive spirit - big, calm,\nfinancially bulletproof dividend payers. Boring on purpose.\n- **Big & calm** - $10B+, the least jumpy names in the market (ATR <= 3%).\n- **Pays reliably** - 2%+ yield, 10+ year raise streak (or a near-spotless record).\n- **Bulletproof** - safe Altman zone, liquidity floor, debt at most 1.5x\n  equity, passing the yearly health checklist. Profitable only.\n  (The brief said debt BELOW equity - that left only 8 names, because\n  staples/utility megacaps carry structural debt. Tighten `debt_to_equity`\n  back to 1 if you prefer fewer, purer names.)\n- **Sane price** - P/E capped at 28 (no bubble entries).\n\n**How to tweak**\n- More names? ATR to 3.5, P/E to 30, streak to 5.\n- Stricter? `debt_to_equity` to 1, ATR to 2.5, `current_ratio` to 1.1.\n\n**How to sort for best picks**\n- **Sort by `quality_score`**, tiebreak `income_score`.\n- **Avoid** `momentum_score` and `growth_score` - this screen exists for\n  crash protection, not for chasing what's hot.",
+  "ai_instructions": "Find \"sleep well\" stocks in the Graham defensive spirit \u2014 big, calm, financially\nbulletproof dividend payers that hold up in a crash. Boring on purpose.\n- **Goal**: safety with income. **Dividends**: required, never-cut history preferred\n  (10+ year streak or a spotless consistency record).\n- **Size**: large caps, $10B and bigger. **Kinds**: normal stocks only.\n- **Calm**: low volatility \u2014 this should be my least jumpy screen.\n- **Bulletproof**: strong balance sheet (safe Altman zone, solid liquidity, debt\n  below equity). Profitable only. Valuation sane (no bubble P/E).\n- **Results**: a shortlist, ~20-100 names.\n- **Sorting**: quality first, tiebreak income.",
+  "blocks": [
+    {
+      "enabled": true,
+      "param": "market_cap",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 10000000000,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "atr_pct",
+      "window": null,
+      "compare": "value",
+      "op": "<=",
+      "vmode": "V",
+      "value": 3,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "div_yield_ttm",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 2,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "div_consecutive_years",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 10,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "div_consistency",
+          "window": null,
+          "compare": "value",
+          "op": ">=",
+          "vmode": "V",
+          "value": 95,
+          "vmode2": "V",
+          "value2": "",
+          "or_children": []
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "param": "eps_ttm",
+      "window": null,
+      "compare": "value",
+      "op": ">",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "altman_z",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 3,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "altman_z",
+          "window": null,
+          "compare": "value",
+          "op": "is null",
+          "vmode": "V",
+          "value": "",
+          "vmode2": "V",
+          "value2": "",
+          "or_children": []
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "param": "current_ratio",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 0.8,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "debt_to_equity",
+      "window": null,
+      "compare": "value",
+      "op": "<=",
+      "vmode": "V",
+      "value": 1.5,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "debt_to_equity",
+          "window": null,
+          "compare": "value",
+          "op": "is null",
+          "vmode": "V",
+          "value": "",
+          "vmode2": "V",
+          "value2": "",
+          "or_children": []
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "param": "pe",
+      "window": null,
+      "compare": "value",
+      "op": "<=",
+      "vmode": "V",
+      "value": 28,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "quick_health_score",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 4,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "quick_health_score",
+          "window": null,
+          "compare": "value",
+          "op": "is null",
+          "vmode": "V",
+          "value": "",
+          "vmode2": "V",
+          "value2": "",
+          "or_children": []
+        }
+      ]
+    }
+  ]
+}
