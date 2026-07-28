@@ -34,6 +34,7 @@ import pandas as pd
 
 from config import settings
 from analysis_layer import _periods as P
+from analysis_layer.screen_type import STANDARD
 
 # ---- field kinds for _periods.current() ---------------------------------- #
 # Flows (income statement / cash flow) get a TTM sum; stocks (balance sheet) take
@@ -115,6 +116,19 @@ def roa(ni: float, total_assets: float) -> float:
     return _pct(_div(ni, total_assets))
 
 
+def asset_turnover(rev: float, total_assets: float) -> float:
+    return _div(rev, total_assets)
+
+
+def equity_multiplier(total_assets: float, equity: float) -> float:
+    return _div(total_assets, equity)
+
+
+def roe_roa_gap(ni: float, equity: float, total_assets: float) -> float:
+    """ROE - ROA, in percentage points — how much of ROE is leverage, not margin/turnover."""
+    return roe(ni, equity) - roa(ni, total_assets)
+
+
 def debt_to_equity(total_debt: float, equity: float) -> float:
     return _div(total_debt, equity)
 
@@ -143,6 +157,9 @@ RATIO_PERIOD_METRICS: dict[str, tuple] = {
     "fcf_margin": (fcf_margin, ("free_cash_flow", "total_revenue"), "%"),
     "roe": (roe, ("net_income", "stockholders_equity"), "%"),
     "roa": (roa, ("net_income", "total_assets"), "%"),
+    "asset_turnover": (asset_turnover, ("total_revenue", "total_assets"), "x"),
+    "equity_multiplier": (equity_multiplier, ("total_assets", "stockholders_equity"), "x"),
+    "roe_roa_gap": (roe_roa_gap, ("net_income", "stockholders_equity", "total_assets"), "%"),
     "debt_to_equity": (debt_to_equity, ("total_debt", "stockholders_equity"), "x"),
     "debt_to_ebitda": (debt_to_ebitda, ("total_debt", "ebitda"), "x"),
     "current_ratio": (current_ratio, ("current_assets", "current_liabilities"), "x"),
@@ -322,6 +339,7 @@ def compute(
     dividends: pd.Series | None = None,
     splits: pd.Series | None = None,
     as_of: pd.Timestamp | None = None,
+    screen_type: str | None = None,
     reconcile: list | None = None,
 ) -> dict:
     """All fundamental metrics for one symbol (raw numbers, percents as percents).
@@ -332,6 +350,10 @@ def compute(
     the pipeline reads them without the OHLCV date floor, so dividend streaks and
     EPS split-adjustment keep their whole span. `as_of` is the symbol's last bar
     date (anchors the dividend TTM window; None = no price history at all).
+    `screen_type` (analysis_layer.screen_type.classify's label) gates the metrics
+    that are conceptually STANDARD-only regardless of what data happens to be on
+    file — e.g. quick_health_score, since a REIT/bank/BDC's cost-of-revenue line
+    (if it even reports one) doesn't mean the same thing as a producing company's.
     Missing inputs yield NaN (= "not applicable"), so funds/ETFs with no financials
     fall through harmlessly. Divergences vs yfinance are appended to `reconcile`.
     """
@@ -391,6 +413,12 @@ def compute(
     # -- profitability (currency-neutral) ----------------------------------- #
     m["roe"] = roe(ni, equity)
     m["roa"] = roa(ni, total_assets)
+    # DuPont decomposition pieces: net_margin x asset_turnover x equity_multiplier
+    # = ROE. roe_roa_gap (signed percentage points) isolates how much of ROE is
+    # leverage vs margin/turnover.
+    m["asset_turnover"] = asset_turnover(rev, total_assets)
+    m["equity_multiplier"] = equity_multiplier(total_assets, equity)
+    m["roe_roa_gap"] = m["roe"] - m["roa"]
     tax_rate = _div(P.ttm(fin, "tax_provision"), P.ttm(fin, "pretax_income"))
     if pd.notna(tax_rate):
         tax_rate = min(max(tax_rate, 0.0), 1.0)
@@ -430,6 +458,13 @@ def compute(
     # foreign-currency financials, so a financialCurrency/price-currency
     # mismatch (common for ADRs) doesn't actually invalidate it.
     m["beneish_m_score"] = _beneish_m_score(fin)
+    # Standard-only by CONCEPT, not just by missing data: a REIT can report a
+    # cost-of-revenue/gross-profit line and still not mean the same thing by it
+    # (property operating expense vs COGS) — this checklist is written for
+    # ordinary producing companies, so gate on screen_type directly rather than
+    # relying only on which fields happen to be populated.
+    m["quick_health_score"] = (_quick_health_score(fin, m["cash_ratio"])
+                                if screen_type == STANDARD else float("nan"))
 
     # -- growth ------------------------------------------------------------- #
     eps_a = split_adjust(P.annual(fin, "diluted_eps"), splits)
@@ -565,6 +600,50 @@ def _beneish_m_score(fin) -> float:
     # carries no more signal than "the YoY comparison doesn't apply here" —
     # NaN it instead of reporting a meaningless four-digit value.
     return score if abs(score) <= 10 else float("nan")
+
+
+def _quick_health_score(fin, cash_ratio: float) -> float:
+    """Quick health checklist (FAMarket_Epansion.md Topic 2): a fast, COUNT-based
+    pass/fail gate (0-7) meant to run BEFORE deeper ratio/valuation work — not a
+    weighted/anchored score like Beneish or Altman. Every check is a YoY
+    direction-of-travel comparison (this year vs last), never a peer comparison:
+      1. revenue growing
+      2. cost of revenue NOT outgrowing revenue (margin not eroding)
+      3. gross profit growing (tracking sales)
+      4. assets > liabilities
+      5. liabilities NOT outgrowing assets
+      6. a comfortable cash cushion (cash ratio >= 0.2, the scoring-rule floor
+         also used for `cash_ratio`'s own sweet-spot band)
+      7. operating cash flow trending up
+    A missing input counts as a FAIL for that one check (conservative — absence
+    of proof isn't proof of health) — EXCEPT cost_of_revenue/gross_profit: banks
+    and BDCs don't report a COGS/gross-margin line at all (there's no "cost of
+    revenue" for a bank), so a company missing BOTH isn't failing checks 2/3, the
+    checklist's traditional-operating-company shape just doesn't apply to it —
+    same as checks 1-7 needing 2 annual periods on file in the first place.
+    """
+    pair = _beneish_pair
+    rev_t, rev_p = pair(fin, "total_revenue")
+    if pd.isna(rev_t) or pd.isna(rev_p):
+        return float("nan")
+    cogs_t, cogs_p = pair(fin, "cost_of_revenue")
+    gp_t, gp_p = pair(fin, "gross_profit")
+    if pd.isna(cogs_t) and pd.isna(gp_t):
+        return float("nan")
+    ta_t, ta_p = pair(fin, "total_assets")
+    tl_t, tl_p = pair(fin, "total_liabilities_net_minority_interest")
+    ocf_t, ocf_p = pair(fin, "operating_cash_flow")
+
+    checks = (
+        rev_t > rev_p,
+        _div(cogs_t, cogs_p) <= _div(rev_t, rev_p),
+        gp_t > gp_p,
+        pd.notna(ta_t) and pd.notna(tl_t) and ta_t > tl_t,
+        _div(tl_t, tl_p) <= _div(ta_t, ta_p),
+        pd.notna(cash_ratio) and cash_ratio >= 0.2,
+        ocf_t > ocf_p,
+    )
+    return float(sum(bool(c) for c in checks))
 
 
 def _income_block(fin, paid: pd.Series | None, price, ni_ttm, fcf_ttm, as_of) -> dict:

@@ -20,7 +20,7 @@ complete — `_periods`, `metrics`, `technical`, `intrinsic_value`, `estimates`
 (forward analyst metrics from the `estimates` table in `signals.db`), `_stats`,
 `peers`, `scoring` (category scores + Overall, percentile-rank) and universe-wide
 `rs_rank` all work; `pipeline.run_analysis()` assembles and writes `analysis.db`
-(226 cols — includes a sector/industry-derived `screen_type` column via
+(229 cols — includes a sector/industry-derived `screen_type` column via
 `analysis_layer/screen_type.py`, and a persisted `rs_raw` input column for
 subset-run re-ranking) and is wired into the orchestrator as Group 3
 after each fetch. On **full runs only** it also builds daily base-100 **sector &
@@ -231,7 +231,7 @@ Three intentionally decoupled layers plus shared infrastructure:
   reads hints ONLY from here (Filter picker ▸ info, Output column headers, the radar's
   category info row, etc.) — never hardcode a description in a page. Category scores
   (`*_score`) are registry keys too (`category: "Score"`). To verify nothing slipped:
-  cross-check `R.BASE_BY_KEY` against `PARAM_HINTS` (currently 78/78, 0 missing).
+  cross-check `R.BASE_BY_KEY` against `PARAM_HINTS` (currently 98/98, 0 missing).
 - **No explainer text in the UI** — don't add `st.caption`/`st.markdown` blurbs that
   describe what a control does or how to use it (they clutter the UI, 2026-06-21). The
   sanctioned hint mechanism is `config/param_hints.py` hint boxes + widget `help=`

@@ -82,6 +82,8 @@ _LEGEND_EVENTS = {
 _RATIO_LABELS = {
     "gross_margin": "Gross margin", "operating_margin": "Operating margin",
     "net_margin": "Net margin", "fcf_margin": "FCF margin", "roe": "ROE", "roa": "ROA",
+    "asset_turnover": "Asset turnover", "equity_multiplier": "Equity multiplier",
+    "roe_roa_gap": "ROE-ROA gap",
     "debt_to_equity": "Debt / equity", "debt_to_ebitda": "Debt / EBITDA",
     "current_ratio": "Current ratio", "interest_coverage": "Interest coverage",
 }

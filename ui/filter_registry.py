@@ -175,6 +175,9 @@ BASES: list[Base] = [
     # -- Profitability ------------------------------------------------------ #
     _b("roe", "ROE", "Profitability", frozenset({STANDARD, BANK, INSURANCE})),
     _b("roa", "ROA", "Profitability", frozenset({STANDARD, BANK, INSURANCE})),
+    _b("roe_roa_gap", "ROE-ROA gap", "Profitability", frozenset({STANDARD, BANK, INSURANCE})),
+    _b("asset_turnover", "Asset turnover", "Profitability", frozenset({STANDARD, BANK, INSURANCE})),
+    _b("equity_multiplier", "Equity multiplier", "Profitability", frozenset({STANDARD, BANK, INSURANCE})),
     _b("roic", "ROIC", "Profitability", frozenset({STANDARD})),
     _b("gross_margin", "Gross margin", "Profitability", frozenset({STANDARD})),
     _b("operating_margin", "Operating margin", "Profitability", frozenset({STANDARD})),
@@ -191,6 +194,7 @@ BASES: list[Base] = [
     _b("cash_ratio", "Cash ratio", "Balance Sheet", frozenset({STANDARD})),
     _b("altman_z", "Altman Z", "Balance Sheet", frozenset({STANDARD})),
     _b("beneish_m_score", "Beneish M", "Balance Sheet", frozenset({STANDARD})),
+    _b("quick_health_score", "Quick health", "Balance Sheet", frozenset({STANDARD})),
     # -- Growth (base + window) --------------------------------------------- #
     _b("revenue", "Revenue growth", "Growth", frozenset({STANDARD, BANK, INSURANCE, REIT}), growth=True),
     _b("eps", "EPS growth", "Growth", frozenset({STANDARD, BANK, INSURANCE}), growth=True),

@@ -265,6 +265,40 @@ PARAM_HINTS: dict[str, dict] = {
         ],
         "vs_peers": "Yes — normal ROE differs by industry; beat the median.",
     },
+    "roe_roa_gap": {
+        "name": "ROE-ROA gap",
+        "category": "Profitability",
+        "unit": "%",
+        "what_it_is": "ROE minus ROA, in percentage points — how much of ROE comes from debt financing rather than the business itself.",
+        "how_to_use": [
+            "Positive and small = ROE is mostly real (margin/efficiency), not borrowed.",
+            "Large positive = ROE is mostly leverage — check debt/equity and interest coverage before trusting the ROE number.",
+            "Negative = the company is losing money and leverage is making the loss worse (or equity is negative) — treat as a red flag on its own.",
+        ],
+        "vs_peers": "No — read the gap size/sign directly; it's already leverage-normalized.",
+    },
+    "asset_turnover": {
+        "name": "Asset turnover",
+        "category": "Profitability",
+        "unit": "x",
+        "what_it_is": "Revenue / total assets — how many dollars of sales each dollar of assets generates.",
+        "how_to_use": [
+            "Higher = assets are being used efficiently to generate sales (common in retail/services).",
+            "Naturally low for asset-heavy businesses (utilities, REITs) — compare within the industry.",
+        ],
+        "vs_peers": "Yes — asset intensity varies a lot by industry.",
+    },
+    "equity_multiplier": {
+        "name": "Equity multiplier",
+        "category": "Profitability",
+        "unit": "x",
+        "what_it_is": "Total assets / equity — how much of the balance sheet is funded by debt vs shareholders' own money (the leverage piece of ROE).",
+        "how_to_use": [
+            "1.0 = no debt at all; the higher above 1, the more assets are debt-funded.",
+            "A high value inflates ROE without improving the underlying business — pair with debt/equity and interest coverage.",
+        ],
+        "vs_peers": "Yes — normal leverage differs a lot by industry (banks run high by design).",
+    },
     "roic": {
         "name": "ROIC",
         "category": "Profitability",
@@ -361,6 +395,37 @@ PARAM_HINTS: dict[str, dict] = {
             "Falling coverage with rising rates is a squeeze in progress.",
         ],
         "vs_peers": "Somewhat — the absolute danger zone (<2) matters more than the median.",
+    },
+    "quick_health_score": {
+        "name": "Quick health",
+        "category": "Balance Sheet",
+        "unit": "",
+        "what_it_is": "A fast, count-based pass/fail gate (0-7), not a weighted/anchored score "
+                      "like Beneish or Altman. Counts how many of 7 basic year-over-year checks "
+                      "currently hold: revenue growing, cost of revenue NOT outgrowing revenue, "
+                      "gross profit growing, assets > liabilities, liabilities NOT outgrowing "
+                      "assets, a comfortable cash cushion (cash ratio >= 0.2), and operating "
+                      "cash flow trending up.",
+        "how_to_use": [
+            "Meant as a first-pass filter BEFORE deeper ratio/valuation work, not a final "
+            "verdict on the company.",
+            "Count-based, not all-or-nothing — filter e.g. >= 5 or >= 6 rather than requiring "
+            "a perfect 7; a healthy company can legitimately miss one check for a normal "
+            "reason (e.g. a thin cash cushion right after a big capex year).",
+            "A missing input counts as a FAIL for that one check (conservative), so treat a "
+            "low score as 'worth checking why', not an automatic disqualify — EXCEPT cost of "
+            "revenue/gross profit: a company reporting neither (a bank, a BDC) gets NaN for "
+            "the whole score instead, since it isn't failing those 2 checks, the checklist's "
+            "traditional-operating-company shape just doesn't apply to it.",
+            "ONLY computed for Common Stock — Standard / ADRs, NaN for every other type "
+            "(banks, insurers, REITs, funds) — same as Beneish M and Altman Z. This is a "
+            "deliberate CONCEPT gate, not just a data-availability one: a REIT's cost-of-"
+            "revenue line (property operating expense) doesn't mean the same thing as a "
+            "producing company's COGS even when it happens to be reported, so it's excluded "
+            "regardless of what data is on file.",
+        ],
+        "vs_peers": "No — every check is self-relative (this year vs last year), never "
+                    "compared to industry peers.",
     },
     "quick_ratio": {
         "name": "Quick",
