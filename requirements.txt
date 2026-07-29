@@ -23,6 +23,7 @@ pandas-market-calendars  # last completed trading session
 # The front end's own packages live in frontend/package.json (npm), not here.
 fastapi             # REST/SSE API for the React UI (api/)
 uvicorn             # ASGI server; scripts/serve_ui.py drives it programmatically
+pydantic            # request models in api/ — imported directly, not just via fastapi
 pyarrow             # parquet for saved filter runs (results/*.parquet)
 
 # --- Reports ---
@@ -35,3 +36,4 @@ anthropic           # Claude API client (scripts/test_guidance_extraction.py)
 # --- Config ---
 python-dotenv       # load API keys from .env
 truststore          # trust the OS cert store (corporate TLS interception) — see core/net.py
+certifi             # merged into the OS-store CA bundle by core/net.py — imported directly
