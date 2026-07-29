@@ -1,0 +1,16 @@
+{
+  // pandas 3.0 ships no py.typed and pandas-stubs isn't installed, so pyright
+  // infers types from pandas' own source. That inference is imprecise enough to
+  // make every DataFrame mask look like it might return an ndarray, burying real
+  // findings under hundreds of false positives. Turning off inference from
+  // untyped libraries keeps our own code fully checked; libraries that DO ship
+  // types (fastapi, pydantic) are unaffected.
+  "useLibraryCodeForTypes": false,
+
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.14",
+  "typeCheckingMode": "basic",
+
+  "exclude": ["**/node_modules", "**/__pycache__", ".venv", "frontend", "backups"]
+}

@@ -19,7 +19,11 @@ numpy
 scipy               # signal.find_peaks for trend detection; polyfit residuals
 pandas-market-calendars  # last completed trading session
 
-# --- UI ---
+# --- UI: React frontend + FastAPI backend (python scripts/serve_ui.py) ---
+fastapi             # REST/SSE API for the React UI (api/)
+uvicorn             # ASGI server; scripts/serve_ui.py drives it programmatically
+
+# --- UI: Streamlit (being replaced; retires at the end of the React migration) ---
 streamlit           # local web UI (streamlit run app.py)
 plotly              # interactive charts (normalized prices, heatmaps, radar)
 streamlit-echarts==0.4.0  # Apache ECharts price chart (pinned: 0.7.0 breaks on current Streamlit)

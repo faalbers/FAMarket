@@ -43,6 +43,11 @@ ai_news_reports/
 # --- Detached-fetch control state (machine-local; see data_layer/run_state.py) ---
 state/
 
+# --- Frontend (React UI) ---
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+
 # --- Python ---
 __pycache__/
 *.py[cod]
