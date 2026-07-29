@@ -77,7 +77,7 @@ Vite proxies `/api` to the backend, so open <http://localhost:5173>.
 ### Other entry points
 
 ```powershell
-streamlit run app.py                          # the old Streamlit UI (being retired)
+.\run_app.bat                                 # same as serve_ui.py, double-clickable
 python -m scripts.discover_symbols --edgar    # symbol discovery, no key needed
 python -m scripts.discover_symbols --show     # summarise symbols.db
 ```
