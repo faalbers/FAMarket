@@ -78,12 +78,13 @@ def new_block() -> dict:
 def resolve_column(param: str, window: str | None, compare: str) -> str:
     """(base, growth-window, compare) -> concrete analysis.db column name.
 
-    compare: "value" (raw), "vs_sector"/"vs_industry" (peer-relative), or "score"
-    (the per-metric 0-100 goodness column the analysis layer stores).
+    compare: "value" (raw), "vs_sector"/"vs_industry" (peer-relative),
+    "vs_type" (screen_type-relative, category scores only), or "score" (the
+    per-metric 0-100 goodness column the analysis layer stores).
     """
     base = R.BASE_BY_KEY.get(param)
     col = f"{param}_{window}" if (base and base.growth and window) else param
-    if compare in ("vs_sector", "vs_industry"):
+    if compare in ("vs_sector", "vs_industry", "vs_type"):
         return f"{col}_{compare}"
     if compare == "score":
         return f"{col}_goodness"

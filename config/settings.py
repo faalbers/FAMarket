@@ -295,6 +295,14 @@ PEER_COMPARABLE_METRICS: tuple[str, ...] = (
 )
 MIN_PEERS_FOR_MEDIAN: int = 3       # below this a sector/industry median is too noisy
 MIN_PEERS_FOR_PERCENTILE: int = 5   # below this fall back to the universe for scoring
+
+# Category/overall scores that get a _vs_type column (% above/below their own
+# screen_type's median) — the coarser, structurally-correct peer group for a
+# score that's already sector/industry-relative by construction (Topic 4.4 follow-up).
+SCORE_VS_TYPE_COLUMNS: tuple[str, ...] = (
+    "value_score", "quality_score", "growth_score",
+    "momentum_score", "income_score", "overall_score",
+)
 RS_RANK_MIN_PER_TYPE: int = 30      # min members for a security_type to rank RS within itself
                                     # (else fall back to universe — funds vs stocks don't distort)
 

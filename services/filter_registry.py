@@ -295,7 +295,7 @@ def peer_columns(column: str) -> dict[str, str]:
     """
     cols = analysis_columns()
     out: dict[str, str] = {}
-    for suffix in ("vs_sector", "vs_industry"):
+    for suffix in ("vs_sector", "vs_industry", "vs_type"):
         c = f"{column}_{suffix}"
         if c in cols:
             out[suffix] = c

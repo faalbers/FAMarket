@@ -52,6 +52,7 @@ def _variants(column: str) -> dict[str, Any]:
     return {
         "vs_sector": "vs_sector" in peers,
         "vs_industry": "vs_industry" in peers,
+        "vs_type": "vs_type" in peers,
         "score": bool(R.score_column(column)),
     }
 

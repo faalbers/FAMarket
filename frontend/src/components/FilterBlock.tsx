@@ -24,6 +24,7 @@ const COMPARE_LABELS: Record<Compare, string> = {
   value: "Value",
   vs_sector: "vs Sector",
   vs_industry: "vs Industry",
+  vs_type: "vs Type",
   score: "Score",
 };
 
@@ -156,6 +157,7 @@ export function FilterBlock({
           ...(variants.vs_industry
             ? [{ value: "vs_industry", label: COMPARE_LABELS.vs_industry }]
             : []),
+          ...(variants.vs_type ? [{ value: "vs_type", label: COMPARE_LABELS.vs_type }] : []),
           ...(variants.score ? [{ value: "score", label: COMPARE_LABELS.score }] : []),
         ]}
       />

@@ -83,7 +83,10 @@ python -m scripts.discover_symbols --show              # summarize symbols.db
 `frontend/dist` is gitignored, so a fresh clone must `npm run build` once before
 `serve_ui.py` will start (it refuses with a clear message otherwise). For
 front-end work use two terminals instead: `python -m uvicorn api.main:app
---reload` and `npm run dev` (Vite proxies `/api`, open :5173).
+--reload --port 8765` and `npm run dev` (Vite proxies `/api`, open :5173).
+The API port is **8765**, not 8000 — 8000 is taken by a local MCP server on this
+machine; `serve_ui.py --port` and `frontend/vite.config.ts`'s proxy target must
+stay in sync.
 
 Type-check with `npx pyright api services` and, in `frontend/`, `npx tsc -b`.
 

@@ -12,6 +12,8 @@ cross-symbol stage. Adds, in order:
   * five category scores (0-100): value, quality, growth, momentum, income — each
     the weight-averaged rule GOODNESS of its metrics (settings.CATEGORY_METRIC_WEIGHTS).
   * overall_score (0-100) — the category scores combined per OVERALL_SCORE_WEIGHTS.
+  * <score>_vs_type (% above/below screen_type median) for settings.SCORE_VS_TYPE_COLUMNS —
+    the Filter page's "vs Type" variant on the six score bases.
 
 Design (see [[analysis-layer-design-decisions]], [[scoring-rules-system]]):
   * Each metric becomes 0-100 GOODNESS via its scoring rule
@@ -42,7 +44,7 @@ log = get_logger("analysis")
 
 # Column suffixes that are NOT scorable base metrics: results (category/overall
 # scores), peer-relative variants, and the goodness columns themselves.
-_NON_SCORABLE_SUFFIXES = ("_score", "_vs_sector", "_vs_industry", "_goodness")
+_NON_SCORABLE_SUFFIXES = ("_score", "_vs_sector", "_vs_industry", "_vs_type", "_goodness")
 
 
 def compute(df: pd.DataFrame) -> pd.DataFrame:
@@ -74,7 +76,35 @@ def _apply_rule_scores(df: pd.DataFrame, rules: dict[str, dict] | None = None) -
         df[f"{category}_score"] = _category_score(df, weights, rules)  # 2. categories
     df["orphan_score"] = _orphan_score(df)                  # 3. orphan (growth-derived)
     df["overall_score"] = _overall_score(df)               # 4. overall
-    return df
+    return _type_relative_scores(df)                        # 5. vs_type (needs 2+4 done)
+
+
+def _type_relative_scores(df: pd.DataFrame) -> pd.DataFrame:
+    """Append `<score>_vs_type` (% above/below the symbol's own screen_type median)
+    for each of settings.SCORE_VS_TYPE_COLUMNS.
+
+    A category score is already sector/industry-relative by construction (each
+    input metric was peer-ranked before being averaged), so comparing it AGAIN
+    by sector/industry would be circular. screen_type (bank/reit/standard/fund/...)
+    is the coarser, structurally meaningful group instead — it's what already
+    determines which metrics feed the score in the first place.
+
+    Drops any stale `_vs_type` columns first, same subset-merge guard as
+    `_goodness_columns` (kept rows on a subset run already carry one from the
+    prior pass).
+    """
+    df = df.drop(columns=[c for c in df.columns if c.endswith("_vs_type")], errors="ignore")
+    if "screen_type" not in df.columns:
+        return df
+    twins = {
+        f"{col}_vs_type": _stats.relative_to_group_median(
+            df[col], df["screen_type"], settings.MIN_PEERS_FOR_MEDIAN
+        )
+        for col in settings.SCORE_VS_TYPE_COLUMNS if col in df.columns
+    }
+    if not twins:
+        return df
+    return pd.concat([df, pd.DataFrame(twins, index=df.index)], axis=1)
 
 
 def _orphan_score(df: pd.DataFrame) -> pd.Series:
@@ -135,10 +165,11 @@ def refresh_scores() -> dict:
     """Recompute ONLY the rule-dependent scores on the stored analysis.db, in place.
 
     For when a scoring rule changed but nothing else did: re-derives every
-    `<metric>_goodness`, the category scores, and overall_score from the current
-    rules and rewrites the table. No fetch, no per-symbol metric recompute, no
-    index rebuild — rs_rank and raw metrics are left as stored. analysis_meta is
-    untouched (prices/vintage didn't change). Returns a small summary.
+    `<metric>_goodness`, the category scores, overall_score, and the `_vs_type`
+    columns from the current rules and rewrites the table. No fetch, no
+    per-symbol metric recompute, no index rebuild — rs_rank and raw metrics are
+    left as stored. analysis_meta is untouched (prices/vintage didn't change).
+    Returns a small summary.
     """
     with Database(settings.ANALYSIS_DB) as db:
         df = db.read("analysis")

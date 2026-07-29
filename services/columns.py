@@ -18,6 +18,7 @@ from services import filter_registry as R
 VARIANT_SUFFIXES: tuple[tuple[str, str], ...] = (
     ("_vs_sector", " vs Sector"),
     ("_vs_industry", " vs Industry"),
+    ("_vs_type", " vs Type"),
     ("_goodness", " Score"),
 )
 

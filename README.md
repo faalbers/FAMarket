@@ -68,7 +68,7 @@ browser, and exits when you close the last tab. Useful flags: `--port`,
 **Front-end development** (hot reload) needs two terminals:
 
 ```powershell
-python -m uvicorn api.main:app --reload     # terminal 1 — API on :8000
+python -m uvicorn api.main:app --reload --port 8765   # terminal 1 — API on :8765
 cd frontend; npm run dev                    # terminal 2 — Vite on :5173
 ```
 

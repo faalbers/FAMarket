@@ -1,7 +1,7 @@
 /** Shapes and helpers for the Filter page. Mirrors ui/filter_engine.py. */
 import { get, post } from "@/lib/api";
 
-export type Compare = "value" | "vs_sector" | "vs_industry" | "score";
+export type Compare = "value" | "vs_sector" | "vs_industry" | "vs_type" | "score";
 export type VMode = "V" | "P";
 
 /** One filter block. The same shape nests one level deep as an OR child. */
@@ -20,7 +20,12 @@ export type Block = {
   or_children?: Block[];
 };
 
-export type Variants = { vs_sector: boolean; vs_industry: boolean; score: boolean };
+export type Variants = {
+  vs_sector: boolean;
+  vs_industry: boolean;
+  vs_type: boolean;
+  score: boolean;
+};
 
 export type WindowInfo = { key: string; label: string } & Variants;
 
@@ -97,11 +102,12 @@ export function findBase(registry: Registry | undefined, key: string): BaseInfo 
 /** Variants available for a block's current param + window. */
 export function variantsFor(registry: Registry | undefined, block: Block): Variants {
   const base = findBase(registry, block.param);
-  if (!base) return { vs_sector: false, vs_industry: false, score: false };
+  if (!base) return { vs_sector: false, vs_industry: false, vs_type: false, score: false };
   if (!base.growth) {
     return {
       vs_sector: Boolean(base.vs_sector),
       vs_industry: Boolean(base.vs_industry),
+      vs_type: Boolean(base.vs_type),
       score: Boolean(base.score),
     };
   }
@@ -109,6 +115,7 @@ export function variantsFor(registry: Registry | undefined, block: Block): Varia
   return {
     vs_sector: Boolean(window?.vs_sector),
     vs_industry: Boolean(window?.vs_industry),
+    vs_type: Boolean(window?.vs_type),
     score: Boolean(window?.score),
   };
 }

@@ -11,6 +11,6 @@ export default defineConfig({
   server: {
     port: 5173,
     // ws: true also forwards the /api/presence WebSocket upgrade.
-    proxy: { "/api": { target: "http://127.0.0.1:8000", ws: true } },
+    proxy: { "/api": { target: "http://127.0.0.1:8765", ws: true } },
   },
 });

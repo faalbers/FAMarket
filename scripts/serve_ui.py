@@ -32,7 +32,8 @@ from data_layer import run_state  # noqa: E402
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=8000)
+    # 8000 is left alone deliberately — a local MCP server owns it on this machine.
+    parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--no-exit", action="store_true", help="keep serving with zero tabs")
     args = parser.parse_args()
