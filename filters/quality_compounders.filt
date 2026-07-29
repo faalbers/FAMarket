@@ -1,11 +1,11 @@
 {
   "version": 1,
-  "saved_at": "2026-06-28T04:56:00+00:00",
+  "saved_at": "2026-07-28T16:08:35+00:00",
   "selected_types": [
     "standard"
   ],
-  "comment": "**What it does**\nFinds **proven, healthy compounders** to buy and hold for ~10 years.\nIt demands all three at once:\n- **Proven price** - above the 200-day line and RS Rank 70+.\n- **Growing business** - revenue and EPS growing 8%+ (history or forward).\n- **Safe & solid** - ROIC 8%+, fat gross margin, low debt, calm price.\nIt is a **growth** screen, not income. Big-enough names only ($2B+).\n\n**How to tweak**\n- Want **more names**? Drop `rs_rank` to 60, `roic` to 6, or `gross_margin` to 20.\n- Want **stricter quality**? Raise `roic` to 12 and `current_ratio` to 1.5.\n- Want **bigger only**? Raise the `market_cap` floor to $10B.\n- Allow more risk? Raise `atr_pct` to 8.\n\n**How to sort for best picks**\n- **Sort by `quality_score`** (the thesis: a healthy business), then tiebreak on `momentum_score`.\n- `momentum_score` also surfaces the **hot industries** doing best right now.\n- **Avoid** `income_score` (this is not an income screen) and `value_score` (great compounders rarely look cheap, so sorting by cheapness buries the best ones).",
-  "ai_instructions": "I want to find stocks to invest in long term, like for 10 years. These stocks need to be proven as constantly growing in price and the need to have a healthy growing business. I need to make sure they do not have troubling financials. I am just focused on them as growth and not income.\nThey also can not be too risky or volatile. But a bit of risk is OK. Also add a way to prioratize industries that have been doing really well and look like they have good growth potential.",
+  "comment": "**What it does**\nFinds **proven, healthy compounders** to buy and hold for ~10 years.\nIt demands all three at once:\n- **Proven price** - above the 200-day line and RS Rank 70+.\n- **Growing business** - revenue and EPS growing 8%+ (history or forward).\n- **Safe & solid** - ROIC 8%+, fat gross margin, low debt, calm price.\nNew in v2 (from the updated brief):\n- **Clean books** - Beneish M-Score must not flag likely earnings manipulation.\n- **Health checklist** - passes at least 5 of the 7 quick yearly health checks.\nIt is a **growth** screen, not income. Big-enough names only ($2B+).\n\n**How to tweak**\n- Want **more names**? Drop `rs_rank` to 60, `roic` to 6, or `quick_health_score` to 4.\n- Want **stricter quality**? Raise `roic` to 12, `quick_health_score` to 6, `current_ratio` to 1.5.\n- Want **bigger only**? Raise the `market_cap` floor to $10B.\n- Allow more risk? Raise `atr_pct` to 8.\n\n**How to sort for best picks**\n- **Sort by `quality_score`** (the thesis: a healthy business), tiebreak on `momentum_score`.\n- `momentum_score` also surfaces the **hot industries** doing best right now\n  (the brief's 'prioritize strong industries' ask).\n- **Avoid** `income_score` (not an income screen) and `value_score`\n  (great compounders rarely look cheap; sorting by cheapness buries the best ones).",
+  "ai_instructions": "I want to find stocks to invest in long term, like for 10 years. These stocks need to be proven as constantly growing in price and the need to have a healthy growing business. I need to make sure they do not have troubling financials. I am just focused on them as growth and not income.\nThey also can not be too risky or volatile. But a bit of risk is OK. Also add a way to prioratize industries that have been doing really well and look like they have good growth potential.\n\nUpdate (2026-07-28) \u2014 checklist answers added after a brief review; where this\ndiffers from the text above, this wins:\n- **Proven price growth** = strong recent strength (RS Rank 70+) AND trading above\n  the 200-day average.\n- **Profitability**: must already be profitable and healthy \u2014 no pre-profit names.\n- **Growth pace**: steady 8%+ a year (revenue and EPS, history or forecast) is\n  enough \u2014 this screen is quality over speed.\n- **Size**: $2B market cap and bigger. **Kinds**: normal stocks only \u2014 on purpose:\n  mixing in banks/insurance would strip the quality metrics (ROIC, margins,\n  liquidity checks) down to the few both share. Financial compounders deserve\n  their own separate filter if ever wanted.\n- **Risk**: moderate \u2014 average daily moves up to ~6% are OK.\n- **Results**: a shortlist (roughly 20-100 names).\n- **Dividends**: ignore completely.\n- **\"Prioritize strong industries\" means SORTING, not filtering**: sort by quality\n  first, tiebreak on momentum (momentum surfaces the hot industries).",
   "blocks": [
     {
       "enabled": true,
@@ -205,6 +205,56 @@
         {
           "enabled": true,
           "param": "altman_z",
+          "window": null,
+          "compare": "value",
+          "op": "is null",
+          "vmode": "V",
+          "value": "",
+          "vmode2": "V",
+          "value2": "",
+          "or_children": []
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "param": "beneish_m_score",
+      "window": null,
+      "compare": "value",
+      "op": "<=",
+      "vmode": "V",
+      "value": -1.78,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "beneish_m_score",
+          "window": null,
+          "compare": "value",
+          "op": "is null",
+          "vmode": "V",
+          "value": "",
+          "vmode2": "V",
+          "value2": "",
+          "or_children": []
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "param": "quick_health_score",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 5,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "quick_health_score",
           "window": null,
           "compare": "value",
           "op": "is null",

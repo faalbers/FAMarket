@@ -1,11 +1,11 @@
 {
   "version": 1,
-  "saved_at": "2026-06-28T04:56:00+00:00",
+  "saved_at": "2026-07-28T16:08:35+00:00",
   "selected_types": [
     "standard"
   ],
-  "comment": "**What it does**\nHunts the **next dominant player** in any sector (an early-NVDA profile).\nIt looks for:\n- **Explosive growth** - revenue 20%+ (history or forward).\n- **Accelerating** - newest quarter faster than its own 3-year pace.\n- **An edge** - gross margin **above its industry** (a moat sign).\n- **Improving unit economics** - margins trending up (or too new to judge).\n- **Market noticing** - RS Rank 70+.\nSize is **$1B-$80B**: big enough to be real, small enough to still 10x.\nIt does **not** require profit yet, on purpose.\n\n**How to tweak**\n- Want **fewer, hotter** names? Raise revenue growth to 30 and `rs_rank` to 80.\n- Want **earlier entries**? Drop `rs_rank` to 50.\n- Want **smaller** disruptors? Lower the `market_cap` band to $300M-$20B.\n- Tighten the moat test: require gross margin vs industry `> 5`.\n\n**How to sort for best picks**\n- **Sort by `growth_score`** (the whole thesis), tiebreak on `momentum_score` (market recognition).\n- **Avoid** `overall_score`, `quality_score`, and `value_score` - they reward mature, cheap, already-profitable names and bury the early-stage growers this screen is built to catch.",
-  "ai_instructions": "I want to find companies that could become the next dominant player in their industry, like NVDA was early in its growth story, but not limited to tech \u2014 any sector. These are companies with explosive revenue growth that is accelerating, a strong competitive position versus their peers, and a market that is already starting to recognise them. They don't need to be profitable yet but their unit economics should be improving. They should be big enough to be real but small enough to still have massive room to grow.",
+  "comment": "**What it does**\nHunts the **next dominant player** in any sector (an early-NVDA profile).\nIt looks for:\n- **Explosive growth** - revenue 20%+ (history or forward).\n- **Accelerating** - newest quarter faster than its own 3-year pace.\n- **An edge** - gross or operating margin **above its industry** (a moat sign).\n- **Improving unit economics** - margins trending up (or too new to judge).\n- **Market noticing** - RS Rank 70+.\nSize is **$1B-$80B**: big enough to be real, small enough to still 10x.\nIt does **not** require profit yet, on purpose.\nNew in v2 (from the updated brief): a company is **never dropped just for\nmissing margin data** - the edge test now passes when margins simply don't exist yet.\n\n**How to tweak**\n- Want **fewer, hotter** names? Raise revenue growth to 30 and `rs_rank` to 80.\n- Want **earlier entries**? Drop `rs_rank` to 50.\n- Want **smaller** disruptors? Lower the `market_cap` band to $300M-$20B.\n- Tighten the moat test: require gross margin vs industry `> 5`\n  (and remove the is-null pass).\n\n**How to sort for best picks**\n- **Sort by `growth_score`** (the whole thesis), tiebreak on `momentum_score`\n  (market recognition).\n- **Avoid** `overall_score`, `quality_score`, and `value_score` - they reward\n  mature, cheap, already-profitable names and bury the early-stage growers\n  this screen is built to catch.",
+  "ai_instructions": "I want to find companies that could become the next dominant player in their industry, like NVDA was early in its growth story, but not limited to tech \u2014 any sector. These are companies with explosive revenue growth that is accelerating, a strong competitive position versus their peers, and a market that is already starting to recognise them. They don't need to be profitable yet but their unit economics should be improving. They should be big enough to be real but small enough to still have massive room to grow.\n\nUpdate (2026-07-28) \u2014 checklist answers added after a brief review; where this\ndiffers from the text above, this wins:\n- **Size**: $1B-$80B market cap (big enough to be real, small enough to 10x).\n- **\"Explosive growth\"** = revenue growing 20%+ a year (history or analyst\n  forecast) AND faster than its own 3-year pace.\n- **Competitive position** = margins above its industry (gross or operating).\n- **Not yet profitable is fine** \u2014 never drop a company only because a margin or\n  history number has no data yet.\n- **Risk**: volatility is expected and accepted \u2014 no calm-stock requirement.\n- **Results**: a broad discovery list is fine (~100-300 names).\n- **Dividends**: ignore. **Kinds**: normal stocks only.\n- **Sorting**: growth first, tiebreak momentum; avoid overall / quality / value\n  scores (they bury early-stage names).",
   "blocks": [
     {
       "enabled": true,
@@ -100,6 +100,18 @@
           "op": ">",
           "vmode": "V",
           "value": 0,
+          "vmode2": "V",
+          "value2": "",
+          "or_children": []
+        },
+        {
+          "enabled": true,
+          "param": "gross_margin",
+          "window": null,
+          "compare": "value",
+          "op": "is null",
+          "vmode": "V",
+          "value": "",
           "vmode2": "V",
           "value2": "",
           "or_children": []
