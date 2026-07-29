@@ -8,8 +8,8 @@ light markdown (`**bold**`, `*italic*`) — the caller decides how to render it.
 
 from __future__ import annotations
 
-from ui import filter_engine as E
-from ui import filter_registry as R
+from services import filter_engine as E
+from services import filter_registry as R
 
 
 def type_labels(keys: list[str]) -> str:

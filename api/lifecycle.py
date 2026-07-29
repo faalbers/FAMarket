@@ -1,6 +1,5 @@
 """
-"Last tab closed" detection via a presence WebSocket — the React equivalent of
-`core/autoshutdown.py`, which watched Streamlit's session count.
+"Last tab closed" detection via a presence WebSocket.
 
 Every open tab holds one WebSocket to /api/presence. When the count drops to
 zero a grace timer starts (a reload briefly drops to zero); if no tab

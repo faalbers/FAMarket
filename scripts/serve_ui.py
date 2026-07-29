@@ -7,8 +7,8 @@ Single-command launcher for the React UI.
 
 Serves the built Vite frontend and the API from one FastAPI process. Every open
 tab holds a presence WebSocket; when the last one closes (plus a grace period
-that covers reloads) the server exits — the same lifecycle `streamlit run`
-gave us via `core/autoshutdown.py`.
+that covers reloads) the server exits, so the app does not linger once you
+are done with it.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ if str(ROOT) not in sys.path:
 
 from api import lifecycle  # noqa: E402
 from api.main import DIST, app  # noqa: E402
+from data_layer import run_state  # noqa: E402
 
 
 def main() -> None:
@@ -43,8 +44,15 @@ def main() -> None:
     server = uvicorn.Server(config)
 
     if not args.no_exit:
-        # should_exit triggers uvicorn's graceful shutdown from any thread/task.
-        lifecycle.set_shutdown(lambda: setattr(server, "should_exit", True))
+
+        def shutdown() -> None:
+            # A detached fetch outlives the app, so say so rather than leaving
+            # the user wondering whether closing the tab killed their run.
+            run_state.announce_on_shutdown()
+            # should_exit triggers uvicorn's graceful shutdown from any thread/task.
+            server.should_exit = True
+
+        lifecycle.set_shutdown(shutdown)
 
     if not args.no_browser:
         threading.Timer(0.8, webbrowser.open, [f"http://127.0.0.1:{args.port}/"]).start()

@@ -22,7 +22,9 @@
 - `security_type` + `sub_type` fields on every symbol (sourced from yfinance `quoteType`)
 - Type names normalized across all APIs via lookup table in config/
 - Multi-style flexible screening (value, growth, GARP — no single style locked in)
-- Output: Interactive Streamlit web UI (local, runs via `streamlit run app.py`)
+- Output: Interactive local web UI — **REPLACED 2026-07-29**: was a Streamlit app
+  (`streamlit run app.py`); now React + FastAPI (`python scripts/serve_ui.py`).
+  See "UI stack — Streamlit → React + FastAPI" at the end of Key Decisions.
 - `pandas_market_calendars` used to determine last completed trading session
 - Completeness definition for financial periods → deferred to coding phase
 - SQLite wrapper uses explicit, opinionated methods per operation: `db.append()`, `db.replace()`, `db.upsert(key=)` — no generic read/write (improvement over previous build)
@@ -55,6 +57,45 @@
 - Database file paths configured in config/settings.py — single DB_DIR variable + individual path vars per database (SYMBOLS_DB, OHLCV_DB, QUOTES_DB, FINANCIALS_DB, ANALYSIS_DB, MACRO_DB)
 - Backup system: rotating 5-version backup of all .db files before each fetch run — BACKUP_DIR in config/settings.py; versions shift up by 1 on each run, version 5 dropped, new backup becomes version 1; format: {db_name}_1.db (most recent) through {db_name}_5.db (oldest)
 - .env stores all API keys in UPPER_CASE — never committed to git (.env in .gitignore); .env.template committed with key names but empty values
+
+### UI stack — Streamlit → React + FastAPI (CHANGED 2026-07-29)
+
+Replaces the original decision that the UI would be a Streamlit app. Streamlit
+served the whole build through to feature-complete; the code (`app.py`, `ui/`,
+`core/autoshutdown.py`) is removed as of this date. **Earlier entries below that
+describe Streamlit pages, `st.*` widgets or `streamlit run app.py` are history —
+the feature they describe still exists, but its implementation moved.**
+
+**Why it changed.** The rerun-on-every-interaction model fought the app: chart
+zoom reset on any control, ECharts lived in sandboxed iframes, styling was CSS
+injection against internal class names, and a large share of `ui/` had become
+workaround scaffolding (pending-widget keys, nonce-keyed confirms, container-key
+remounts, positional row-selection reconciliation). The replacement stack was
+chosen by building the same screen twice in a separate project and testing both;
+nine specific questions (table scale, job progress, native dialogs, deep links,
+markdown, app lifecycle, chart markers, pickers, and which library draws
+non-time-series charts) were answered there by working prototypes before any
+FAMarket code was written.
+
+**What it is.** Vite + React + TypeScript + Tailwind + Radix on a FastAPI
+backend. New top-level packages: `api/` (thin HTTP wrappers, one router per UI
+area), `services/` (UI-agnostic view logic — imports no UI framework, so it runs
+from a plain script), and `frontend/`. `python scripts/serve_ui.py` serves the
+built front end plus the API from one process and exits when the last tab
+closes.
+
+**What was preserved deliberately.** Every URL contract (`/output?run=<id>`,
+`/charts?view=&symbols=&cols=`), the `.filt` / `.syms` / `.prms` file formats,
+native OS file dialogs (now `api/dialogs.py`), the detached-fetch model, and the
+colour-blind-safe palette rules.
+
+**What genuinely improved, not just moved.** Fetch Control gained live SSE
+progress and a log tail (Streamlit had neither — it read the run state once per
+rerun); the Output grid is virtualised with shift-click multi-sort, replacing
+the separate sort panel that only existed because `st.dataframe` headers cannot
+be clicked; and charts split by shape — Lightweight Charts for dense time
+series, ECharts for bar/radar/heat map — so a tab loads only the library it
+needs.
 
 ---
 

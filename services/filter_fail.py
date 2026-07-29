@@ -16,7 +16,7 @@ import pandas as pd
 
 from config import settings
 from core.database import Database
-from ui.filter_engine import _block_mask, is_complete, resolve_column
+from services.filter_engine import _block_mask, is_complete, resolve_column
 
 SEPARATOR = "─" * 32
 

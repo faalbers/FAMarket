@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ui import filter_registry as R
+from services import filter_registry as R
 
 # Variant suffixes that ride on a base column: peer-relative + the per-metric
 # Score (goodness). Stripped to recover the base, with their label appended.

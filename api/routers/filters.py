@@ -2,7 +2,7 @@
 The Filter page: what can be filtered, what a filter set matches, and `.filt`
 persistence.
 
-`ui/filter_engine.py` and `ui/filter_registry.py` are already UI-agnostic, so
+`services/filter_engine.py` and `services/filter_registry.py` are already UI-agnostic, so
 this router is a thin HTTP face over them — the block model, the operator table
 and the evaluation semantics all stay defined in one place.
 """
@@ -20,9 +20,9 @@ from api.dialogs import DialogRequest, ask_path
 from config import settings
 from core.database import Database
 from services import filter_text
-from ui import filter_engine as E
-from ui import filter_registry as R
-from ui import output_runs
+from services import filter_engine as E
+from services import filter_registry as R
+from services import output_runs
 
 router = APIRouter(prefix="/api/filter")
 

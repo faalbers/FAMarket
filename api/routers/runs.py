@@ -2,7 +2,7 @@
 Saved outputs ("runs") — the Output page's data source.
 
 A run is an immutable parquet + json sidecar pair written by
-`ui/output_runs.py`; this router is a thin HTTP face over that module. Row data
+`services/output_runs.py`; this router is a thin HTTP face over that module. Row data
 is serialised with pandas' own `to_json(orient="split")`: columnar, so column
 names aren't repeated per row, and fast enough that the whole frame can ship in
 one response — which is what keeps client-side sorting and column toggling
@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from config import settings
 from core.database import Database
 from services import filter_text
-from ui import output_runs
+from services import output_runs
 
 router = APIRouter(prefix="/api")
 

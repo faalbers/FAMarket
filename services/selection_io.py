@@ -20,9 +20,9 @@ The item KEYS drive behaviour on load; the info is descriptive metadata (a snaps
 live data is still re-derived from analysis.db / param_hints). The filename the user
 types in the dialog IS the selection's name; there is no separate name field.
 
-Files are chosen through the app's native dialog (`ui/file_io`), so this only works on
-the user's own desktop (see file_io's note). Pages import this as
-`from ui import selection_io as SEL`.
+This module only reads and writes; CHOOSING the path is the caller's job. The API
+pops a native OS dialog out-of-process (`api/dialogs.py`) and hands the path in,
+which keeps this importable from a plain script with no UI at all.
 """
 from __future__ import annotations
 
@@ -32,7 +32,6 @@ from pathlib import Path
 from typing import Mapping
 
 from config import settings
-from ui import file_io as FIO
 
 # kind -> (file suffix, human label for the dialog title)
 _KINDS: dict[str, tuple[str, str]] = {
@@ -41,16 +40,20 @@ _KINDS: dict[str, tuple[str, str]] = {
 }
 
 
-def _suffix(kind: str) -> str:
+def suffix(kind: str) -> str:
+    """File suffix for a selection kind — the caller's dialog uses it as the filter."""
     try:
         return _KINDS[kind][0]
     except KeyError:
         raise ValueError(f"unknown selection kind: {kind!r}") from None
 
 
-def _filetypes(kind: str) -> list[tuple[str, str]]:
-    suffix, label = _KINDS[kind]
-    return [(f"{label.title()} files", f"*{suffix}"), ("All files", "*.*")]
+def label(kind: str) -> str:
+    """Human name for a selection kind, for dialog titles."""
+    try:
+        return _KINDS[kind][1]
+    except KeyError:
+        raise ValueError(f"unknown selection kind: {kind!r}") from None
 
 
 def symbol_info(symbols: list[str]) -> dict[str, dict]:
@@ -111,38 +114,3 @@ def load_selection(path: Path | str) -> dict:
     else:
         items = {}
     return {"kind": kind, "items": items}
-
-
-# --------------------------------------------------------------------------- #
-# Native-dialog wrappers (the user types the filename — no pre-naming)
-# --------------------------------------------------------------------------- #
-def save_dialog(*, kind: str, items: Mapping[str, dict], default_name: str = "") -> Path | None:
-    """Pop a Save-As dialog in SELECTIONS_DIR, write the selection, return the path
-    (or None if cancelled). `default_name` pre-fills the dialog's filename (the suffix
-    is appended automatically)."""
-    suffix = _suffix(kind)
-    path = FIO.ask_save_path(
-        initialdir=settings.SELECTIONS_DIR,
-        default_name=default_name,
-        defaultextension=suffix,
-        filetypes=_filetypes(kind),
-        title=f"Save {_KINDS[kind][1]}",
-    )
-    if path is None:
-        return None
-    return save_selection(path, kind=kind, items=items)
-
-
-def load_dialog(*, kind: str) -> dict | None:
-    """Pop an Open dialog in SELECTIONS_DIR and return
-    {"kind", "items", "path"} for the chosen file, or None if cancelled."""
-    path = FIO.ask_open_path(
-        initialdir=settings.SELECTIONS_DIR,
-        filetypes=_filetypes(kind),
-        title=f"Load {_KINDS[kind][1]}",
-    )
-    if path is None:
-        return None
-    out = load_selection(path)
-    out["path"] = path
-    return out

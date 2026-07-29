@@ -20,7 +20,7 @@ import reporting
 from config import settings
 from data_layer import news as news_source
 from reporting import store
-from ui import selection_io as SEL
+from services import selection_io as SEL
 
 router = APIRouter(prefix="/api/news")
 

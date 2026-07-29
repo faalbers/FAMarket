@@ -1,10 +1,9 @@
 """
 Saved selections — `.syms` symbol sets and `.prms` column sets.
 
-Wraps `ui/selection_io.py` (the one selection store) and pops the native file
-dialog through `api/dialogs.py`, keeping the Streamlit behaviour: the filename
-the user types IS the selection's name, and the dialog opens in
-`settings.SELECTIONS_DIR`.
+Wraps `services/selection_io.py` (the one selection store) and pops the native
+file dialog through `api/dialogs.py`. The filename the user types IS the
+selection's name, and the dialog opens in `settings.SELECTIONS_DIR`.
 """
 
 from __future__ import annotations
@@ -18,12 +17,11 @@ from pydantic import BaseModel
 from api.dialogs import DialogRequest, ask_path
 from config import settings
 from config.param_hints import PARAM_HINTS
-from ui import selection_io as SEL
+from services import selection_io as SEL
 
 router = APIRouter(prefix="/api/selections")
 
 Kind = Literal["symbols", "params"]
-_SUFFIX: dict[str, str] = {"symbols": ".syms", "params": ".prms"}
 
 
 class SaveRequest(BaseModel):
@@ -48,14 +46,13 @@ def _info_for(kind: str, items: list[str]) -> dict[str, dict]:
 
 @router.post("/save")
 async def save(req: SaveRequest) -> dict[str, Any]:
-    suffix = _SUFFIX[req.kind]
     path = await ask_path(
         DialogRequest(
             mode="save",
             initial_dir=str(settings.SELECTIONS_DIR),
             initial_file=req.default_name,
-            ext=suffix,
-            title=f"Save {'symbol' if req.kind == 'symbols' else 'parameter'} set",
+            ext=SEL.suffix(req.kind),
+            title=f"Save {SEL.label(req.kind)}",
             fake_path=req.fake_path,
         )
     )
@@ -68,13 +65,12 @@ async def save(req: SaveRequest) -> dict[str, Any]:
 
 @router.post("/load")
 async def load(req: LoadRequest) -> dict[str, Any]:
-    suffix = _SUFFIX[req.kind]
     path = await ask_path(
         DialogRequest(
             mode="open",
             initial_dir=str(settings.SELECTIONS_DIR),
-            ext=suffix,
-            title=f"Load {'symbol' if req.kind == 'symbols' else 'parameter'} set",
+            ext=SEL.suffix(req.kind),
+            title=f"Load {SEL.label(req.kind)}",
             fake_path=req.fake_path,
         )
     )

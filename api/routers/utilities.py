@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from core import mailer
 from services import email_body
-from ui import selection_io as SEL
+from services import selection_io as SEL
 
 router = APIRouter(prefix="/api/utilities")
 

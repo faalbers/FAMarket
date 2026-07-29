@@ -34,7 +34,7 @@ from pathlib import Path
 import pandas as pd
 
 from config import settings
-from ui import filter_registry as R
+from services import filter_registry as R
 
 # Operators -> (needs a value?, needs a second value?, is text-only?). The V/P
 # button is hidden for text-only operators and the null operators.

@@ -162,7 +162,7 @@ class _BenignDisconnectFilter(logging.Filter):
     socket.shutdown() on a socket the peer already reset → WinError 10054,
     which asyncio logs as ERROR ("Exception in callback
     _ProactorBasePipeTransport._call_connection_lost()"). The session is being
-    torn down anyway (autoshutdown follows), so this is pure noise — a known
+    torn down anyway (shutdown follows), so this is pure noise — a known
     CPython/Proactor quirk. Any other asyncio error still passes through.
     """
 

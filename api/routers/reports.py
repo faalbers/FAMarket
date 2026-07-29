@@ -18,7 +18,7 @@ from pydantic import BaseModel
 import reporting
 from reporting import store
 from services import filter_text
-from ui import output_runs
+from services import output_runs
 
 router = APIRouter(prefix="/api/reports")
 

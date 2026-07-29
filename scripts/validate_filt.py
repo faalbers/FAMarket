@@ -29,8 +29,8 @@ from pathlib import Path
 from typing import Any
 
 from config import settings
-from ui import filter_engine as FE
-from ui import filter_registry as R
+from services import filter_engine as FE
+from services import filter_registry as R
 
 _COMPARES = ("value", "vs_sector", "vs_industry", "score")
 _CMP_OPS = {">", "<", ">=", "<=", "=", "!=", "between"}

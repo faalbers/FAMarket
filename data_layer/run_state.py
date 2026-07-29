@@ -181,13 +181,13 @@ def ended_unexpectedly() -> bool:
 
 
 # --------------------------------------------------------------------------- #
-# shutdown notice (app.py auto-shutdown hook)
+# shutdown notice (the launcher's last-tab-closed hook)
 # --------------------------------------------------------------------------- #
 def announce_on_shutdown() -> None:
     """Print, to the terminal, whether a detached fetch keeps running after exit.
 
-    Wired into `core.autoshutdown` as the on-shutdown hook. Unlike the old behavior
-    it does NOT stop the fetch — the whole point is that it survives the app exit.
+    Wired into `scripts/serve_ui.py`'s shutdown callback. It deliberately does
+    NOT stop the fetch — the whole point is that a run survives the app exit.
     """
     state = read()
     if state and is_active():

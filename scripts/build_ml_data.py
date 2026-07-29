@@ -82,7 +82,7 @@ from analysis_layer import intrinsic_value, metrics, technical
 from config import settings
 from core.database import Database
 from core.logging_config import get_logger, setup_logging
-from ui.selection_io import load_selection
+from services.selection_io import load_selection
 
 log = get_logger("ml_data")
 

@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 FAMarket is a local, Python-based stock-screening system: fetch US-market data
-from free APIs → compute fundamental/technical metrics → screen via a Streamlit
-UI. The complete design is already brainstormed — **read `ROADMAP.md` before any
+from free APIs → compute fundamental/technical metrics → screen via a React UI
+on a FastAPI backend. The complete design is already brainstormed — **read `ROADMAP.md` before any
 non-trivial change**; it records every architectural decision and the build
 sequencing. `ROADMAP.md` is a **living document**: when a design decision is
 changed or refined in agreement with the user, update the affected entries
@@ -30,64 +30,62 @@ dedicated `indices.db` (long/tidy `sector_industry_index` table). Index history 
 (starts where `financials.db` share coverage broadens, `INDEX_START_MIN_REPORTERS`),
 read via a dedicated memory-efficient deep `adj_close` read of the liquid constituents
 only — decoupled from `ANALYSIS_OHLCV_LOOKBACK_DAYS`. Each run logs its peak RAM via
-`core/meminfo.py` (Win32 ctypes, no psutil). The **UI** is being built page by page: Fetch Control, Settings,
-Filter, Output, Sector Indices and Utilities (a collapsible-tools page; first tool emails a `.syms`
-selection as an HTML email via Gmail SMTP — `ui/email_report.py` + `core/mailer.py`) are functional. The peak-detection calibration tuner
-(`ui/calibration.py`, exposing `render()`) is **a section inside the Settings page**
-(no longer its own sidebar page) — sliders for
-`PEAK_PROMINENCE`/`PEAK_DISTANCE`, a price chart with detected swing highs/lows
-overlaid (via the shared `analysis_layer/technical.trend_signals`),
-price-behavior-picked sample stocks, and Save to `settings.local.json`. Shared
-ECharts dark theme/palette now live in `ui/chart_theme.py`. The Output Action menu
-charts (`ui/pages/charts.py`, routed by `?view=`) now include the normalized price
-chart and a **Fundamentals bar chart** (`view=fundamentals_bar`): one symbol × one
-parameter over its reported periods (annual/quarterly), read per-symbol from
-`financials.db`. Its ratios reuse the **same formula functions as the analysis
-snapshot** — `metrics.py` exposes them as named funcs + `RATIO_PERIOD_METRICS` /
-`RAW_PERIOD_FIELDS` registries so a ratio is defined once, never duplicated in the UI.
-The price view also has a **sector/industry relative-strength** selector (the first
-`indices.db` consumer): a single-select tree of the charted symbols' sectors/industries
-that, when one is picked, replaces the chart with each in-group symbol plotted as
-`symbol_norm − index_norm + 100` against that group's index — with a 3-way toggle
-(Relative / Symbols / Index) that swaps content at the same window + base-100.
-A **News** action (`view=news`, `ui/pages/charts.py` + standalone `data_layer/news.py`)
-aggregates on-demand headlines per selected symbol from yfinance + Polygon + finviz into
-de-duplicated, per-symbol collapsible tables, split into company-specific vs
-broader-context news via a code-only heuristic. It is **on-demand only** — never part of
-the fetch/analysis runs, not a `BaseFetcher`, no DB.
-Two report actions build on this News view: **Generate news PDF** (headlines → `reports/`) and
-**Generate AI news reports** (`reporting/ai_news_report.py`), which scrapes full article bodies
-via `data_layer.news.fetch_article` — a direct-fetch → **Jina Reader** fallback chain
-(`r.jina.ai`; optional free `JINA_API_KEY`, toggle `ARTICLE_SCRAPE_USE_JINA`; `X-Remove-Selector`
-strips boilerplate) — into per-symbol `<sym>_ai_news_report.md`. The **`/make_news_reports`** skill
-turns each `.md` into a plain-language, dyslexia-friendly `<sym>_ai_news_report_summary.pdf`
-(`reporting/ai_news_summary.py` on the generic `core/pdf.py` PDF engine). Generated `reports/` +
-`ai_news_reports/` are gitignored.
-The
-Filter page (Topic 5) is backed by `ui/filter_registry.py` (per-`screen_type` metric
-applicability) + `ui/filter_engine.py` (block model + `.filt` JSON). Each filter also
-carries a free-text markdown **Notes** (`comment`) field — editable on the Filter page
-(collapsible, live `st.markdown` preview + a width slider), saved in the `.filt`, shown
-read-only on Output, and auto-filled by the `make_filters` skill (what it does / how to
-tweak / how to sort). Each Run Filter
-persists a run file (`ui/output_runs.py`: parquet+json in `results/`, newest
-`OUTPUT_RUNS_KEEP` kept) and auto-opens `/output?run=<id>` in its own browser tab;
-the sidebar Output page is a recent-runs launcher. Column-set save/load (`.prms`),
-multi-sort, row-select and the Action menu are built; symbol/param **selections**
-persist via `ui/selection_io.py` (`.syms`/`.prms` in `SELECTIONS_DIR`). Build order is
-strictly **Data → Analysis → UI**, each layer completed fully before starting the
-next (no thin end-to-end slices).
+`core/meminfo.py` (Win32 ctypes, no psutil).
+
+The **UI is React + FastAPI** (migrated from Streamlit 2026-07-28, which is now
+removed). All nine screens are ported: Fetch Control, Filter, Output, Charts,
+Sector Indices, Scoring Rules, Parameters, Utilities and Settings. Notable
+behaviour, since it differs from the Streamlit original:
+
+* **Fetch Control streams live progress** over SSE (`GET /api/fetch/stream`) —
+  run-state transitions plus a tail of `logs/famarket.log`. The Streamlit page
+  had none; it read the state file once per rerun. Runs remain detached OS
+  processes, so neither the server restarting nor every tab closing interrupts
+  one.
+* **Output** ships a whole run frame in one columnar response, so sorting,
+  column show/hide and selection are instant and local. Multi-level sort is
+  shift-click on the headers (up to 4 levels) — the old separate sort panel
+  existed only because `st.dataframe` headers can't be clicked.
+* **Charts** keep the `?view=` contract (`price`, `fundamentals_bar`,
+  `fundamentals_line`, `radar`, `dividend_line`, `heatmap`, `scores_heatmap`,
+  `news`, `filter_fail`). The price view keeps the sector/industry
+  relative-strength tree and its 3-way Relative / Symbols / Index toggle.
+* **Settings** builds its form from a schema the API serves
+  (`services/settings_schema.py`), and embeds the peak-detection calibration
+  tuner as a section — sliders for `PEAK_PROMINENCE`/`PEAK_DISTANCE` over
+  behaviour-picked sample stocks, using the same
+  `analysis_layer/technical.trend_signals` a real run uses.
+* **News** (`data_layer/news.py`) is unchanged and still on-demand only — never
+  part of a fetch run, not a `BaseFetcher`, no DB. Both report actions remain:
+  a headlines PDF, and the AI news markdown that `/make_news_reports` turns into
+  per-stock summary PDFs.
+
+Filters are still backed by `services/filter_registry.py` (per-`screen_type`
+metric applicability) + `services/filter_engine.py` (block model + `.filt`
+JSON), and each Run Filter persists a run file (`services/output_runs.py`:
+parquet+json in `results/`, newest `OUTPUT_RUNS_KEEP` kept) then opens
+`/output?run=<id>` in a new tab. `.filt` files carry both a free-text markdown
+`comment` and read-only `ai_instructions`; selections persist via
+`services/selection_io.py` (`.syms`/`.prms` in `SELECTIONS_DIR`).
 
 ## Commands
 
 ```powershell
 python -m venv .venv; .\.venv\Scripts\Activate.ps1   # create + activate venv
-pip install -r requirements.txt                        # install deps
+pip install -r requirements.txt                        # install Python deps
 copy .env.template .env                                # then fill in API keys
-streamlit run app.py                                   # launch the UI
+cd frontend; npm install; npm run build; cd ..         # front end (once, then after UI edits)
+python scripts/serve_ui.py                             # launch the UI (serves dist + API)
 python -m scripts.discover_symbols --edgar             # symbol discovery (EDGAR, no key)
 python -m scripts.discover_symbols --show              # summarize symbols.db
 ```
+
+`frontend/dist` is gitignored, so a fresh clone must `npm run build` once before
+`serve_ui.py` will start (it refuses with a clear message otherwise). For
+front-end work use two terminals instead: `python -m uvicorn api.main:app
+--reload` and `npm run dev` (Vite proxies `/api`, open :5173).
+
+Type-check with `npx pyright api services` and, in `frontend/`, `npx tsc -b`.
 
 There is **no test framework** — this is a deliberate decision (ROADMAP Topic 9.1).
 Verification is manual: ad-hoc scripts written as needed, plus the VSCode SQLite
@@ -119,10 +117,17 @@ Three intentionally decoupled layers plus shared infrastructure:
   `earnings_surprise`/`ownership` tables in `signals.db`),
   `scoring`, orchestrated by `pipeline.run_analysis()`. Only processes symbols with
   `is_active=True` AND `is_validated=True`.
-- **`ui/`** + **`app.py`** — Streamlit multipage app (registered via
-  `st.navigation` in `app.py`, pages under `ui/pages/`): Fetch Control, Filter,
-  Output, Sector Indices, Parameters, Utilities, Settings (Settings embeds the peak-detection
-  calibration tuner via `ui/calibration.render()`).
+- **`api/`** — FastAPI: app factory, presence-WebSocket lifecycle, native file
+  dialogs, and one router per UI area under `api/routers/`. Deliberately thin —
+  an endpoint wraps existing functions and holds no business logic. If a
+  computation is needed it belongs in `services/`.
+- **`services/`** — UI-agnostic view logic; imports neither FastAPI nor any UI
+  framework, so it stays runnable from a plain script. Holds the chart /
+  fundamentals / scores / indices series builders, the filter engine + registry,
+  run and selection persistence, the settings schema, calibration, the fetch
+  watcher and the email bodies.
+- **`frontend/`** — the Vite + React + TypeScript app. Pages and chart libraries
+  are lazily chunked, so a tab downloads only what it opens.
 - **`core/`** — `database.py` (the SQLite wrapper), `logging_config.py`,
   `backup.py`. Used by every layer.
 - **`config/`** — `settings.py` (all non-sensitive, UI-editable settings),
@@ -187,8 +192,8 @@ Three intentionally decoupled layers plus shared infrastructure:
   fails with CERTIFICATE_VERIFY_FAILED, so `core/net.configure_tls()` MUST run
   before any network call — it patches stdlib/`requests` via `truststore` and
   points `CURL_CA_BUNDLE` (for yfinance's `curl_cffi`) at a merged
-  certifi+OS-store bundle. `app.py` and `symbols.run_discovery()` already call it;
-  any new entry point (scripts, fetch orchestrator) must too.
+  certifi+OS-store bundle. `api/main.py` and `symbols.run_discovery()` already
+  call it; any new entry point (scripts, fetch orchestrator) must too.
 - **Canonical symbol key**: the normalized form (`symbol`, yfinance/E*Trade
   convention) is the join key across every database; the raw Polygon ticker is
   kept in `polygon_symbol`. `symbols.normalize_symbol()` does the conversion.
@@ -226,89 +231,90 @@ Three intentionally decoupled layers plus shared infrastructure:
   (`12.5`, not `0.125`), and every `config/param_hints.py` entry declares a `unit`.
 - **`config/param_hints.py` is the ONE canonical hint registry** — `name`, `category`,
   `unit`, `what_it_is`, `how_to_use`, `vs_peers` per key. **System requirement: every
-  parameter exposed for filtering (every `ui/filter_registry.py` base metric) MUST have a
+  parameter exposed for filtering (every `services/filter_registry.py` base metric) MUST have a
   `param_hints.py` entry** — add the hint in the same change that adds the metric. The UI
   reads hints ONLY from here (Filter picker ▸ info, Output column headers, the radar's
   category info row, etc.) — never hardcode a description in a page. Category scores
   (`*_score`) are registry keys too (`category: "Score"`). To verify nothing slipped:
   cross-check `R.BASE_BY_KEY` against `PARAM_HINTS` (currently 98/98, 0 missing).
-- **No explainer text in the UI** — don't add `st.caption`/`st.markdown` blurbs that
-  describe what a control does or how to use it (they clutter the UI, 2026-06-21). The
-  sanctioned hint mechanism is `config/param_hints.py` hint boxes + widget `help=`
-  tooltips. Keep ONLY status/error/empty messages and captions that show **data**
-  (counts, names, plotted-data subtitles, sort state). `ui/pages/param_reference.py` is
-  intentional documentation — exempt.
-- **Charts** are rendered with **Apache ECharts** (`streamlit-echarts`, pinned
-  `==0.4.0` — 0.7.0 uses `st.components.v2` and breaks on the current Streamlit).
-  Use a color-blind-safe palette (no red/green; blue-to-orange for heatmaps); the
-  price chart's dark theme + bright palette + gap-break helper now live in
-  `ui/chart_theme.py` (`COLORWAY`/`DARK_*`/`echarts_points`), shared by the price
-  chart and the Calibration chart. `settings.CHART_COLORWAY` is the default palette
-  for any other chart. Multi-series legends go through `ui/chart_theme.legend_style()`
-  (filled-swatch on/off icons + dimmed inactive color so toggled lines are readable) —
-  don't hand-roll a per-chart legend dict. Likewise, chart hover tooltips go through
-  `ui/chart_theme.tooltip_style()` (the shared translucent box) — don't inline a
-  per-chart tooltip dict.
-- **Streamlit live updates** use `st.fragment(run_every=…)`, never a
-  `time.sleep() + st.rerun()` poll loop — the blocking sleep freezes the script
-  between ticks and silently drops widget input (e.g. a Stop click). A button that
-  must register during an auto-refreshing view uses an `on_click` callback, not its
-  return value. `st.expander` cannot be nested (use `st.popover` inside an expander).
-  **Never put an ECharts/iframe chart — or any widget that triggers a rerun — inside a
-  collapsed `st.expander`**: the expander re-applies `expanded=False` on every rerun
-  (snapping shut the moment a control inside it is touched) and the chart's iframe mounts
-  at 0-width (renders blank). Use the self-managed collapse pattern instead — a header
-  `st.button` toggling a session flag, body rendered under `if flag:` (as the Output
-  column list and the Settings calibration section do).
-  **Keyed widgets ignore their `value=`/`index=` after the first render** (they read
-  their own session_state key thereafter), and a widget's own key **cannot be assigned
-  after that widget is instantiated in the same run**. So to repopulate widgets from a
-  Load/preset, drive them purely by key, stash the desired values in a NON-widget key,
-  and apply them at the TOP of the next run before the widgets render — never set the
-  widget keys inside the handler below them (see `ui/pages/filter.py` Security-Type load).
-  A keyed widget's value is also **dropped on any run where the widget isn't rendered**
-  (a collapsed section, a slider that hides it) unless re-pinned
-  (`st.session_state[k] = st.session_state.get(k, default)`) at the top of the run before
-  it would render (see the Filter Notes editor in `ui/pages/filter.py`).
-- **Streamlit CSS** all lives in the single `app.py` `<style>` block — never per-page
-  (it's injected after `set_page_config` and `app.py` reruns on every navigation, so it
-  styles all pages). Two gotchas: selectbox/multiselect **dropdown menus render in a
-  popover portaled OUTSIDE `[data-testid="stMain"]`**, so style them with global
-  `li[role="option"]` selectors; to target one specific widget, wrap it in
-  `st.container(key=…)` and select `[class*="st-key-…"]` (sizing a button down needs
-  `!important` to beat Streamlit's own button rules). **When targeting via a
-  `st-key-…` hook, use a DESCENDANT selector (`[class*="st-key-…"] button`), never a
-  direct child (`… > button`)** — Streamlit (1.58) puts the `st-key-<key>` class on an
-  OUTER container with the real widget nested below it, so `>` silently matches nothing
-  (this looks like a caching bug but isn't). Direct-child `>` is still fine off a
-  widget's OWN class (`.stButton > button`). Verify a selector by grepping the frontend
-  JS (`.venv/.../streamlit/static/static/js/*.js`) across ALL chunks before trusting it.
+- **No explainer text in the UI** — don't add caption/blurb text describing what a
+  control does or how to use it (it clutters the UI, 2026-06-21). The sanctioned
+  hint mechanism is `config/param_hints.py` hint boxes plus `title=` tooltips.
+  Keep ONLY status/error/empty messages and captions that show **data** (counts,
+  names, plotted-data subtitles, sort state). The Parameters page
+  (`frontend/src/pages/ParametersPage.tsx`) is intentional documentation — exempt.
+- **Charts** use TWO libraries by shape, and a tab downloads only the one it
+  opens: **Lightweight Charts** for dense time series (price, sector indices,
+  calibration) and **ECharts** for bar / radar / heat map, which Lightweight
+  Charts cannot draw. Wrappers: `frontend/src/components/PriceChart.tsx` and
+  `EChart.tsx`; shared palette and layout in `frontend/src/components/chartTheme.ts`.
+  **The chart is created ONCE and mutated after** — `setData`, `setMarkers`,
+  add/remove series. Never recreate it on re-render, and call `fitContent()`
+  only when the SUBJECT changes (symbol set, window, mode), tracked with a key.
+  Acceptance test for any chart change: zoom into a region, then toggle a series
+  or drag a slider — the zoom must not reset. Tree-shaken ECharts needs every
+  chart type and component registered via `echarts.use([...])` or `setOption`
+  fails at runtime, silently for some components; it also doesn't watch its
+  container, so resize via `ResizeObserver` and `dispose()` on unmount.
+- **Colour is never the only cue.** No red/green anywhere: blue is up, amber is
+  down, and errors/warnings use amber. The series palette is Okabe-Ito
+  (`SERIES_COLORS`), reordered for red-weak vision. Pair colour with a second
+  cue chosen to fit the chart's DENSITY — on dense series that means a direct
+  label at the line's right edge plus a named readout strip, NOT a dash pattern
+  (at ~750 points a dash reads as noise, or as gaps that aren't there);
+  `SERIES_DASH` exists but is documented sparse-charts-only. Heat-map cells
+  print their value as well as colouring it. A dashed line is still fine for a
+  REFERENCE level (the flat 100 baseline) — that marks "not data", a different
+  job from identity.
+- **A chart host cannot be allowed to collapse**: give it a `relative` parent
+  with a `min-h-*` fallback and mount the chart in an `absolute inset-0` child.
+  Sized only by `flex-1`/`h-full` inside an `overflow-auto` ancestor, it
+  collapses to a sliver.
+- **Long jobs stream over SSE**, never a polling loop: the server holds the
+  state (on disk, for fetches), sends a full snapshot on connect, then pushes
+  only on change. `EventSource` reconnects for free, which a WebSocket would
+  need hand-written retry for. Whatever the UI shows must be part of the
+  stream's change key — see `services/fetch_watch.version()`, which watches the
+  stop flag as well as the run state, because requesting a stop changes neither
+  the state file nor the log.
+- **The virtualised table owns its own scroll element** (`frontend/src/components/DataTable.tsx`):
+  never wrap it in another `overflow-auto` container or scrolling stops working.
+  Its row component is memoised — without that, every scroll tick re-renders
+  every visible row's cells. `tableLayout: fixed` with explicit widths, or the
+  browser re-flows columns as you scroll.
+- **Search params are validated in `frontend/src/lib/search.ts`**, a separate
+  module on purpose: `validateSearch` runs at router setup and is statically
+  imported, so putting it in a page file drags that page into the main chunk and
+  kills its lazy import.
 - **Backups**: `core/backup.py` keeps the newest 5 dated copies of every `.db`
   (`{stem}_{YYYY-MM-DD_HH-MM-SS}{suffix}`), taken before each fetch run; one run stamps
   all DBs with a single timestamp, so each stamp is one consistent snapshot.
   Count-capped, not day-based. Same scheme backs up the run log and `config/settings.py`.
   `core/restore.py` reverts the live DBs to a chosen snapshot (Fetch Control danger
   zone), copying the current DBs to `backups/pre_restore/` first as a one-level undo.
-- **File Open/Save dialogs go through `ui/file_io.py`** (`ask_open_path` /
-  `ask_save_path`) — the app's ONE file chooser. It pops a **native OS dialog**
-  (tkinter) run **out-of-process** (tkinter needs the main thread; Streamlit runs the
-  script on a worker thread, so an in-process dialog would crash/freeze). Chosen
-  deliberately over the browser's `file_uploader`/`download_button` because the app is
-  local & single-user, so a native dialog can start in / save straight to a folder
-  (e.g. `FILTERS_DIR`) and offers plain Save/Load buttons — a browser chooser can do
-  neither. **This ties file dialogs to running on the user's own desktop**; a
-  cloud/remote move would have to switch back to the browser chooser. The utility only
-  picks the path — each file type owns its (de)serialisation (e.g.
-  `filter_engine.save_filterset_to` / `load_filterset_from` for `.filt`). Reuse it for
-  any future file picker; don't hand-roll `st.file_uploader`.
-- **Selections (chosen items + per-item info) persist via `ui/selection_io.py`** — the
+- **File Open/Save dialogs go through `api/dialogs.py`** — the app's ONE file
+  chooser. It pops a **native OS dialog** (tkinter) in a **child process**, and
+  the endpoint awaits it with `asyncio.create_subprocess_exec` so the event loop
+  keeps serving other requests (SSE, polling) while the dialog sits open;
+  blocking `subprocess.run` would freeze every endpoint. Concurrent dialogs are
+  serialised with a lock (409 if one is already open). Chosen deliberately over
+  the browser's file picker because the app is local and single-user, so a
+  native dialog can start in / save straight to a folder (e.g. `FILTERS_DIR`)
+  and offers plain Save/Load buttons — a browser chooser can do neither. **This
+  ties file dialogs to running on the user's own desktop**; a cloud move would
+  have to switch to the browser chooser. The utility only picks the path — each
+  file type owns its (de)serialisation (e.g. `filter_engine.save_filterset_to`).
+  A `fake_path` field skips tkinter for headless checks.
+- **Selections (chosen items + per-item info) persist via `services/selection_io.py`** — the
   ONE place for "save/load a SET of items". Two kinds, one JSON shape (a dict keyed by
   item; insertion order = saved order), both in the single `settings.SELECTIONS_DIR`
   folder, suffix telling them apart: **`.syms`** symbol sets (per-symbol info =
   Company/Sector/Industry from analysis.db) and **`.prms`** parameter/column sets
-  (per-param info = the param's `param_hints` entry). Built on `file_io` dialogs
-  (`save_dialog`/`load_dialog` by `kind`); the typed filename IS the name (no pre-naming
-  field). Item KEYS drive behaviour on load; the info is descriptive snapshot metadata.
+  (per-param info = the param's `param_hints` entry). The module only reads and
+  writes — CHOOSING the path is the caller's job (`api/dialogs.py`), which keeps
+  it importable from a script with no UI. The typed filename IS the name (no
+  pre-naming field). Item KEYS drive behaviour on load; the info is descriptive
+  snapshot metadata.
   Wired into Output (Custom Symbols box, results-selection Action menu, parameter-columns
   Swap/Add) and Fetch Control (dev subset). Don't add a parallel selection store — extend
   this (add a kind to its registry).
