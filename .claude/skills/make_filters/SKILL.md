@@ -27,8 +27,8 @@ natural language.)
   block model + `.filt` JSON shape, the units table, the N/A gotchas + calibration
   values (§7), the practice-evidence notes (§8) and the sort-guidance table (§9).
 - **The code stays the source of truth.** If the doc is missing or contradicts the
-  code, fall back to `ui/filter_engine.py` (block model + persistence),
-  `ui/filter_registry.py` (per-screen_type applicability),
+  code, fall back to `services/filter_engine.py` (block model + persistence),
+  `services/filter_registry.py` (per-screen_type applicability),
   `analysis_layer/scoring_rules.py` (Score variant) and `config/param_hints.py`
   (units) — and tell the user the doc needs a refresh pass.
 - Filter variants (Value / vs Sector / vs Industry / Score): use them where the
@@ -71,7 +71,7 @@ natural language.)
 Before writing the value of ANY numeric block, look up the param's `"unit"` (in
 `screening_system.md` §3 or `config/param_hints.py`). The filter engine compares your
 literal against the **raw stored column value with no unit conversion**
-(`ui/filter_engine.py`), so a threshold written in the wrong scale silently
+(`services/filter_engine.py`), so a threshold written in the wrong scale silently
 matches nothing. Map the unit through this table (mirrors `screening_system.md` §2):
 
 | `unit`   | Meaning / scale | Write a threshold as… |
@@ -181,7 +181,7 @@ reimplement either:
 ```python
 from core.database import Database
 from config import settings
-from ui import filter_engine as FE
+from services import filter_engine as FE
 from scripts.validate_filt import validate_payload
 
 types  = ["standard"]          # the filter's selected_types

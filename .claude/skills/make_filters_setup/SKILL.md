@@ -25,8 +25,8 @@ Only when the user types `/make_filters_setup`. Typical moments:
 | What | File |
 |---|---|
 | Params, units, usage hints | `config/param_hints.py` |
-| Screen types + per-type applicability | `ui/filter_registry.py` |
-| Block model, operators, `.filt` format | `ui/filter_engine.py` |
+| Screen types + per-type applicability | `services/filter_registry.py` |
+| Block model, operators, `.filt` format | `services/filter_engine.py` |
 | Scoring rules → goodness ("Score" variant) | `analysis_layer/scoring_rules.py` |
 | Screen-type keys + classifier | `analysis_layer/screen_type.py` |
 | Authoring procedure (doc §6 mirrors it) | `.claude/skills/make_filters/SKILL.md` |

@@ -12,8 +12,8 @@ Source files this doc summarizes (re-read them only when detail beyond this doc 
 | Topic | File |
 |---|---|
 | Param hints (name/category/unit/usage — canonical registry) | `config/param_hints.py` |
-| Screen types + per-type metric applicability | `ui/filter_registry.py` |
-| Filter block model, operators, `.filt` persistence | `ui/filter_engine.py` |
+| Screen types + per-type metric applicability | `services/filter_registry.py` |
+| Filter block model, operators, `.filt` persistence | `services/filter_engine.py` |
 | Scoring rules → 0-100 goodness (the "Score" variant) | `analysis_layer/scoring_rules.py` |
 | Filter build procedure, gotchas, calibration | `.claude/skills/make_filters/SKILL.md` |
 | Worked `.filt` examples | `filters/*.filt` |
@@ -192,7 +192,7 @@ column (100 = strong). A rule = **shape** + **anchor**:
 
 ## 5. Filter system — block model and semantics
 
-### Block JSON shape (`ui/filter_engine.py`)
+### Block JSON shape (`services/filter_engine.py`)
 
 ```json
 {
@@ -280,7 +280,7 @@ this is the condensed mirror:
 ```python
 from core.database import Database
 from config import settings
-from ui import filter_engine as FE
+from services import filter_engine as FE
 from scripts.validate_filt import validate_payload   # structural checks
 
 types  = ["standard"]
