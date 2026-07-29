@@ -20,7 +20,7 @@ const routes = [
     getParentRoute: () => rootRoute,
     path: "/",
     beforeLoad: () => {
-      throw redirect({ to: "/parameters" });
+      throw redirect({ to: "/fetch" });
     },
   }),
   createRoute({

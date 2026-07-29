@@ -311,6 +311,16 @@ export function OutputRun({ runId }: { runId: string }) {
             >
               <FolderOpen size={12} /> Add
             </Button>
+            <Button
+              size="sm"
+              disabled={paramCols.length === 0}
+              onClick={() => {
+                setParamCols([]);
+                setHidden(new Set());
+              }}
+            >
+              Clear
+            </Button>
           </div>
         }
       >
