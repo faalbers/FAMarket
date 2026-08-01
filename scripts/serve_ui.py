@@ -14,6 +14,8 @@ are done with it.
 from __future__ import annotations
 
 import argparse
+import socket
+import subprocess
 import sys
 import threading
 import webbrowser
@@ -30,6 +32,43 @@ from api.main import DIST, app  # noqa: E402
 from data_layer import run_state  # noqa: E402
 
 
+def _port_owner(port: int) -> str | None:
+    """Best-effort 'PID N (name.exe)' for whatever already holds `port`.
+
+    Shells out to netstat/tasklist (both stdlib-free, built into Windows) rather
+    than adding psutil as a dependency — same call as `core/meminfo.py` makes for
+    RAM stats without a new package."""
+    try:
+        netstat = subprocess.run(
+            ["netstat", "-ano", "-p", "TCP"], capture_output=True, text=True, timeout=5
+        ).stdout
+    except Exception:
+        return None
+    pid = None
+    for line in netstat.splitlines():
+        parts = line.split()
+        if len(parts) >= 5 and parts[0] == "TCP" and parts[1].endswith(f":{port}") and parts[3] == "LISTENING":
+            pid = parts[-1]
+            break
+    if not pid:
+        return None
+    try:
+        tasklist = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout
+        name = tasklist.split(",")[0].strip('"') if tasklist.strip() else "unknown"
+    except Exception:
+        name = "unknown"
+    return f"PID {pid} ({name})"
+
+
+def _port_in_use(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        return s.connect_ex((host, port)) == 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     # 8000 is left alone deliberately — a local MCP server owns it on this machine.
@@ -40,6 +79,17 @@ def main() -> None:
 
     if not DIST.is_dir():
         raise SystemExit("frontend/dist not found — run `npm run build` in frontend/ first")
+
+    # Preflight: uvicorn's own bind failure is a bare WinError with no way to tell
+    # "something old is still running" from "something else entirely is on this
+    # port" — this gives an actionable message (and the PID to stop) up front.
+    if _port_in_use("127.0.0.1", args.port):
+        owner = _port_owner(args.port)
+        detail = f" — looks like {owner}" if owner else ""
+        raise SystemExit(
+            f"Port {args.port} is already in use{detail}. "
+            f"Stop that process first, or pass --port to use a different one."
+        )
 
     config = uvicorn.Config(app, host="127.0.0.1", port=args.port, log_level="info")
     server = uvicorn.Server(config)

@@ -23,6 +23,7 @@ Normalized article shape (one dict per article, before de-dup):
 from __future__ import annotations
 
 import re
+from typing import Callable
 
 import pandas as pd
 from ratelimit import limits, sleep_and_retry
@@ -421,10 +422,19 @@ def _dedup(articles: list[dict]) -> list[dict]:
     return merged
 
 
-def fetch_news(symbols, sources=None) -> pd.DataFrame:
+def fetch_news(
+    symbols,
+    sources=None,
+    on_progress: Callable[[str, int, int], None] | None = None,
+) -> pd.DataFrame:
     """Aggregate recent news for `symbols` from `sources` into one de-duplicated,
     newest-first DataFrame: Symbol, Published, Title, Url, Publisher, Sources,
-    Sentiment. Missing sources/keys degrade gracefully (logged, skipped)."""
+    Sentiment. Missing sources/keys degrade gracefully (logged, skipped).
+
+    `on_progress(symbol, done, total)`, if given, fires before each symbol's
+    turn (`done` = symbols already completed) — the sole hook the API layer
+    needs to stream progress, since this loop is otherwise blocking (rate-limited
+    network calls)."""
     symbols = [str(s).strip().upper() for s in symbols if str(s).strip()]
     sources = tuple(sources) if sources else settings.NEWS_SOURCES
     count = settings.NEWS_ARTICLES_PER_SOURCE
@@ -446,7 +456,9 @@ def fetch_news(symbols, sources=None) -> pd.DataFrame:
             log.warning("news polygon disabled: %s", exc)
 
     articles: list[dict] = []
-    for sym in symbols:
+    for i, sym in enumerate(symbols):
+        if on_progress:
+            on_progress(sym, i, len(symbols))
         if yf_get is not None:
             articles += _from_yfinance(yf_get, sym, count)
         if poly_get is not None:

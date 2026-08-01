@@ -87,7 +87,7 @@ export function FetchPage() {
       setLines((prev) => [...prev, ...data.lines!].slice(-MAX_LINES));
     }
   }, []);
-  const connected = useEventStream<Snapshot>("/api/fetch/stream", onMessage);
+  const { connected } = useEventStream<Snapshot>("/api/fetch/stream", onMessage);
 
   // Follow the tail, but stop fighting the user once they scroll up.
   useEffect(() => {

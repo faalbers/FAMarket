@@ -225,7 +225,13 @@ class BaseFetcher(ABC):
                         if rows is not None and not rows.empty:
                             frames.append(rows)
                             b_data += 1
-                            fetch_status.mark_success(status_db, sym, self.name)
+                            # Generic extension point: a fetcher can stage a
+                            # {"actual", "expected"} dict on self._pending_flag
+                            # during fetch_one (e.g. yfinance_ohlcv's coverage
+                            # check) to have it persisted with THIS symbol's
+                            # last_fetched timestamp — see fetch_status.mark_success.
+                            coverage = getattr(self, "_pending_flag", None)
+                            fetch_status.mark_success(status_db, sym, self.name, coverage=coverage)
                         else:  # checked OK, but the symbol has no data
                             b_empty += 1
                             count = fetch_status.mark_no_data(status_db, sym, self.name)

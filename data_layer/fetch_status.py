@@ -12,6 +12,21 @@ A fetch ends one of three ways (see data_layer/fetchers/base.py):
   * no data -> mark_no_data: stamp last_fetched, reset errors, increment no_data.
   * failure -> mark_error:   leave last_fetched, increment errors (retried next run).
 
+Coverage flag (yfinance_ohlcv only): mark_success accepts an optional
+`coverage` dict when a fetcher's own validity check (see
+data_layer/fetchers/yfinance_fetcher.py _check_coverage) flags a symbol.
+coverage_actual/coverage_expected/coverage_checked_at are sparse — written
+ONLY on a flagged fetch, left untouched on a clean one, so they preserve the
+last time a symbol was ever flagged. coverage_checked_at is ALWAYS stamped
+with the exact same timestamp value as last_fetched for that write (one
+`now`, one statement) — never a separately-captured clock read. That is what
+makes "still flagged" a plain `coverage_checked_at == last_fetched` equality
+check and "flagged, since fixed by a later fetch" a `<` check — see
+coverage_flags(). Do not change this to two independent `datetime.now()`
+calls; _check_coverage runs inside fetch_one, which returns before
+mark_success is called, so two separate reads would make a fresh flag look
+stale immediately.
+
 Abandonment: once no_data_count reaches settings.MAX_NO_DATA_FETCHES the pair is
 permanently skipped on normal runs — a delisted ticker that keeps returning
 nothing stops costing API calls forever. The counter resets the instant data
@@ -45,18 +60,25 @@ def ensure_table(db: Database) -> None:
     db.execute(
         f"""
         CREATE TABLE IF NOT EXISTS {TABLE} (
-            symbol        TEXT NOT NULL,
-            fetcher_name  TEXT NOT NULL,
-            last_fetched  TEXT,
-            fetch_errors  INTEGER NOT NULL DEFAULT 0,
-            no_data_count INTEGER NOT NULL DEFAULT 0,
+            symbol              TEXT NOT NULL,
+            fetcher_name        TEXT NOT NULL,
+            last_fetched        TEXT,
+            fetch_errors        INTEGER NOT NULL DEFAULT 0,
+            no_data_count       INTEGER NOT NULL DEFAULT 0,
+            coverage_actual     INTEGER,
+            coverage_expected   INTEGER,
+            coverage_checked_at TEXT,
             PRIMARY KEY (symbol, fetcher_name)
         )
         """
     )
-    # Migrate older DBs created before the no-data abandonment counter existed.
+    # Migrate older DBs created before these columns existed.
     if "no_data_count" not in db.columns(TABLE):
         db.execute(f"ALTER TABLE {TABLE} ADD COLUMN no_data_count INTEGER NOT NULL DEFAULT 0")
+    for col in ("coverage_actual", "coverage_expected", "coverage_checked_at"):
+        if col not in db.columns(TABLE):
+            ddl = "TEXT" if col == "coverage_checked_at" else "INTEGER"
+            db.execute(f"ALTER TABLE {TABLE} ADD COLUMN {col} {ddl}")
 
 
 def is_locked(
@@ -164,17 +186,45 @@ def due_symbols(
     return classify_skips(db, symbols, fetcher_name, lock_days, respect_lock)[0]
 
 
-def mark_success(db: Database, symbol: str, fetcher_name: str) -> None:
-    """Record a fetch that returned data (last_fetched=now, BOTH counters reset)."""
-    db.conn.execute(
-        f"""
-        INSERT INTO {TABLE} (symbol, fetcher_name, last_fetched, fetch_errors, no_data_count)
-        VALUES (?, ?, ?, 0, 0)
-        ON CONFLICT(symbol, fetcher_name)
-        DO UPDATE SET last_fetched=excluded.last_fetched, fetch_errors=0, no_data_count=0
-        """,
-        (symbol, fetcher_name, _now_iso()),
-    )
+def mark_success(
+    db: Database, symbol: str, fetcher_name: str, coverage: dict | None = None
+) -> None:
+    """Record a fetch that returned data (last_fetched=now, BOTH counters reset).
+
+    `coverage` (optional `{"actual": int, "expected": int}`) is set by a
+    fetcher's own validity check (e.g. yfinance_ohlcv's coverage check) to
+    flag this fetch. When given, coverage_checked_at is stamped with the SAME
+    `now` used for last_fetched in this one statement — see module docstring
+    for why that invariant matters. When omitted, the 3 coverage columns are
+    left untouched (sparse: only ever written on a flagged fetch).
+    """
+    now = _now_iso()
+    if coverage is not None:
+        db.conn.execute(
+            f"""
+            INSERT INTO {TABLE} (
+                symbol, fetcher_name, last_fetched, fetch_errors, no_data_count,
+                coverage_actual, coverage_expected, coverage_checked_at
+            )
+            VALUES (?, ?, ?, 0, 0, ?, ?, ?)
+            ON CONFLICT(symbol, fetcher_name)
+            DO UPDATE SET last_fetched=excluded.last_fetched, fetch_errors=0, no_data_count=0,
+                          coverage_actual=excluded.coverage_actual,
+                          coverage_expected=excluded.coverage_expected,
+                          coverage_checked_at=excluded.coverage_checked_at
+            """,
+            (symbol, fetcher_name, now, coverage["actual"], coverage["expected"], now),
+        )
+    else:
+        db.conn.execute(
+            f"""
+            INSERT INTO {TABLE} (symbol, fetcher_name, last_fetched, fetch_errors, no_data_count)
+            VALUES (?, ?, ?, 0, 0)
+            ON CONFLICT(symbol, fetcher_name)
+            DO UPDATE SET last_fetched=excluded.last_fetched, fetch_errors=0, no_data_count=0
+            """,
+            (symbol, fetcher_name, now),
+        )
     db.conn.commit()
 
 
@@ -226,3 +276,33 @@ def error_counts(db: Database, fetcher_name: str | None = None) -> dict:
         sql += " AND fetcher_name=?"
         params = (fetcher_name,)
     return {(s, f): n for s, f, n in db.conn.execute(sql, params).fetchall()}
+
+
+def coverage_flags(db: Database, fetcher_name: str | None = None) -> dict:
+    """Map (symbol, fetcher_name) -> coverage-flag info, for symbols ever flagged.
+
+    `active` is True when coverage_checked_at == last_fetched (this symbol's
+    most recent successful fetch is the one that flagged it); False means a
+    later clean fetch superseded the flag ("flagged, since fixed"). One query,
+    classified in Python — see error_counts() for the same pattern.
+    """
+    if not db.table_exists(TABLE):
+        return {}
+    sql = (
+        f"SELECT symbol, fetcher_name, coverage_actual, coverage_expected, "
+        f"coverage_checked_at, last_fetched FROM {TABLE} "
+        f"WHERE coverage_checked_at IS NOT NULL"
+    )
+    params: tuple = ()
+    if fetcher_name:
+        sql += " AND fetcher_name=?"
+        params = (fetcher_name,)
+    out = {}
+    for s, f, actual, expected, checked_at, last_fetched in db.conn.execute(sql, params).fetchall():
+        out[(s, f)] = {
+            "actual": actual,
+            "expected": expected,
+            "checked_at": checked_at,
+            "active": checked_at == last_fetched,
+        }
+    return out

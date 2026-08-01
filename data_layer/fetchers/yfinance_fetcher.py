@@ -39,7 +39,8 @@ from typing import TYPE_CHECKING
 import pandas as pd
 
 from config import settings, type_map
-from core.market_calendar import last_completed_session
+from core.database import Database
+from core.market_calendar import last_completed_session, session_count
 from data_layer import staleness
 from data_layer.fetchers.base import BaseFetcher
 
@@ -215,13 +216,81 @@ class YFinanceOHLCV(BaseFetcher):
     def fetch_one(self, symbol: str) -> pd.DataFrame | None:
         import yfinance as yf
 
+        # Per-symbol, must be cleared before each call so a previous symbol's
+        # flag can't leak onto a clean one — read by base.py's per-symbol loop
+        # right after this call returns.
+        self._pending_flag: dict | None = None
+
         hist = yf.Ticker(symbol).history(
             period=f"{settings.OHLCV_INITIAL_YEARS}y",
             auto_adjust=False,   # keep both Close and Adj Close
             actions=True,        # include Dividends + Stock Splits
         )
         rows = sanitize_ohlcv(symbol, hist)
-        return rows if not rows.empty else None
+        if rows.empty:
+            return None
+        self._check_coverage(symbol, rows, self._val_db)
+        return rows
+
+    def _check_coverage(self, symbol: str, rows: pd.DataFrame, db: Database) -> None:
+        """Flag a fetch that returned far fewer sessions than the symbol's own
+        stored history implies it should have (the Yahoo silent-truncation bug —
+        see dev_docs/Yfinance_History_Truncation_Issue.md). Accept-and-flag: the
+        rows are still written as normal (harmless, upsert never deletes). A flag
+        is surfaced three ways: a debug line now, a run-summary WARNING at the
+        end of `run()`, and — via self._pending_flag, read by base.py right
+        after fetch_one returns — persisted onto this symbol's fetch_status row
+        (coverage_actual/coverage_expected/coverage_checked_at) for durable,
+        queryable history (see fetch_status.coverage_flags()).
+
+        Skipped when there's no existing stored data for the symbol — a
+        first-ever fetch has no baseline to compare against.
+        """
+        if not settings.OHLCV_VALIDITY_CHECK_ENABLED:
+            return
+        existing = db.query('SELECT MIN(date) AS min_date FROM "ohlcv" WHERE symbol = ?', [symbol])
+        min_date = existing["min_date"].iloc[0] if not existing.empty else None
+        if min_date is None or pd.isna(min_date):
+            return  # no baseline yet
+
+        cutoff = last_completed_session()
+        if cutoff is None:
+            return
+        floor = cutoff - pd.DateOffset(years=settings.OHLCV_INITIAL_YEARS)
+        expected_start = max(pd.Timestamp(min_date), floor)
+        expected = session_count(expected_start, cutoff)
+        if expected <= 0:
+            return
+
+        actual = len(rows)
+        coverage = actual / expected
+        if coverage < settings.OHLCV_VALIDITY_MIN_COVERAGE_PCT:
+            self._flagged.append({"symbol": symbol, "actual": actual, "expected": expected})
+            self._pending_flag = {"actual": actual, "expected": expected}
+            self.log.debug(
+                "‖ %s coverage %.0f%% (%d/%d expected sessions since %s) — possible truncation",
+                symbol, coverage * 100, actual, expected, expected_start.date(),
+            )
+
+    def run(
+        self, symbols_df: pd.DataFrame, status_db: Database, respect_lock: bool = True
+    ) -> dict:
+        self._flagged: list[dict] = []
+        self._val_db = Database(settings.OHLCV_DB)
+        try:
+            result = super().run(symbols_df, status_db, respect_lock)
+        finally:
+            self._val_db.close()
+        if self._flagged:
+            sample = ", ".join(
+                f"{f['symbol']} ({f['actual']}/{f['expected']})" for f in self._flagged[:20]
+            )
+            self.log.warning(
+                "Coverage check — %d symbol(s) returned far fewer sessions than expected "
+                "(possible Yahoo truncation, see dev_docs/Yfinance_History_Truncation_Issue.md): %s%s",
+                len(self._flagged), sample, ", ..." if len(self._flagged) > 20 else "",
+            )
+        return result
 
 
 # --------------------------------------------------------------------------- #

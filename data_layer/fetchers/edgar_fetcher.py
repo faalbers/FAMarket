@@ -118,10 +118,19 @@ INSTANT_CONCEPTS: dict[str, list[str]] = {
     "retained_earnings": ["RetainedEarningsAccumulatedDeficit"],
     "inventory": ["InventoryNet"],
     "long_term_debt": ["LongTermDebtNoncurrent", "LongTermDebt"],
+    # Share counts (balance-sheet cover-page figures) — same columns yfinance's
+    # OrdinarySharesNumber/ShareIssued fill, so sector_index.py's shares-outstanding
+    # panel picks up EDGAR-backfilled history for free. Reported per CIK, not per
+    # listed class, so a multi-class company gets the SAME count on every one of its
+    # tickers — sector_index._dedupe_share_classes() is what guards against that.
+    "ordinary_shares_number": ["CommonStockSharesOutstanding"],
+    "share_issued": ["CommonStockSharesIssued"],
 }
 
 # EPS columns are reported in USD/shares, not USD.
 _SHARE_PRICE_COLS = frozenset({"basic_eps", "diluted_eps"})
+# Share-count columns are reported in the XBRL "shares" unit, not USD.
+_SHARE_COUNT_COLS = frozenset({"ordinary_shares_number", "share_issued"})
 # Columns whose XBRL sign is the opposite of yfinance's convention. EDGAR reports
 # cash outflows as positive payments (PaymentsToAcquire..., PaymentsOfDividends...);
 # yfinance stores these cash-flow lines negative. Negate so the shared column keeps
@@ -172,9 +181,12 @@ def _flow_freq(start: str | None, end: str | None) -> str | None:
 
 
 def _pick_unit(units: dict, col: str) -> list | None:
-    """Choose the unit series for a concept: USD/shares for EPS, else USD."""
+    """Choose the unit series for a concept: USD/shares for EPS, shares for share
+    counts, else USD."""
     if col in _SHARE_PRICE_COLS:
         return units.get("USD/shares")
+    if col in _SHARE_COUNT_COLS:
+        return units.get("shares")
     if "USD" in units:
         return units["USD"]
     # Fall back to the sole unit if there's exactly one (rare alt currencies).
@@ -217,6 +229,43 @@ def _merge_tags(
                 chosen[key] = valfiled
         claimed |= set(this_tag)
     return {k: v[0] for k, v in chosen.items()}
+
+
+def _drop_share_spikes(
+    points: dict[tuple[str, str], float],
+    spike_ratio: float = 2.0,
+) -> dict[tuple[str, str], float]:
+    """Drop an isolated bad share-count point (one-off XBRL tagging noise).
+
+    Share counts drift slowly period to period. A real split/buyback shifts the
+    level and STAYS there — the point right after it sits close to ITS OWN
+    successor, just far from what came before. A bad tag instead reverts right
+    back next period, so it reads as far from BOTH chronological neighbors —
+    that shape, not sheer size of the jump, is what marks it as noise rather
+    than a real corporate action. Quarterly and annual points are merged into
+    one chronological timeline first (a company's true share count doesn't
+    care which report cadence sampled it).
+
+    A rare cost: two independently-bad points close together can make the one
+    good point between them look like the outlier too, dropping it along with
+    the real noise. That's an acceptable trade — a dropped point just gets
+    interpolated from its neighbors in sector_index.py, a small smoothing,
+    versus leaving a wildly wrong share count driving the float-cap weighting
+    for a whole quarter.
+    """
+    seq = sorted(points.items(), key=lambda kv: kv[0][0])  # by period_end
+    dropped: set[tuple[str, str]] = set()
+    for i in range(1, len(seq) - 1):
+        key, val = seq[i]
+        _, prev = seq[i - 1]
+        _, nxt = seq[i + 1]
+        if prev <= 0 or nxt <= 0 or val <= 0:
+            continue
+        far_from_prev = val / prev > spike_ratio or prev / val > spike_ratio
+        far_from_next = val / nxt > spike_ratio or nxt / val > spike_ratio
+        if far_from_prev and far_from_next:
+            dropped.add(key)
+    return {k: v for k, v in points.items() if k not in dropped}
 
 
 def _fiscal_year_ends(facts: dict) -> set[str]:
@@ -267,6 +316,8 @@ def extract_financials(symbol: str, facts: dict) -> pd.DataFrame:
             cols[col] = m
     for col, tags in INSTANT_CONCEPTS.items():
         m = _merge_tags(facts, col, tags, _instant_freq)
+        if col in _SHARE_COUNT_COLS:
+            m = _drop_share_spikes(m)
         if m:
             cols[col] = m
 

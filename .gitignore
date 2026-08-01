@@ -39,6 +39,7 @@ reports/*.pdf
 
 # --- Per-symbol AI news reports (scraped article text; see reporting/ai_news_report.py) ---
 ai_news_reports/
+tempy/
 
 # --- Detached-fetch control state (machine-local; see data_layer/run_state.py) ---
 state/

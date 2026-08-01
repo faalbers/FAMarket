@@ -189,6 +189,18 @@ OHLCV_INITIAL_YEARS: int = 10
 # above, which stops *fetching* a stale symbol.)
 OHLCV_INACTIVE_AFTER_WEEKS: int = 8
 
+# Fetch-time validity check for the Yahoo silent-truncation bug (see
+# dev_docs/Yfinance_History_Truncation_Issue.md): a fetch can return far fewer
+# rows than a symbol's known trading history without raising an exception.
+# Detected by comparing the returned row count against the expected NYSE
+# session count for the symbol's own previously-stored window (skipped when
+# there's no prior data to compare against — e.g. a symbol's first-ever
+# fetch). Log-only: the bad rows are still written (harmless — upsert never
+# deletes, so older correct dates are untouched) and the symbol naturally
+# retries on the normal fetch cadence; this only makes the failure visible.
+OHLCV_VALIDITY_CHECK_ENABLED: bool = True
+OHLCV_VALIDITY_MIN_COVERAGE_PCT: float = 0.5   # flag if returned/expected sessions < this
+
 # Default batch size for batched API fetches (per-API overrides below).
 DEFAULT_BATCH_SIZE: int = 100
 

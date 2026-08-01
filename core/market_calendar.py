@@ -54,3 +54,15 @@ def last_completed_session(
     if completed.empty:
         return None
     return pd.Timestamp(completed.index[-1]).normalize()
+
+
+def session_count(start: pd.Timestamp, end: pd.Timestamp) -> int:
+    """Number of NYSE regular sessions in [start, end], inclusive.
+
+    Used to check a fetched OHLCV row count against the real trading calendar
+    (see data_layer/fetchers/yfinance_fetcher.py `_check_coverage`) rather than
+    assuming every calendar day in the window was a session.
+    """
+    cal = _calendar()
+    sched = cal.schedule(start_date=pd.Timestamp(start).date(), end_date=pd.Timestamp(end).date())
+    return len(sched)

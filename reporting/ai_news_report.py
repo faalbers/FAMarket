@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 
@@ -64,7 +65,13 @@ def _article_block(n: int, *, title: str, date, publisher: str, url: str,
     return "\n".join(head)
 
 
-def _build_markdown(symbol: str, company: str, about: pd.DataFrame, scrapers) -> str:
+def _build_markdown(
+    symbol: str,
+    company: str,
+    about: pd.DataFrame,
+    scrapers,
+    on_article: Callable[[], None] | None = None,
+) -> str:
     """Scrape each About row and render the symbol's full markdown document."""
     header = f"{symbol} ({company})" if company else symbol
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -82,6 +89,8 @@ def _build_markdown(symbol: str, company: str, about: pd.DataFrame, scrapers) ->
     ]
 
     for i, r in enumerate(about.itertuples(index=False), start=1):
+        if on_article:
+            on_article()
         url = getattr(r, "Url", "") or ""
         text, scraped_date = _news.fetch_article(url, scrapers=scrapers)
         date = scraped_date if scraped_date is not None else getattr(r, "Published", None)
@@ -97,13 +106,24 @@ def _build_markdown(symbol: str, company: str, about: pd.DataFrame, scrapers) ->
     return "\n".join(lines) + "\n"
 
 
-def generate_reports(df: pd.DataFrame, *, order=None, sym_meta=None) -> list[Path]:
+def generate_reports(
+    df: pd.DataFrame,
+    *,
+    order=None,
+    sym_meta=None,
+    on_progress: Callable[[str, int, int], None] | None = None,
+) -> list[Path]:
     """Scrape each symbol's About articles and write `<symbol>_ai_news_report.md`.
 
     df       — classified news frame (Symbol, Published, Title, Url, Publisher,
                summary, Relevance, …) — the same frame the Charts news view holds.
     order    — symbols in selection order (default: order of appearance in df).
     sym_meta — {symbol: {company, sector, industry}} for the document heading.
+    on_progress(symbol, done, total) — fires before each ARTICLE scrape (not each
+               symbol): the scrape, not the symbol loop, is what's slow (direct
+               fetch + Jina fallback, both rate-limited), so that's the unit
+               worth reporting progress on. `total` is the article count across
+               every symbol in the batch.
 
     Returns the written file paths. Overwrites any existing file per symbol.
     """
@@ -121,12 +141,25 @@ def generate_reports(df: pd.DataFrame, *, order=None, sym_meta=None) -> list[Pat
     scrapers = _news.build_scrapers()  # one shared throttle (direct + Jina) per batch
 
     has_rel = (not df.empty) and "Relevance" in df.columns
-    written: list[Path] = []
+    about_by_symbol = {}
     for sym in symbols:
         sub = df[df["Symbol"] == sym] if not df.empty else df
-        about = sub[sub["Relevance"] == "Company"] if has_rel else sub
+        about_by_symbol[sym] = sub[sub["Relevance"] == "Company"] if has_rel else sub
+    total_articles = sum(len(a) for a in about_by_symbol.values())
+
+    written: list[Path] = []
+    done = 0
+    for sym in symbols:
+        about = about_by_symbol[sym]
         company = ((sym_meta.get(sym) or {}).get("company") or "").strip()
-        md = _build_markdown(sym, company, about, scrapers)
+
+        def _tick(symbol=sym) -> None:
+            nonlocal done
+            if on_progress:
+                on_progress(symbol, done, total_articles)
+            done += 1
+
+        md = _build_markdown(sym, company, about, scrapers, on_article=_tick)
         path = out_dir / f"{_slug(sym)}_ai_news_report.md"
         path.write_text(md, encoding="utf-8")
         written.append(path)

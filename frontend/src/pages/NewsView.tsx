@@ -5,10 +5,11 @@
  * server caches for 15 minutes because Polygon's free tier allows 5 requests a
  * minute. Each symbol splits into company-specific and broader-context news.
  */
-import { useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, ExternalLink, FileDown, Sparkles } from "lucide-react";
-import { get, post } from "@/lib/api";
+import { post } from "@/lib/api";
+import { useEventStream } from "@/lib/useEventStream";
 import { Button, EmptyState, PageHeader, Panel, cn } from "@/components/ui";
 
 type Article = {
@@ -28,6 +29,17 @@ type Group = {
 };
 
 type NewsResponse = { symbols: string[]; groups: Group[]; sources: string[] };
+
+type Progress = { symbol: string; done: number; total: number };
+type StreamFrame =
+  | ({ type: "progress" } & Progress)
+  | ({ type: "result" } & NewsResponse)
+  | { type: "error"; detail: string };
+
+type AiReportFrame =
+  | ({ type: "progress" } & Progress)
+  | { type: "result"; files: string[]; directory: string }
+  | { type: "error"; detail: string };
 
 function ArticleTable({ rows }: { rows: Article[] }) {
   if (rows.length === 0) return <div className="px-3 py-2 text-[11px] text-dim">None.</div>;
@@ -60,15 +72,23 @@ function ArticleTable({ rows }: { rows: Article[] }) {
 }
 
 export function NewsView({ symbols }: { symbols: string[] }) {
-  const [open, setOpen] = useState<Set<string>>(new Set(symbols.slice(0, 1)));
+  const [open, setOpen] = useState<Set<string>>(new Set());
   const [note, setNote] = useState<string | null>(null);
+  const [data, setData] = useState<NewsResponse | null>(null);
+  const [progress, setProgress] = useState<Progress | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["news", symbols],
-    queryFn: () => get<NewsResponse>("/news", { symbols: symbols.join(",") }),
-    staleTime: 15 * 60_000,
-    retry: false,
+  const onMessage = useCallback((frame: StreamFrame) => {
+    if (frame.type === "progress") setProgress(frame);
+    else if (frame.type === "result") setData(frame);
+    else setError(frame.detail);
+  }, []);
+  const streamUrl = `/api/news/stream?symbols=${encodeURIComponent(symbols.join(","))}`;
+  const { failed } = useEventStream<StreamFrame>(streamUrl, onMessage, {
+    closeWhen: (frame) => frame.type === "result" || frame.type === "error",
   });
+
+  const isLoading = !data && !error && !failed;
 
   const pdf = useMutation({
     mutationFn: () => post<{ filename: string }>("/news/pdf", { symbols }),
@@ -79,12 +99,39 @@ export function NewsView({ symbols }: { symbols: string[] }) {
     onError: (err: Error) => setNote(err.message),
   });
 
-  const aiReports = useMutation({
-    mutationFn: () => post<{ files: string[]; directory: string }>("/news/ai-reports", { symbols }),
-    onSuccess: (res) =>
-      setNote(`Wrote ${res.files.length} markdown reports to ${res.directory}. Run /make_news_reports to turn them into summary PDFs.`),
-    onError: (err: Error) => setNote(err.message),
+  const [aiUrl, setAiUrl] = useState<string | null>(null);
+  const [aiRunning, setAiRunning] = useState(false);
+
+  const onAiMessage = useCallback((frame: AiReportFrame) => {
+    if (frame.type === "progress") {
+      setNote(`Scraping ${frame.symbol} — article ${frame.done + 1} of ${frame.total}`);
+    } else if (frame.type === "result") {
+      setAiRunning(false);
+      setAiUrl(null);
+      setNote(
+        `Wrote ${frame.files.length} markdown reports to ${frame.directory}. Run /make_news_reports to turn them into summary PDFs.`,
+      );
+    } else {
+      setAiRunning(false);
+      setAiUrl(null);
+      setNote(frame.detail);
+    }
+  }, []);
+  const { failed: aiFailed } = useEventStream<AiReportFrame>(aiUrl, onAiMessage, {
+    closeWhen: (frame) => frame.type === "result" || frame.type === "error",
   });
+  useEffect(() => {
+    if (!aiFailed) return;
+    setAiRunning(false);
+    setAiUrl(null);
+    setNote("Could not reach the AI news reports stream — the server may need a restart.");
+  }, [aiFailed]);
+
+  function startAiReports() {
+    setNote("Starting AI news reports…");
+    setAiRunning(true);
+    setAiUrl(`/api/news/ai-reports/stream?symbols=${encodeURIComponent(symbols.join(","))}`);
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -92,7 +139,9 @@ export function NewsView({ symbols }: { symbols: string[] }) {
         title="Latest news"
         caption={
           isLoading
-            ? "Fetching headlines — Polygon is rate-limited to 5 requests a minute, so this can take a moment."
+            ? progress
+              ? `Fetching ${progress.symbol}… (${progress.done + 1} of ${progress.total})`
+              : "Connecting…"
             : `${symbols.length} symbols · sources: ${data?.sources.join(", ") ?? "—"}`
         }
         actions={
@@ -100,11 +149,7 @@ export function NewsView({ symbols }: { symbols: string[] }) {
             <Button loading={pdf.isPending} onClick={() => pdf.mutate()}>
               <FileDown size={12} /> News PDF
             </Button>
-            <Button
-              loading={aiReports.isPending}
-              onClick={() => aiReports.mutate()}
-              title="Scrapes full article bodies — slow"
-            >
+            <Button loading={aiRunning} onClick={startAiReports} title="Scrapes full article bodies — slow">
               <Sparkles size={12} /> AI news reports
             </Button>
           </div>
@@ -113,9 +158,27 @@ export function NewsView({ symbols }: { symbols: string[] }) {
 
       <div className="min-h-0 flex-1 overflow-auto">
         {isLoading ? (
-          <EmptyState title="Fetching news…" />
+          <EmptyState
+            title={progress ? `Fetching ${progress.symbol}…` : "Connecting…"}
+            detail={progress ? `${progress.done + 1} of ${progress.total} symbols` : undefined}
+            action={
+              progress ? (
+                <div className="h-1.5 w-64 overflow-hidden rounded-full bg-line">
+                  <div
+                    className="h-full bg-accent transition-all"
+                    style={{ width: `${((progress.done + 1) / progress.total) * 100}%` }}
+                  />
+                </div>
+              ) : undefined
+            }
+          />
         ) : error ? (
-          <EmptyState title="Could not fetch news" detail={String(error)} />
+          <EmptyState title="Could not fetch news" detail={error} />
+        ) : failed ? (
+          <EmptyState
+            title="Could not connect"
+            detail="The news stream never responded — the server may need a restart (or a rebuild) to pick up the latest code."
+          />
         ) : (
           (data?.groups ?? []).map((group) => {
             const isOpen = open.has(group.symbol);

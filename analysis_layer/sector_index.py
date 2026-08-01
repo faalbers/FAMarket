@@ -340,6 +340,52 @@ def _liquid_symbols(symbols, ohlcv_by: dict) -> list[str]:
     return out
 
 
+def _dedupe_share_classes(symbols, shares_pts: pd.DataFrame, quotes: pd.DataFrame,
+                           ohlcv_by: dict) -> list[str]:
+    """Collapse multiple listed classes of the same company to one constituent.
+
+    Both yfinance and EDGAR report a single consolidated share count per company
+    (CIK), not a per-class split — so a dual/multi-class company (BRK-A/BRK-B,
+    GOOG/GOOGL, FOX/FOXA, ...) gets the SAME share count on every one of its
+    tickers. Left alone, `compute_index()` would sum float market cap per
+    constituent and count that company's weight once per listed class. This
+    detects the fingerprint (two symbols in the same sector reporting an
+    identical latest share count) and keeps only the most liquid ticker of each
+    such group, so the company enters the index's weighting exactly once.
+    """
+    symbols = list(symbols)
+    if shares_pts.empty:
+        return symbols
+    latest = (shares_pts[shares_pts["symbol"].isin(set(symbols))]
+              .sort_values("period_end")
+              .groupby("symbol")["shares"].last())
+    if latest.empty:
+        return symbols
+    sec_col = quotes["sector"] if "sector" in quotes.columns else pd.Series(dtype=object)
+    win = settings.INDEX_LIQUIDITY_WINDOW_DAYS
+
+    def dollar_volume(sym: str) -> float:
+        g = ohlcv_by.get(sym)
+        if g is None or g.empty or "volume" not in g.columns:
+            return 0.0
+        tail = g.tail(win)
+        dv = (pd.to_numeric(tail["adj_close"], errors="coerce")
+              * pd.to_numeric(tail["volume"], errors="coerce"))
+        return float(dv.mean(skipna=True)) if dv.notna().any() else 0.0
+
+    drop: set[str] = set()
+    for _, grp in latest.groupby([sec_col.reindex(latest.index), latest]):
+        if len(grp) < 2:
+            continue
+        family = list(grp.index)
+        best = max(family, key=dollar_volume)
+        drop.update(s for s in family if s != best)
+    if drop:
+        log.info("Sector index — collapsing %d duplicate-share-class symbols "
+                  "(same company, multiple listed classes): %s", len(drop), sorted(drop))
+    return [s for s in symbols if s not in drop]
+
+
 def _groups(quotes: pd.DataFrame, symbols) -> tuple[dict, dict]:
     """Group symbols by sector and by 'sector | industry' from the Yahoo tags."""
     sector_groups: dict[str, list[str]] = {}
@@ -389,8 +435,12 @@ def build_and_write(universe_symbols, quotes: pd.DataFrame, financials: pd.DataF
     row, replacing both (clean-slate, like analysis.db).
     """
     field = settings.INDEX_FIELD
-    # Universe filter: sector-tagged active+validated names that clear the liquidity floor.
+    shares_pts = _shares_points(financials)
+    # Universe filter: sector-tagged active+validated names that clear the liquidity floor,
+    # then collapse multi-class companies (BRK-A/BRK-B, GOOG/GOOGL, ...) to one constituent
+    # each — see _dedupe_share_classes for why that guard is needed.
     liquid = _liquid_symbols(universe_symbols, ohlcv_by)
+    liquid = _dedupe_share_classes(liquid, shares_pts, quotes, ohlcv_by)
     sector_groups, industry_groups = _groups(quotes, liquid)
     members = sorted({s for v in sector_groups.values() for s in v})
     if not members:
@@ -398,7 +448,6 @@ def build_and_write(universe_symbols, quotes: pd.DataFrame, financials: pd.DataF
         return {"sectors": 0, "industries": 0, "constituents": 0}
 
     # Data-driven start (from share coverage) + dedicated memory-efficient deep read.
-    shares_pts = _shares_points(financials)
     start = _start_date(members, shares_pts)
     prices = _deep_price_panel(members, start, field)
     if prices.empty:
