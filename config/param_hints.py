@@ -188,6 +188,34 @@ PARAM_HINTS: dict[str, dict] = {
         ],
         "vs_peers": "Yes — capital intensity drives the achievable level.",
     },
+    "ocf_to_ni_3y": {
+        "name": "Cash conv (3y)",
+        "category": "Profitability",
+        "unit": "%",
+        "what_it_is": "Average operating cash flow ÷ net income × 100 across the last 3 fiscal years "
+                      "(loss years excluded — see how_to_use). The multi-year answer to fcf_margin's "
+                      "'earnings ahead of cash?' question.",
+        "how_to_use": [
+            "Near/above 100% = earnings are cash-backed, the healthy case.",
+            "Well below 100% for multiple years = net income is running ahead of cash — aggressive "
+            "revenue recognition or working-capital games, look closer.",
+            "Blank if fewer than 2 profitable years are on file — a 1-year 'average' isn't one.",
+        ],
+        "vs_peers": "No — 100% (cash matches earnings) is the universal reference line.",
+    },
+    "ocf_to_ni_5y": {
+        "name": "Cash conv (5y)",
+        "category": "Profitability",
+        "unit": "%",
+        "what_it_is": "Same as Cash conv (3y) but averaged over the last 5 fiscal years — smooths out "
+                      "a single unusual year further at the cost of reacting slower to a real change.",
+        "how_to_use": [
+            "Near/above 100% = earnings are cash-backed, the healthy case.",
+            "A 3y/5y split that diverges a lot is itself informative — check which years drove it.",
+            "Blank if fewer than 2 profitable years are on file.",
+        ],
+        "vs_peers": "No — 100% (cash matches earnings) is the universal reference line.",
+    },
     "gross_margin": {
         "name": "Gross mgn",
         "category": "Profitability",

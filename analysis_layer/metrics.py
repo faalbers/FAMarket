@@ -309,6 +309,24 @@ def _level_change(s: pd.Series, years: int) -> float:
     return last - float(older.iloc[-1])
 
 
+def _cash_conversion(fin: pd.DataFrame, years: int) -> float:
+    """Average OCF/net-income (percent) over the last `years` annual periods
+    where net income was positive. A loss year flips the ratio's sign to noise,
+    not weakness — a company can generate perfectly healthy cash flow in a GAAP
+    loss year (heavy D&A, one-off charge), so it's excluded from the average
+    rather than dragging it in either direction. NaN below 2 valid years — a
+    single data point isn't a trailing average.
+    """
+    ocf, ni = P.annual(fin, "operating_cash_flow"), P.annual(fin, "net_income")
+    if ocf.empty or ni.empty:
+        return float("nan")
+    df = pd.concat([ocf.rename("ocf"), ni.rename("ni")], axis=1).dropna().iloc[-years:]
+    df = df[df["ni"] > 0]
+    if len(df) < 2:
+        return float("nan")
+    return float((df["ocf"] / df["ni"]).mean()) * 100
+
+
 def _margin_series(fin, num_field: str, den_field: str) -> pd.Series:
     """Annual margin level series (percent) = num / den per reported year × 100.
 
@@ -470,6 +488,13 @@ def compute(
     m["operating_margin"] = operating_margin(ebit, rev)
     m["net_margin"] = net_margin(ni, rev)
     m["fcf_margin"] = fcf_margin(fcf, rev)
+    # Cash-flow quality: standard-only by CONCEPT (same reasoning as WACC above) —
+    # a REIT's net income is depreciation-crushed by design (its whole reason for
+    # existing as a metric type here), so OCF/NI would read as a huge, meaningless
+    # ratio rather than an earnings-quality signal; banks' operating cash flow is
+    # dominated by deposit/loan flows, not comparable to an ordinary company's.
+    m["ocf_to_ni_3y"] = _cash_conversion(fin, 3) if screen_type == STANDARD else float("nan")
+    m["ocf_to_ni_5y"] = _cash_conversion(fin, 5) if screen_type == STANDARD else float("nan")
     # Margin TREND (percentage points): widening margins signal pricing power and
     # often precede a re-rating. Annual-vs-annual so it's apples-to-apples.
     m["gross_margin_trend_3y"] = _level_change(_margin_series(fin, "gross_profit", "total_revenue"), 3)

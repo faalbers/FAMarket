@@ -185,6 +185,8 @@ BASES: list[Base] = [
     _b("operating_margin", "Operating margin", "Profitability", frozenset({STANDARD})),
     _b("net_margin", "Net margin", "Profitability", frozenset({STANDARD, BANK, INSURANCE})),
     _b("fcf_margin", "FCF margin", "Profitability", frozenset({STANDARD})),
+    _b("ocf_to_ni_3y", "Cash conversion (3y)", "Profitability", frozenset({STANDARD})),
+    _b("ocf_to_ni_5y", "Cash conversion (5y)", "Profitability", frozenset({STANDARD})),
     _b("gross_margin_trend_3y", "Gross margin trend (3y)", "Profitability", frozenset({STANDARD})),
     _b("operating_margin_trend_3y", "Operating margin trend (3y)", "Profitability", frozenset({STANDARD})),
     # -- Balance sheet ------------------------------------------------------ #

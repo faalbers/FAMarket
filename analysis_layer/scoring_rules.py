@@ -73,6 +73,9 @@ DEFAULT_RULES: dict[str, dict] = {
     "operating_margin": {"shape": "higher_better", "anchor": "peer"},
     "net_margin":       {"shape": "higher_better", "anchor": "peer"},
     "fcf_margin":       {"shape": "higher_better", "anchor": "peer"},
+    # cash-conversion quality pivots on 100% (cash flow matches earnings) — universal, not peer-relative
+    "ocf_to_ni_3y":     {"shape": "higher_better", "anchor": "absolute", "value": 100.0},
+    "ocf_to_ni_5y":     {"shape": "higher_better", "anchor": "absolute", "value": 100.0},
     # margin TREND (3y pp change): widening = improving pricing power, universe-ranked
     "gross_margin_trend_3y":     {"shape": "higher_better", "anchor": "universe"},
     "operating_margin_trend_3y": {"shape": "higher_better", "anchor": "universe"},
@@ -153,8 +156,8 @@ RULE_CATEGORIES: dict[str, list[str]] = {
     "Valuation": ["pe", "forward_pe", "peg", "pb", "ps", "p_fcf", "ev_ebitda",
                   "ev_revenue", "margin_of_safety"],
     "Profitability": ["roe", "roa", "roic", "roic_vs_wacc", "gross_margin", "operating_margin",
-                      "net_margin", "fcf_margin", "gross_margin_trend_3y",
-                      "operating_margin_trend_3y"],
+                      "net_margin", "fcf_margin", "ocf_to_ni_3y", "ocf_to_ni_5y",
+                      "gross_margin_trend_3y", "operating_margin_trend_3y"],
     "Balance Sheet": ["debt_to_equity", "debt_to_ebitda", "interest_coverage",
                       "current_ratio", "quick_ratio", "cash_ratio", "altman_z",
                       "beneish_m_score"],
