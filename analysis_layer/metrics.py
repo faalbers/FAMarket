@@ -145,6 +145,33 @@ def interest_coverage(ebit: float, interest_expense: float) -> float:
     return _div(ebit, abs(interest_expense) if pd.notna(interest_expense) else float("nan"))
 
 
+def _wacc(mktcap: float, total_debt: float, interest_expense: float, tax_rate: float,
+          beta: float, risk_free: float | None) -> float:
+    """CAPM WACC (stored as a percent). NaN unless every input is a real, priced
+    number — deliberately NO default-beta fallback (unlike the DCF discount rate
+    in intrinsic_value.py): a WACC used to grade ROIC needs the company's own
+    priced risk, not a convenience assumption standing in for missing data.
+    total_debt == 0 (reported debt-free) skips the cost-of-debt term rather than
+    requiring an interest_expense that a debt-free company has no reason to report.
+    """
+    if pd.isna(mktcap) or mktcap <= 0 or pd.isna(total_debt) or total_debt < 0:
+        return float("nan")
+    if pd.isna(beta) or risk_free is None or pd.isna(risk_free) or pd.isna(tax_rate):
+        return float("nan")
+    v = mktcap + total_debt
+    if v <= 0:
+        return float("nan")
+    cost_of_equity = risk_free + beta * settings.DCF_EQUITY_RISK_PREMIUM
+    if total_debt == 0:
+        cost_of_debt = 0.0
+    else:
+        pretax_cod = _div(abs(interest_expense) if pd.notna(interest_expense) else float("nan"), total_debt)
+        if pd.isna(pretax_cod):
+            return float("nan")
+        cost_of_debt = pretax_cod * (1 - tax_rate)
+    return _pct((mktcap / v) * cost_of_equity + (total_debt / v) * cost_of_debt)
+
+
 # Per-period chart registry (canonical, lives in the analysis layer so the metric
 # definitions stay here, not in the UI). Each ratio maps to its formula function and
 # the financials.db fields it consumes IN ORDER; the chart reads those fields per
@@ -341,6 +368,7 @@ def compute(
     as_of: pd.Timestamp | None = None,
     screen_type: str | None = None,
     reconcile: list | None = None,
+    risk_free: float | None = None,
 ) -> dict:
     """All fundamental metrics for one symbol (raw numbers, percents as percents).
 
@@ -356,6 +384,9 @@ def compute(
     (if it even reports one) doesn't mean the same thing as a producing company's.
     Missing inputs yield NaN (= "not applicable"), so funds/ETFs with no financials
     fall through harmlessly. Divergences vs yfinance are appended to `reconcile`.
+    `risk_free` (annual fraction, e.g. 0.043) feeds `wacc`'s CAPM cost-of-equity —
+    same figure intrinsic_value.compute() uses for its DCF discount rate; NaN/None
+    means `wacc`/`roic_vs_wacc` fall back to NaN rather than guessing.
     """
     m: dict[str, float] = {}
 
@@ -424,6 +455,17 @@ def compute(
         tax_rate = min(max(tax_rate, 0.0), 1.0)
     nopat = ebit * (1 - tax_rate) if pd.notna(ebit) and pd.notna(tax_rate) else float("nan")
     m["roic"] = _pct(_div(nopat, P.latest(fin, "invested_capital")))
+    # WACC / ROIC-vs-WACC: standard-only by CONCEPT (like quick_health_score below) —
+    # "capital" in the WACC sense doesn't mean the same thing for a bank/insurer
+    # (deposits/float, not invested capital) or a REIT (depreciation-distorted
+    # earnings), and funds have no operating capital structure at all. Also gated
+    # on currency_ok since it mixes a USD-consistent market cap with financials-
+    # currency debt/interest, same risk as the valuation ratios above.
+    beta = _qget(quote, "beta")
+    m["wacc"] = (_wacc(mktcap, total_debt, P.ttm(fin, "interest_expense"), tax_rate, beta, risk_free)
+                 if currency_ok and screen_type == STANDARD else float("nan"))
+    m["roic_vs_wacc"] = (m["roic"] - m["wacc"]
+                          if pd.notna(m["roic"]) and pd.notna(m["wacc"]) else float("nan"))
     m["gross_margin"] = gross_margin(gp, rev)
     m["operating_margin"] = operating_margin(ebit, rev)
     m["net_margin"] = net_margin(ni, rev)

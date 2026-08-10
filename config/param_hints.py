@@ -310,6 +310,34 @@ PARAM_HINTS: dict[str, dict] = {
         ],
         "vs_peers": "Yes — but the 10% cost-of-capital bar is universal.",
     },
+    "wacc": {
+        "name": "WACC",
+        "category": "Profitability",
+        "unit": "%",
+        "what_it_is": "Weighted average cost of capital: market-cap-weighted CAPM cost of equity "
+                      "(risk-free rate + beta × equity risk premium) blended with the tax-adjusted "
+                      "cost of debt (interest expense / total debt).",
+        "how_to_use": [
+            "The real, company-specific version of the 'rough 10%' rule of thumb under ROIC.",
+            "Pair with ROIC, don't read alone — it's a hurdle rate, not a quality signal by itself.",
+            "Blank when beta or debt/interest data is missing — never guessed/defaulted.",
+        ],
+        "vs_peers": "No — it's an input to roic_vs_wacc, not a value judgement on its own.",
+    },
+    "roic_vs_wacc": {
+        "name": "ROIC - WACC",
+        "category": "Profitability",
+        "unit": "%",
+        "what_it_is": "ROIC minus WACC, in percentage points — the actual, company-specific "
+                      "value-creation spread (replaces ROIC's rough '~10% cost of capital' rule "
+                      "of thumb with a real computed hurdle rate).",
+        "how_to_use": [
+            "Positive = the business earns more than its capital costs (value creation).",
+            "Negative = it's destroying value even if ROIC alone looks decent.",
+            "Blank whenever WACC or ROIC is blank (missing beta, debt, or invested-capital data) — never a defaulted/guessed number.",
+        ],
+        "vs_peers": "No — 0 is the universal pass/fail line, not peer-relative.",
+    },
     # ------------------------------------------------------------------ #
     # Balance Sheet
     # ------------------------------------------------------------------ #

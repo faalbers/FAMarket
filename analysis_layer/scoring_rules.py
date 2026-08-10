@@ -67,6 +67,8 @@ DEFAULT_RULES: dict[str, dict] = {
     "roe":              {"shape": "higher_better", "anchor": "peer"},
     "roa":              {"shape": "higher_better", "anchor": "peer"},
     "roic":             {"shape": "higher_better", "anchor": "peer"},
+    # value-creation spread pivots on 0 (universal, not peer-relative — see param_hints)
+    "roic_vs_wacc":     {"shape": "higher_better", "anchor": "absolute", "value": 0.0},
     "gross_margin":     {"shape": "higher_better", "anchor": "peer"},
     "operating_margin": {"shape": "higher_better", "anchor": "peer"},
     "net_margin":       {"shape": "higher_better", "anchor": "peer"},
@@ -150,7 +152,7 @@ SCORE_COLUMNS = ["overall_score", "value_score", "quality_score", "growth_score"
 RULE_CATEGORIES: dict[str, list[str]] = {
     "Valuation": ["pe", "forward_pe", "peg", "pb", "ps", "p_fcf", "ev_ebitda",
                   "ev_revenue", "margin_of_safety"],
-    "Profitability": ["roe", "roa", "roic", "gross_margin", "operating_margin",
+    "Profitability": ["roe", "roa", "roic", "roic_vs_wacc", "gross_margin", "operating_margin",
                       "net_margin", "fcf_margin", "gross_margin_trend_3y",
                       "operating_margin_trend_3y"],
     "Balance Sheet": ["debt_to_equity", "debt_to_ebitda", "interest_coverage",

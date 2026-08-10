@@ -179,6 +179,8 @@ BASES: list[Base] = [
     _b("asset_turnover", "Asset turnover", "Profitability", frozenset({STANDARD, BANK, INSURANCE})),
     _b("equity_multiplier", "Equity multiplier", "Profitability", frozenset({STANDARD, BANK, INSURANCE})),
     _b("roic", "ROIC", "Profitability", frozenset({STANDARD})),
+    _b("wacc", "WACC", "Profitability", frozenset({STANDARD})),
+    _b("roic_vs_wacc", "ROIC - WACC", "Profitability", frozenset({STANDARD})),
     _b("gross_margin", "Gross margin", "Profitability", frozenset({STANDARD})),
     _b("operating_margin", "Operating margin", "Profitability", frozenset({STANDARD})),
     _b("net_margin", "Net margin", "Profitability", frozenset({STANDARD, BANK, INSURANCE})),

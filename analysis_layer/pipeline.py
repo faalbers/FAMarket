@@ -267,7 +267,8 @@ def run_analysis(subset: list[str] | None = None) -> dict:
                             dividends=div_by.get(sym), splits=split_by.get(sym),
                             as_of=(osym["date"].iloc[-1] if len(osym) else None),
                             screen_type=screen_type,
-                            reconcile=reconcile)
+                            reconcile=reconcile,
+                            risk_free=risk_free)
         t = technical.compute(sym, osym, first_date=first_date_by.get(sym))
         iv = intrinsic_value.compute(sym, fsym, quote, price, m, risk_free)
         est_m = estimates_metrics.compute(sym, est_by.get(sym), forward_pe=m.get("forward_pe"))
