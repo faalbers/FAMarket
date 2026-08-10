@@ -491,7 +491,13 @@ def compute(
     if pd.notna(tax_rate):
         tax_rate = min(max(tax_rate, 0.0), 1.0)
     nopat = ebit * (1 - tax_rate) if pd.notna(ebit) and pd.notna(tax_rate) else float("nan")
-    m["roic"] = _pct(_div(nopat, P.latest(fin, "invested_capital")))
+    # invested_capital can be a near-zero (occasionally negative) dollar figure for a
+    # distressed/collapsing micro-cap, which blows NOPAT/invested_capital up to a
+    # nonsense magnitude even though every input is technically "present, not NaN" —
+    # same failure mode as the WACC/cash-conversion guards above.
+    roic_frac = _div(nopat, P.latest(fin, "invested_capital"))
+    m["roic"] = (_pct(roic_frac)
+                 if pd.notna(roic_frac) and abs(roic_frac) <= settings.ROIC_MAX_ABS else float("nan"))
     # WACC / ROIC-vs-WACC: standard-only by CONCEPT (like quick_health_score below) —
     # "capital" in the WACC sense doesn't mean the same thing for a bank/insurer
     # (deposits/float, not invested capital) or a REIT (depreciation-distorted

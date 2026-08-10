@@ -307,6 +307,12 @@ WACC_BETA_MAX_ABS: float = 10.0
 # (e.g. a balance that drops 99% between quarters while TTM interest expense stays
 # at its prior level) that would otherwise blow up the ratio despite a normal beta.
 WACC_MAX_COST_OF_DEBT: float = 0.5
+# ROIC beyond +/-500% is treated as an invested_capital-near-zero artifact, not real
+# capital efficiency (checked 2026-08-09: 98.4% of reported ROIC sits within +/-500%,
+# the 99.9th percentile jumps straight to ~10,900% — same near-zero-denominator
+# pattern as the WACC/cash-conversion fixes above, e.g. invested_capital of
+# -$21,562 or $164,000 on an otherwise normal-scale operating loss).
+ROIC_MAX_ABS: float = 5.0  # fraction (500%), applied before the x100 percent scale
 # A fiscal year is excluded from the ocf_to_ni_Ny average when OCF/NI exceeds this
 # (500%) — that magnitude means net income was too close to zero to be a meaningful
 # denominator that year (a rounding-level profit swamped by normal-scale cash flow),
