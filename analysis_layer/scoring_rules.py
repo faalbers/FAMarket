@@ -69,6 +69,8 @@ DEFAULT_RULES: dict[str, dict] = {
     "roic":             {"shape": "higher_better", "anchor": "peer"},
     # value-creation spread pivots on 0 (universal, not peer-relative — see param_hints)
     "roic_vs_wacc":     {"shape": "higher_better", "anchor": "absolute", "value": 0.0},
+    "roic_vs_wacc_5y":  {"shape": "higher_better", "anchor": "absolute", "value": 0.0},
+    "roic_trend_3y":    {"shape": "higher_better", "anchor": "universe"},
     "gross_margin":     {"shape": "higher_better", "anchor": "peer"},
     "operating_margin": {"shape": "higher_better", "anchor": "peer"},
     "net_margin":       {"shape": "higher_better", "anchor": "peer"},
@@ -155,7 +157,8 @@ SCORE_COLUMNS = ["overall_score", "value_score", "quality_score", "growth_score"
 RULE_CATEGORIES: dict[str, list[str]] = {
     "Valuation": ["pe", "forward_pe", "peg", "pb", "ps", "p_fcf", "ev_ebitda",
                   "ev_revenue", "margin_of_safety"],
-    "Profitability": ["roe", "roa", "roic", "roic_vs_wacc", "gross_margin", "operating_margin",
+    "Profitability": ["roe", "roa", "roic", "roic_vs_wacc", "roic_vs_wacc_5y", "roic_trend_3y",
+                      "gross_margin", "operating_margin",
                       "net_margin", "fcf_margin", "ocf_to_ni_3y", "ocf_to_ni_5y",
                       "gross_margin_trend_3y", "operating_margin_trend_3y"],
     "Balance Sheet": ["debt_to_equity", "debt_to_ebitda", "interest_coverage",

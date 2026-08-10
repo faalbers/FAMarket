@@ -346,6 +346,53 @@ def _cash_conversion(fin: pd.DataFrame, years: int) -> float:
     return float(ratio.mean()) * 100
 
 
+def _roic_annual_series(fin: pd.DataFrame) -> pd.Series:
+    """Annual ROIC level series (percent), oldest -> newest — same NOPAT/invested-
+    capital convention as the point-in-time `roic` above. Reused by both the 5y
+    persistence median and the 3y trend below, same way `_margin_series` backs the
+    margin trend metrics.
+
+    A year with invested_capital <= 0 is EXCLUDED, not just magnitude-capped — a
+    negative denominator flips the ratio's sign to noise, not a real value-creation
+    reading (seen both for buyback-heavy large caps whose equity has gone negative,
+    e.g. VRSN, and distressed micro-caps), same "drop the noise year" philosophy as
+    _cash_conversion's loss-year exclusion. The point-in-time `roic`'s ROIC_MAX_ABS
+    magnitude cap alone doesn't catch this: a ratio like -491% sits comfortably
+    under the ±500% cap while still being meaningless, and unlike the point-in-time
+    single value, a level-CHANGE (_level_change below) differences two points with
+    no averaging to dilute one bad year — checked 2026-08-10 against production
+    data (VRSN's roic_trend_3y hit -556pp from exactly this).
+    """
+    df = pd.concat(
+        [
+            P.annual(fin, "operating_income").rename("ebit"),
+            P.annual(fin, "tax_provision").rename("tax_prov"),
+            P.annual(fin, "pretax_income").rename("pretax"),
+            P.annual(fin, "invested_capital").rename("invested"),
+        ],
+        axis=1,
+    ).dropna()
+    df = df[df["invested"] > 0]
+    if df.empty:
+        return pd.Series(dtype="float64")
+    tax_rate = (df["tax_prov"] / df["pretax"]).clip(lower=0.0, upper=1.0)
+    nopat = df["ebit"] * (1 - tax_rate)
+    roic = (nopat / df["invested"]).replace([np.inf, -np.inf], float("nan"))
+    return (roic[roic.abs() <= settings.ROIC_MAX_ABS] * 100).dropna()
+
+
+def _roic_persistence(roic_series: pd.Series, wacc: float, years: int) -> float:
+    """Median annual ROIC over the last `years` periods, minus WACC (today's
+    snapshot — true historical WACC would need historical beta/market cap, which
+    isn't stored; see [[economic-moat-persistence-metrics]]). NaN below 2 valid
+    years, same minimum as cash-conversion.
+    """
+    window = roic_series.iloc[-years:]
+    if len(window) < 2 or pd.isna(wacc):
+        return float("nan")
+    return float(window.median()) - wacc
+
+
 def _margin_series(fin, num_field: str, den_field: str) -> pd.Series:
     """Annual margin level series (percent) = num / den per reported year × 100.
 
@@ -492,10 +539,16 @@ def compute(
         tax_rate = min(max(tax_rate, 0.0), 1.0)
     nopat = ebit * (1 - tax_rate) if pd.notna(ebit) and pd.notna(tax_rate) else float("nan")
     # invested_capital can be a near-zero (occasionally negative) dollar figure for a
-    # distressed/collapsing micro-cap, which blows NOPAT/invested_capital up to a
-    # nonsense magnitude even though every input is technically "present, not NaN" —
-    # same failure mode as the WACC/cash-conversion guards above.
-    roic_frac = _div(nopat, P.latest(fin, "invested_capital"))
+    # distressed/collapsing micro-cap, or genuinely negative for a buyback-heavy large
+    # cap whose equity has gone negative (e.g. VRSN) — either way NOPAT/invested_capital
+    # is meaningless, not just outsized, so a non-positive denominator is excluded
+    # outright (same "drop the noise" philosophy as _roic_annual_series above) rather
+    # than relying on ROIC_MAX_ABS alone, which a ratio like -491% still sits under —
+    # checked 2026-08-10 against production data (VRSN's roic hit -207.8% from exactly
+    # this, well inside the magnitude cap below).
+    invested_capital = P.latest(fin, "invested_capital")
+    roic_frac = (_div(nopat, invested_capital)
+                 if pd.notna(invested_capital) and invested_capital > 0 else float("nan"))
     m["roic"] = (_pct(roic_frac)
                  if pd.notna(roic_frac) and abs(roic_frac) <= settings.ROIC_MAX_ABS else float("nan"))
     # WACC / ROIC-vs-WACC: standard-only by CONCEPT (like quick_health_score below) —
@@ -509,6 +562,13 @@ def compute(
                  if currency_ok and screen_type == STANDARD else float("nan"))
     m["roic_vs_wacc"] = (m["roic"] - m["wacc"]
                           if pd.notna(m["roic"]) and pd.notna(m["wacc"]) else float("nan"))
+    # Moat persistence/direction: has the value-creation spread held up over time,
+    # and is it widening or narrowing? Both standard-only for the same reason as
+    # WACC/roic_vs_wacc above (capital structure concept doesn't apply to banks/
+    # REITs/funds).
+    roic_series = _roic_annual_series(fin) if screen_type == STANDARD else pd.Series(dtype="float64")
+    m["roic_vs_wacc_5y"] = _roic_persistence(roic_series, m["wacc"], 5)
+    m["roic_trend_3y"] = _level_change(roic_series, 3) if screen_type == STANDARD else float("nan")
     m["gross_margin"] = gross_margin(gp, rev)
     m["operating_margin"] = operating_margin(ebit, rev)
     m["net_margin"] = net_margin(ni, rev)
@@ -543,7 +603,9 @@ def compute(
     m["cash_ratio"] = _div(cash, cur_liab)
     m["interest_coverage"] = interest_coverage(ebit, P.ttm(fin, "interest_expense"))
     m["debt_to_ebitda"] = debt_to_ebitda(total_debt, ebitda)
-    m["altman_z"] = _altman_z(fin, ebit, rev, mktcap, total_assets, total_liab) if currency_ok else float("nan")
+    m["altman_z"] = (_altman_z(fin, ebit, rev, mktcap, total_assets, total_liab,
+                                m["net_margin"], m["operating_margin"])
+                      if currency_ok else float("nan"))
     # No currency_ok gate here (unlike altman_z): every Beneish input is a
     # statement-internal line item (revenue, receivables, assets, debt, cash
     # flow) — none of the 8 ratios mix a USD price/market-cap figure with
@@ -598,8 +660,23 @@ def compute(
     return m
 
 
-def _altman_z(fin, ebit, rev, mktcap, total_assets, total_liab) -> float:
-    """Altman Z-Score (manufacturing form). NaN if total assets/liabilities absent."""
+def _altman_z(fin, ebit, rev, mktcap, total_assets, total_liab,
+              net_margin: float, operating_margin: float) -> float:
+    """Altman Z-Score (manufacturing form). NaN if total assets/liabilities absent.
+
+    Also NaN for a large, currently-profitable company whose retained_earnings/
+    total_assets is extremely negative (market_cap >= ALTMAN_BUYBACK_MKTCAP_FLOOR,
+    ratio <= ALTMAN_RE_TA_EXTREME, both margins positive) — that combination means
+    the deficit is buyback-driven (decades of repurchases charged against retained
+    earnings), not accumulated losses, so the 1.4x-weighted RE/TA term dominates
+    with a distress reading that contradicts genuine profitability (checked
+    2026-08-10: VRSN, $26.6B market cap, 50% net margin, RE/TA of -8.9 -> altman_z
+    of -4.4). Deliberately NOT a plain magnitude cap (unlike the ROIC/WACC/cash-
+    conversion guards) — most of the tail at this ratio is REAL distress signal from
+    small/mid-caps with genuine accumulated losses, which stays kept; only the
+    scale + profitability combination marks it as the model's assumption breaking,
+    not the company's health.
+    """
     if pd.isna(total_assets) or total_assets == 0 or pd.isna(total_liab) or total_liab == 0:
         return float("nan")
     wc = P.latest(fin, "working_capital")
@@ -610,6 +687,13 @@ def _altman_z(fin, ebit, rev, mktcap, total_assets, total_liab) -> float:
     d = _div(mktcap, total_liab)
     e = _div(rev, total_assets)
     if any(pd.isna(v) for v in (a, b, c, d, e)):
+        return float("nan")
+    if (
+        pd.notna(mktcap) and mktcap >= settings.ALTMAN_BUYBACK_MKTCAP_FLOOR
+        and b <= settings.ALTMAN_RE_TA_EXTREME
+        and pd.notna(operating_margin) and operating_margin > 0
+        and pd.notna(net_margin) and net_margin > 0
+    ):
         return float("nan")
     return 1.2 * a + 1.4 * b + 3.3 * c + 0.6 * d + 1.0 * e
 

@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "saved_at": "2026-08-10T00:00:00+00:00",
+  "selected_types": [
+    "standard"
+  ],
+  "comment": "**What it does**\nHunts companies with a **quantitative economic moat** — a sustained, durable\nedge in earning above their cost of capital, not just a one-year good number.\nIt looks for:\n- **Value creation, proven over time** - median ROIC beat WACC across the\n  last up to 5 fiscal years (`roic_vs_wacc_5y > 0`), not just today.\n- **The edge isn't eroding** - ROIC trend over ~3 years is flat or rising\n  (`roic_trend_3y >= 0`). Negative means the moat is narrowing even if the\n  current level still looks fine.\n- **A real edge vs peers** - gross or operating margin above its industry.\n- **Earnings quality backs it up** - most of reported profit converts to\n  real cash over 5 years (`ocf_to_ni_5y > 80`), not accounting.\n- **Balance sheet can survive a downturn** - Altman Z above the distress\n  zone (a moat that goes bankrupt isn't a moat).\n\n**Known limitation** - `roic_vs_wacc_5y` and `roic_trend_3y` still grade\npast years' ROIC against *today's* WACC (no stored history of beta/market\ncap to reconstruct each year's true cost of capital), so this approximates\nrather than exactly reconstructs history. Good enough for most companies\nsince WACC doesn't swing wildly year to year.\n\n**How to tweak**\n- Want a **stricter, proven-moat-only** list? Raise `roic_vs_wacc_5y` to\n  `> 5` and require `altman_z > 3` (the safe zone, not just out of distress).\n- Want to **catch moats early**, before margin data confirms them? Loosen\n  the margin-vs-industry block or drop it.\n- Want to **exclude flat-but-fine businesses**, keep only widening moats?\n  Raise `roic_trend_3y` to `> 0` (strict) instead of `>= 0`.\n\n**How to sort for best picks**\n- **Sort by `roic_vs_wacc_5y`**, tiebreak on `roic_trend_3y` — the most\n  durable value creators, with the improving ones ranked first among ties.\n- `quality_score` is also a reasonable single-column sort here, since this\n  screen is quality-first by construction.",
+  "ai_instructions": "Update this to be an economic-moat screen using the new multi-year metrics we just built (roic_vs_wacc_5y and roic_trend_3y), instead of the single-year roic_vs_wacc spread from the original sketch.\n\nDesign, worked through step by step:\n- Value creation should be judged over history, not one year: use roic_vs_wacc_5y (median annual ROIC over up to 5 fiscal years, minus today's WACC) > 0, in place of the single-year roic_vs_wacc > 0.\n- Also check direction: roic_trend_3y >= 0, so a business whose ROIC is actively eroding doesn't pass even if the historical median still looks fine.\n- Keep the existing margin-vs-industry edge test (gross or operating margin above industry).\n- Add earnings-quality: ocf_to_ni_5y > 80, since a moat's earnings should be real cash, not accounting.\n- Add balance-sheet survivability: altman_z above the distress threshold (used 1.8, the top of the grey zone) — a moat that goes bankrupt in a downturn isn't a moat.\n- Standard operating companies only (roic_vs_wacc_5y/roic_trend_3y/ocf_to_ni_5y/altman_z are all standard-only by concept — doesn't apply to banks/insurers/REITs/funds).\n- No null-passthrough on any block (unlike emerging_dominators): this screen wants proven, established companies with enough history to judge persistence, so missing data legitimately means \"can't confirm a moat yet\" rather than \"give it a pass.\"\n- No size band — moat quality isn't a function of market cap the way early-stage growth screening is.\n- Sorting: roic_vs_wacc_5y first (durability), tiebreak roic_trend_3y (direction).",
+  "blocks": [
+    {
+      "enabled": true,
+      "param": "roic_vs_wacc_5y",
+      "window": null,
+      "compare": "value",
+      "op": ">",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "roic_trend_3y",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "gross_margin",
+      "window": null,
+      "compare": "vs_industry",
+      "op": ">",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "operating_margin",
+          "window": null,
+          "compare": "vs_industry",
+          "op": ">",
+          "vmode": "V",
+          "value": 0,
+          "vmode2": "V",
+          "value2": "",
+          "or_children": []
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "param": "ocf_to_ni_5y",
+      "window": null,
+      "compare": "value",
+      "op": ">",
+      "vmode": "V",
+      "value": 80,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "altman_z",
+      "window": null,
+      "compare": "value",
+      "op": ">",
+      "vmode": "V",
+      "value": 1.8,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    }
+  ]
+}

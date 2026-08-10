@@ -318,6 +318,21 @@ ROIC_MAX_ABS: float = 5.0  # fraction (500%), applied before the x100 percent sc
 # denominator that year (a rounding-level profit swamped by normal-scale cash flow),
 # not a real cash-conversion signal.
 CASH_CONVERSION_YEAR_CAP: float = 5.0
+# Altman Z assumes retained_earnings reflects accumulated economic performance —
+# breaks for a large, genuinely profitable company whose retained earnings has been
+# driven deeply negative by decades of share buybacks (accounting reduces retained
+# earnings, not a separate line), not accumulated losses (checked 2026-08-10: VRSN,
+# $26.6B market cap, 50% net margin, retained_earnings/total_assets of -8.9 -> altman_z
+# of -4.4, reading as distressed while being one of the most profitable names in the
+# universe). A magnitude cap alone would ALSO suppress real distress signal for ~900
+# genuinely unprofitable small/mid-caps with an equally extreme ratio from real losses
+# (deliberately kept, unlike the ROIC guards — see rule_hints "negatives are kept"),
+# so this instead requires BOTH scale and current profitability alongside the extreme
+# ratio before treating the score as inapplicable.
+ALTMAN_RE_TA_EXTREME: float = -3.0        # retained_earnings / total_assets below this...
+ALTMAN_BUYBACK_MKTCAP_FLOOR: float = 1e9  # ...at/above this market cap AND currently
+# profitable (operating_margin > 0 and net_margin > 0) is treated as a buyback artifact,
+# not distress, and the score is dropped rather than trusted either way.
 
 # --------------------------------------------------------------------------- #
 # Peer comparison (Topic 4.3)

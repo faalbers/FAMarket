@@ -181,6 +181,8 @@ BASES: list[Base] = [
     _b("roic", "ROIC", "Profitability", frozenset({STANDARD})),
     _b("wacc", "WACC", "Profitability", frozenset({STANDARD})),
     _b("roic_vs_wacc", "ROIC - WACC", "Profitability", frozenset({STANDARD})),
+    _b("roic_vs_wacc_5y", "ROIC - WACC (5y median)", "Profitability", frozenset({STANDARD})),
+    _b("roic_trend_3y", "ROIC trend (3y)", "Profitability", frozenset({STANDARD})),
     _b("gross_margin", "Gross margin", "Profitability", frozenset({STANDARD})),
     _b("operating_margin", "Operating margin", "Profitability", frozenset({STANDARD})),
     _b("net_margin", "Net margin", "Profitability", frozenset({STANDARD, BANK, INSURANCE})),

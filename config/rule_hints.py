@@ -120,6 +120,7 @@ _ALIASES = {
     "book_value_cagr_3y": "revenue_cagr_3y", "revenue_yoy_q": "revenue_cagr_3y",
     "eps_yoy_q": "revenue_cagr_3y",
     "gross_margin_trend_3y": "revenue_cagr_3y", "operating_margin_trend_3y": "revenue_cagr_3y",
+    "roic_trend_3y": "revenue_cagr_3y",
     "eps_accel": "revenue_accel",
     "forward_rev_growth": "forward_eps_growth", "forward_peg": "peg",
     "eps_revision_3m": "eps_revision_1m", "eps_revision_breadth": "eps_revision_1m",

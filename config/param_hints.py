@@ -366,6 +366,35 @@ PARAM_HINTS: dict[str, dict] = {
         ],
         "vs_peers": "No — 0 is the universal pass/fail line, not peer-relative.",
     },
+    "roic_vs_wacc_5y": {
+        "name": "ROIC - WACC (5y median)",
+        "category": "Profitability",
+        "unit": "%",
+        "what_it_is": "Median annual ROIC over the last up to 5 fiscal years, minus today's WACC — "
+                      "has the value-creation spread held up over time, not just this year. Still "
+                      "graded against today's WACC (no stored history of beta/market cap to build a "
+                      "true year-by-year hurdle rate), so it approximates rather than exactly reconstructs "
+                      "each year's actual cost of capital.",
+        "how_to_use": [
+            "A moat-persistence check: positive here across a multi-year median is a stronger signal than a single positive roic_vs_wacc reading.",
+            "Blank below 2 valid fiscal years of financials, or whenever WACC is blank.",
+        ],
+        "vs_peers": "No — 0 is the universal pass/fail line, not peer-relative.",
+    },
+    "roic_trend_3y": {
+        "name": "ROIC trend (3y)",
+        "category": "Profitability",
+        "unit": "%",
+        "what_it_is": "Change in annual ROIC (percentage points) from ~3 fiscal years ago to the "
+                      "latest — is the moat widening or narrowing. Same level-change convention as "
+                      "gross_margin_trend_3y/operating_margin_trend_3y.",
+        "how_to_use": [
+            "Positive = ROIC rising — moat widening (pricing power or capital efficiency improving).",
+            "Negative = ROIC falling — moat narrowing, worth checking why even if the current level still looks fine.",
+            "Blank if no annual ROIC point exists ~3 years back.",
+        ],
+        "vs_peers": "No — it's a self-referential trend, not a peer comparison.",
+    },
     # ------------------------------------------------------------------ #
     # Balance Sheet
     # ------------------------------------------------------------------ #
@@ -377,6 +406,7 @@ PARAM_HINTS: dict[str, dict] = {
         "how_to_use": [
             "Above 3 = safe zone, 1.8-3 = grey zone, below 1.8 = distress zone.",
             "Designed for manufacturers — take it lightly for other business models.",
+            "Blank for a large, currently-profitable company whose retained earnings has gone deeply negative from decades of share buybacks (e.g. VRSN) rather than accumulated losses — the score would otherwise read as distressed for the wrong reason.",
         ],
         "vs_peers": "No — the zone thresholds are absolute.",
     },
