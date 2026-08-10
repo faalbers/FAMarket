@@ -147,16 +147,27 @@ def interest_coverage(ebit: float, interest_expense: float) -> float:
 
 def _wacc(mktcap: float, total_debt: float, interest_expense: float, tax_rate: float,
           beta: float, risk_free: float | None) -> float:
-    """CAPM WACC (stored as a percent). NaN unless every input is a real, priced
-    number — deliberately NO default-beta fallback (unlike the DCF discount rate
-    in intrinsic_value.py): a WACC used to grade ROIC needs the company's own
-    priced risk, not a convenience assumption standing in for missing data.
-    total_debt == 0 (reported debt-free) skips the cost-of-debt term rather than
-    requiring an interest_expense that a debt-free company has no reason to report.
+    """CAPM WACC (stored as a percent). NaN unless every input is a real, priced,
+    PLAUSIBLE number — deliberately NO default-beta fallback (unlike the DCF
+    discount rate in intrinsic_value.py): a WACC used to grade ROIC needs the
+    company's own priced risk, not a convenience assumption standing in for
+    missing data. total_debt == 0 (reported debt-free) skips the cost-of-debt
+    term rather than requiring an interest_expense that a debt-free company has
+    no reason to report.
+
+    Two plausibility guards catch real data-quality failures seen in production
+    (checked 2026-08-09): some micro/nano-cap tickers carry a corrupted yfinance
+    beta (seen: values in the hundreds to billions, vs. ~±5 for 97%+ of the
+    universe), and total_debt can swing inconsistently quarter-to-quarter
+    relative to TTM interest expense (a reporting glitch, not a real balance
+    change) — either one alone can blow WACC up to a nonsense magnitude even
+    though every individual field is technically "present, not NaN".
     """
     if pd.isna(mktcap) or mktcap <= 0 or pd.isna(total_debt) or total_debt < 0:
         return float("nan")
-    if pd.isna(beta) or risk_free is None or pd.isna(risk_free) or pd.isna(tax_rate):
+    if pd.isna(beta) or abs(beta) > settings.WACC_BETA_MAX_ABS:
+        return float("nan")
+    if risk_free is None or pd.isna(risk_free) or pd.isna(tax_rate):
         return float("nan")
     v = mktcap + total_debt
     if v <= 0:
@@ -166,7 +177,7 @@ def _wacc(mktcap: float, total_debt: float, interest_expense: float, tax_rate: f
         cost_of_debt = 0.0
     else:
         pretax_cod = _div(abs(interest_expense) if pd.notna(interest_expense) else float("nan"), total_debt)
-        if pd.isna(pretax_cod):
+        if pd.isna(pretax_cod) or pretax_cod > settings.WACC_MAX_COST_OF_DEBT:
             return float("nan")
         cost_of_debt = pretax_cod * (1 - tax_rate)
     return _pct((mktcap / v) * cost_of_equity + (total_debt / v) * cost_of_debt)
@@ -316,15 +327,23 @@ def _cash_conversion(fin: pd.DataFrame, years: int) -> float:
     loss year (heavy D&A, one-off charge), so it's excluded from the average
     rather than dragging it in either direction. NaN below 2 valid years — a
     single data point isn't a trailing average.
+
+    A year is ALSO excluded when its ratio exceeds settings.CASH_CONVERSION_YEAR_CAP
+    (checked 2026-08-09 against production data: a near-breakeven year — net
+    income a rounding error relative to normal-scale cash flow, e.g. Ericsson's
+    $20M NI on $46B OCF in one reported year — produces a triple-digit-percent
+    ratio that reflects a near-zero denominator, not a real cash-conversion signal).
     """
     ocf, ni = P.annual(fin, "operating_cash_flow"), P.annual(fin, "net_income")
     if ocf.empty or ni.empty:
         return float("nan")
     df = pd.concat([ocf.rename("ocf"), ni.rename("ni")], axis=1).dropna().iloc[-years:]
     df = df[df["ni"] > 0]
-    if len(df) < 2:
+    ratio = df["ocf"] / df["ni"]
+    ratio = ratio[(ratio > 0) & (ratio <= settings.CASH_CONVERSION_YEAR_CAP)]
+    if len(ratio) < 2:
         return float("nan")
-    return float((df["ocf"] / df["ni"]).mean()) * 100
+    return float(ratio.mean()) * 100
 
 
 def _margin_series(fin, num_field: str, den_field: str) -> pd.Series:

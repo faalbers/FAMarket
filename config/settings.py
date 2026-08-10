@@ -296,6 +296,22 @@ DCF_EQUITY_RISK_PREMIUM: float = 0.05  # added to risk-free via beta (CAPM)
 DCF_DEFAULT_BETA: float = 1.0          # used when a symbol has no beta
 DCF_GROWTH_CAP: float = 0.15           # cap on historical FCF growth in projection
 DCF_MIN_DISCOUNT_SPREAD: float = 0.02  # floor on (discount − terminal growth)
+# Betas beyond this are corrupted yfinance data, not real risk (checked against the
+# live quotes.db 2026-08-09: 97.2% of reported betas sit within ±5, the rest jump
+# straight to the hundreds/billions — no plausible middle ground). Used by WACC to
+# reject rather than trust a beta that would blow up CAPM.
+WACC_BETA_MAX_ABS: float = 10.0
+# Pretax cost of debt (interest expense / total debt) beyond this is treated as
+# unreliable data, not a real borrowing cost — even deeply distressed corporate debt
+# rarely prices above ~50%. Catches quarter-to-quarter total_debt reporting glitches
+# (e.g. a balance that drops 99% between quarters while TTM interest expense stays
+# at its prior level) that would otherwise blow up the ratio despite a normal beta.
+WACC_MAX_COST_OF_DEBT: float = 0.5
+# A fiscal year is excluded from the ocf_to_ni_Ny average when OCF/NI exceeds this
+# (500%) — that magnitude means net income was too close to zero to be a meaningful
+# denominator that year (a rounding-level profit swamped by normal-scale cash flow),
+# not a real cash-conversion signal.
+CASH_CONVERSION_YEAR_CAP: float = 5.0
 
 # --------------------------------------------------------------------------- #
 # Peer comparison (Topic 4.3)
