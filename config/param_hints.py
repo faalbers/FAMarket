@@ -536,6 +536,8 @@ PARAM_HINTS: dict[str, dict] = {
         "how_to_use": [
             "THE growth metric for banks and insurers (their earnings compound into book).",
             "Steady ~10%+ book growth plus reasonable P/B is the classic financial-sector screen.",
+            "Volatility % and CV % low + R² near 1 = steady compounding; high vol = one-off write-downs/raises distorting book value.",
+            "Trend growth %/yr — a steadier alternative to CAGR, fit across the full ~5-year window instead of just the two endpoints.",
         ],
         "vs_peers": "Yes — compare within banks/insurance specifically.",
     },
@@ -547,6 +549,8 @@ PARAM_HINTS: dict[str, dict] = {
         "how_to_use": [
             "EPS growing faster than revenue = margin expansion or buybacks.",
             "Erratic EPS (high vol, low R²) makes P/E and PEG less trustworthy.",
+            "Volatility % and CV % low + R² near 1 = steady earner; high vol = one-off gains/charges distorting the trend.",
+            "Trend growth %/yr — a steadier alternative to CAGR, fit across the full ~5-year window instead of just the two endpoints.",
         ],
         "vs_peers": "Yes — compare pace and steadiness within the industry.",
     },
@@ -569,6 +573,8 @@ PARAM_HINTS: dict[str, dict] = {
         "how_to_use": [
             "The cash check on EPS growth — both should roughly agree over time.",
             "Feeds the DCF intrinsic value (5y CAGR, capped at 15%).",
+            "Volatility % and CV % low + R² near 1 = steady cash generation; high vol = lumpy or capex-heavy years.",
+            "Trend growth %/yr — a steadier alternative to CAGR, fit across the full ~5-year window instead of just the two endpoints.",
         ],
         "vs_peers": "Yes — but steadiness (R², CV) matters more than raw pace.",
     },
@@ -581,6 +587,7 @@ PARAM_HINTS: dict[str, dict] = {
             "CAGR = smoothed yearly pace; YoY quarter = what's happening right now.",
             "Volatility % and CV % low + R² near 1 = steady grower; high vol = lumpy or cyclical.",
             "R² is 0-1 (fit quality), not a percent.",
+            "Trend growth %/yr — a steadier alternative to CAGR, fit across the full ~5-year window instead of just the two endpoints.",
         ],
         "vs_peers": "Yes — growth is only impressive against the industry's pace.",
     },
@@ -774,6 +781,7 @@ PARAM_HINTS: dict[str, dict] = {
             "CAGR: 5-10%+ with a safe payout ratio is the dividend-growth sweet spot.",
             "Volatility % and CV % low + R² near 1 = steady raiser; high vol = lumpy raises.",
             "Negative CAGR means the payout shrank — check for cuts.",
+            "Trend growth %/yr — a steadier alternative to CAGR, fit across the full ~5-year window instead of just the two endpoints.",
         ],
         "vs_peers": "Yes — utilities grow slowly from high yields; tech fast from low ones.",
     },

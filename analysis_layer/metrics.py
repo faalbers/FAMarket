@@ -269,27 +269,37 @@ def _cagr(s: pd.Series, years: int) -> float:
     return (last / base) ** (1 / span) - 1
 
 
-def _trend_stats(s: pd.Series) -> tuple[float, float, float]:
-    """(residual volatility %, R², CV %) of a linear fit over the last N years.
+def _trend_stats(s: pd.Series) -> tuple[float, float, float, float]:
+    """(residual volatility %, R², CV %, trend growth %/yr) over the last N years.
 
-    Linear (not log) fit so series with negative values (FCF/EPS losses) still
-    work. Residual vol % = std(residuals)/|mean| ; R² = fit goodness; CV =
-    std(values)/|mean|. NaN when fewer than 3 points or a zero mean.
+    vol/R²/CV come from a LINEAR fit (handles negative values like FCF/EPS
+    losses; residual vol % = std(residuals)/|mean|, CV = std(values)/|mean|).
+    Trend growth is a SEPARATE log-linear fit (ln(y) vs. year index,
+    annualized via exp(slope)-1) — only defined when every value is > 0, the
+    same sign-change gate _cagr() uses, since a compound rate across a loss
+    year is undefined. NaN when fewer than 3 points, a zero mean (vol/CV), or
+    any non-positive value (trend growth only).
     """
     s = s.iloc[-settings.GROWTH_TREND_YEARS :]
     y = s.to_numpy(dtype=float)
     if len(y) < 3:
-        return float("nan"), float("nan"), float("nan")
+        return float("nan"), float("nan"), float("nan"), float("nan")
     x = np.arange(len(y))
+
     fit = np.polyval(np.polyfit(x, y, 1), x)
     resid = y - fit
     ss_res = float(np.sum(resid**2))
     ss_tot = float(np.sum((y - y.mean()) ** 2))
     r2 = 1 - ss_res / ss_tot if ss_tot > 0 else float("nan")
     denom = abs(float(y.mean()))
-    if denom == 0:
-        return float("nan"), r2, float("nan")
-    return float(np.std(resid)) / denom * 100, r2, float(np.std(y)) / denom * 100
+    vol = float(np.std(resid)) / denom * 100 if denom else float("nan")
+    cv = float(np.std(y)) / denom * 100 if denom else float("nan")
+
+    growth_trend = float("nan")
+    if np.all(y > 0):
+        slope = float(np.polyfit(x, np.log(y), 1)[0])
+        growth_trend = (np.exp(slope) - 1) * 100
+    return vol, r2, cv, growth_trend
 
 
 def _yoy_latest(sq: pd.Series) -> float:
@@ -430,10 +440,11 @@ def _growth_block(name: str, annual: pd.Series, quarterly: pd.Series) -> dict:
     out: dict[str, float] = {}
     for w in settings.GROWTH_WINDOWS_YEARS:
         out[f"{name}_cagr_{w}y"] = _pct(_cagr(annual, w))
-    vol, r2, cv = _trend_stats(annual)
+    vol, r2, cv, growth_trend = _trend_stats(annual)
     out[f"{name}_growth_vol"] = vol
     out[f"{name}_growth_r2"] = r2
     out[f"{name}_growth_cv"] = cv
+    out[f"{name}_growth_trend"] = growth_trend
     out[f"{name}_yoy_q"] = _pct(_yoy_latest(quarterly))
     return out
 
@@ -831,7 +842,7 @@ def _income_block(fin, paid: pd.Series | None, price, ni_ttm, fcf_ttm, as_of) ->
         "div_consecutive_years": float("nan"), "div_consistency": float("nan"),
         "div_coverage": float("nan"),
         "div_growth_vol": float("nan"), "div_growth_r2": float("nan"),
-        "div_growth_cv": float("nan"),
+        "div_growth_cv": float("nan"), "div_growth_trend": float("nan"),
     }
     if as_of is None or pd.isna(as_of):  # no price history at all -> not applicable
         return out
@@ -860,10 +871,11 @@ def _income_block(fin, paid: pd.Series | None, price, ni_ttm, fcf_ttm, as_of) ->
         steps = by_year.diff().dropna()
         out["div_consistency"] = _pct((steps >= 0).mean())
         out["div_consecutive_years"] = float(_consecutive_increases(by_year))
-        vol, r2, cv = _trend_stats(by_year)
+        vol, r2, cv, growth_trend = _trend_stats(by_year)
         out["div_growth_vol"] = vol
         out["div_growth_r2"] = r2
         out["div_growth_cv"] = cv
+        out["div_growth_trend"] = growth_trend
 
     # payout / coverage off the cash-flow statement (currency-neutral ratios)
     div_paid = abs(P.ttm(fin, "cash_dividends_paid"))

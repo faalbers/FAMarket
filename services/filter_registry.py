@@ -17,7 +17,7 @@ Two **variant axes** ride on the bases instead of being enumerated as separate
 entries (Option B — base + modifier UI):
 
   * **growth** — the four statement line-items (revenue/eps/fcf/book_value) each
-    expand to 7 columns (`_cagr_1y/3y/5y`, `_yoy_q`, `_growth_vol/r2/cv`);
+    expand to 8 columns (`_cagr_1y/3y/5y`, `_growth_trend`, `_yoy_q`, `_growth_vol/r2/cv`);
   * **peer-relative** — `_vs_sector` / `_vs_industry`, offered for a concrete column
     only when that column actually exists in analysis.db (data-driven, so we never
     offer a peer toggle for a metric the analysis layer didn't compute one for).
@@ -121,6 +121,7 @@ GROWTH_WINDOWS: dict[str, str] = {
     "cagr_1y": "1Y CAGR",
     "cagr_3y": "3Y CAGR",
     "cagr_5y": "5Y CAGR",
+    "growth_trend": "Trend growth (log-linear)",
     "yoy_q": "YoY (latest quarter)",
     "growth_vol": "Growth volatility",
     "growth_r2": "Growth trend R²",
