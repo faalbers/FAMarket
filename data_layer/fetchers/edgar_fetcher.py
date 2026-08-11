@@ -38,10 +38,12 @@ CLASSIFICATION (verified against live AAPL data):
 from __future__ import annotations
 
 import calendar
+import re
 from datetime import date, timedelta
 from typing import TYPE_CHECKING
 
 import pandas as pd
+from ratelimit import limits, sleep_and_retry
 
 from config import secrets, settings
 from data_layer import staleness
@@ -52,6 +54,10 @@ if TYPE_CHECKING:
 
 SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
+# CIK-resolution fallbacks for tickers missing from SEC_TICKERS_URL (a curated,
+# occasionally-incomplete convenience file — see EDGARFinancials._resolve_missing_ciks).
+CIK_LOOKUP_URL = "https://www.sec.gov/Archives/edgar/cik-lookup-data.txt"
+BROWSE_EDGAR_URL = "https://www.sec.gov/cgi-bin/browse-edgar"
 
 # Duration windows (days) for flow concepts. A genuine annual span is ~365 days
 # and a fiscal quarter ~91; the slack absorbs 52/53-week fiscal calendars and the
@@ -136,6 +142,75 @@ _SHARE_COUNT_COLS = frozenset({"ordinary_shares_number", "share_issued"})
 # yfinance stores these cash-flow lines negative. Negate so the shared column keeps
 # one consistent sign across both sources.
 _NEGATE_COLS = frozenset({"capital_expenditure", "cash_dividends_paid"})
+
+# --------------------------------------------------------------------------- #
+# CIK-resolution fallback name matching (Layers 2/3 — see
+# EDGARFinancials._resolve_missing_ciks). SEC_TICKERS_URL is a curated,
+# occasionally-incomplete convenience file; these clean a symbol's `name` for
+# matching against the broader, name-keyed CIK_LOOKUP_URL registry and against
+# BROWSE_EDGAR_URL's prefix-matching company search.
+# --------------------------------------------------------------------------- #
+# Security-type noise Polygon appends to `name` that SEC's registries never have.
+_NAME_SECURITY_SUFFIXES = (
+    r"common stock", r"class [a-z] common stock", r"class [a-z] ordinary shares",
+    r"ordinary shares", r"depositary shares", r"american depositary shares",
+    r"[0-9.]+ percent series [a-z][^,]*", r"series [a-z] preferred stock",
+    r"warrants", r"units", r"rights",
+)
+_NAME_SECURITY_SUFFIX_RE = re.compile(
+    r"[,\s]+(" + "|".join(_NAME_SECURITY_SUFFIXES) + r")\s*\Z", re.IGNORECASE
+)
+# Generic legal-entity words SEC's registered name usually abbreviates (Corp not
+# Corporation) — browse-edgar's company search is a prefix match against that
+# abbreviated form, so a query ending in the unabbreviated word often misses.
+_NAME_LEGAL_SUFFIX_RE = re.compile(
+    r"[,\s]+(corporation|incorporated|limited|company)\s*\Z", re.IGNORECASE
+)
+
+
+def _norm_name(s: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", s.upper()) if s else ""
+
+
+def _clean_security_suffix(name: str) -> str:
+    """Strip ticker-metadata noise (Common Stock, Ordinary Shares, ...) that
+    SEC's own company registries never carry.
+    """
+    name = name.replace("%", " percent ")
+    prev = None
+    while prev != name:
+        prev = name
+        name = _NAME_SECURITY_SUFFIX_RE.sub("", name).strip()
+    return name
+
+
+def _browse_query_name(name: str) -> str:
+    """Further-trimmed name for the browse-edgar prefix search — also drops the
+    generic legal-suffix word, since SEC's registered name is usually abbreviated.
+    """
+    name = _clean_security_suffix(name)
+    prev = None
+    while prev != name:
+        prev = name
+        name = _NAME_LEGAL_SUFFIX_RE.sub("", name).strip()
+    return name
+
+
+# ASC 980 "Regulated Operations" tags — only rate-regulated entities (utilities,
+# some REITs/pipelines) report these at all, so presence alone is the signal;
+# we never need the dollar values themselves. Checked directly against the raw
+# facts (not run through INSTANT_CONCEPTS) since this is a one-time per-company
+# detection, not a financials.db time series.
+_REGULATORY_TAGS = (
+    "RegulatoryAssets", "RegulatoryAssetsCurrent", "RegulatoryAssetsNoncurrent",
+    "RegulatoryLiabilities", "RegulatoryLiabilityCurrent", "RegulatoryLiabilityNoncurrent",
+)
+
+
+def _has_regulatory_data(facts: dict) -> bool:
+    return any(
+        facts.get(tag, {}).get("units") for tag in _REGULATORY_TAGS
+    )
 
 
 def _to_date(s: str | None) -> date | None:
@@ -368,6 +443,22 @@ class EDGARFinancials(BaseFetcher):
     def stale_symbols(self, candidates: list[str]) -> set[str]:
         return staleness.financials_stale(candidates)
 
+    def run(self, symbols_df: pd.DataFrame, status_db: "Database", respect_lock: bool = True) -> dict:
+        """Resolve CIKs for the due symbols up front (bulk ticker map + name-
+        based fallback layers for anything still missing), then fetch normally.
+
+        `fetch_one()` itself stays a plain dict lookup — no fallback logic
+        inside the per-symbol loop. `select_due` is called here and again
+        inside `super().run()`; a cheap DB read, not worth restructuring the
+        base class to avoid.
+        """
+        due, _ = self.select_due(symbols_df, status_db, respect_lock)
+        cik_map = self._cik_map()
+        missing = [s for s in due if s.upper() not in cik_map]
+        if missing:
+            self._resolve_missing_ciks(missing)
+        return super().run(symbols_df, status_db, respect_lock)
+
     # -- CIK resolution ----------------------------------------------------- #
     def _cik_map(self) -> dict[str, int]:
         """symbol -> CIK from SEC company_tickers.json (cached for the run).
@@ -393,6 +484,102 @@ class EDGARFinancials(BaseFetcher):
             self.log.info("EDGAR CIK map — %d tickers", len(self._cik))
         return self._cik
 
+    def _resolve_missing_ciks(self, symbols: list[str]) -> None:
+        """Layer 2 (bulk name registry) then Layer 3 (per-symbol browse-edgar)
+        for symbols missing from the primary ticker map. Conservative
+        throughout — only a unique single-CIK match is accepted at either
+        layer; ambiguous or unmatched symbols are simply left out of
+        `self._cik`, which `fetch_one()` already treats as "nothing to add".
+        """
+        import requests
+
+        from core.database import Database
+
+        assert self._cik is not None
+        with Database(settings.SYMBOLS_DB) as sdb:
+            placeholders = ", ".join("?" for _ in symbols)
+            names = sdb.query(
+                f"SELECT symbol, name FROM symbols WHERE symbol IN ({placeholders})",
+                symbols,
+            )
+        name_by_symbol = dict(zip(names["symbol"], names["name"]))
+
+        # Layer 2: bulk name-keyed registry — every SEC filer ever, ~1M entries,
+        # one request. SEC_TICKERS_URL only covers a curated ~10k active-ticker
+        # subset; this is the broader, name-only fallback.
+        resp = requests.get(
+            CIK_LOOKUP_URL, headers={"User-Agent": secrets.SEC_USER_AGENT}, timeout=60
+        )
+        resp.raise_for_status()
+        registry: dict[str, set[int]] = {}
+        for line in resp.text.splitlines():
+            parts = line.split(":")
+            if len(parts) < 3 or not parts[1].isdigit():
+                continue
+            registry.setdefault(_norm_name(parts[0]), set()).add(int(parts[1]))
+
+        still_missing = []
+        for sym in symbols:
+            nm = name_by_symbol.get(sym)
+            ciks = None
+            if nm:
+                ciks = registry.get(_norm_name(nm)) or registry.get(
+                    _norm_name(_clean_security_suffix(nm))
+                )
+            if ciks and len(ciks) == 1:
+                self._cik[sym.upper()] = next(iter(ciks))
+            else:
+                still_missing.append(sym)
+
+        resolved_l2 = len(symbols) - len(still_missing)
+        if resolved_l2:
+            self.log.info(
+                "EDGAR CIK fallback — %d/%d resolved via name registry",
+                resolved_l2, len(symbols),
+            )
+
+        # Layer 3: browse-edgar per-symbol company search (prefix match against
+        # SEC's registered, usually-abbreviated name) — one request each, so
+        # only run against whatever Layer 2 couldn't resolve.
+        resolved_l3 = 0
+        for sym in still_missing:
+            nm = name_by_symbol.get(sym)
+            query = _browse_query_name(nm) if nm else sym
+            try:
+                cik = self._browse_edgar_lookup(query)
+            except Exception as exc:  # transient SEC errors (e.g. 503) skip, not crash
+                self.log.debug("‖ browse-edgar lookup failed for %s: %s", sym, exc)
+                continue
+            if cik is not None:
+                self._cik[sym.upper()] = cik
+                resolved_l3 += 1
+        if resolved_l3:
+            self.log.info(
+                "EDGAR CIK fallback — %d/%d resolved via browse-edgar",
+                resolved_l3, len(still_missing),
+            )
+
+    @sleep_and_retry
+    @limits(calls=settings.RATE_LIMITS["edgar"][0], period=settings.RATE_LIMITS["edgar"][1])
+    def _browse_edgar_lookup(self, query_name: str) -> int | None:
+        """One browse-edgar company-name search; a CIK only for a single,
+        unambiguous match — never guesses among multiple hits.
+        """
+        import requests
+
+        resp = requests.get(
+            BROWSE_EDGAR_URL,
+            params={
+                "action": "getcompany", "company": query_name, "type": "10-K",
+                "dateb": "", "owner": "include", "count": "10", "output": "atom",
+            },
+            headers={"User-Agent": secrets.SEC_USER_AGENT},
+            timeout=45,
+        )
+        resp.raise_for_status()
+        ciks = set(re.findall(r"<cik>(\d+)</cik>", resp.text))
+        return int(next(iter(ciks))) if len(ciks) == 1 else None
+
     def fetch_one(self, symbol: str) -> pd.DataFrame | None:
         import requests
 
@@ -412,7 +599,13 @@ class EDGARFinancials(BaseFetcher):
         if not facts:
             return None
         rows = extract_financials(symbol, facts)
-        return rows if not rows.empty else None
+        if rows.empty:
+            return None
+        # Rate-regulated (ASC 980) detection — a per-COMPANY fact, not a
+        # per-period one, so it rides along just long enough for _write() to
+        # split it off into symbols.db; it never reaches financials.db itself.
+        rows["regulatory"] = int(_has_regulatory_data(facts))
+        return rows
 
     # -- additive-only write ------------------------------------------------ #
     def _write(self, db: "Database", rows: pd.DataFrame) -> None:
@@ -429,10 +622,24 @@ class EDGARFinancials(BaseFetcher):
         """
         if rows.empty:
             return
-        rows = self._drop_yf_owned(db, rows)
-        if rows.empty:
+        self._write_regulatory_flag(rows)
+        fin_rows = rows.drop(columns=["regulatory"])
+        fin_rows = self._drop_yf_owned(db, fin_rows)
+        if fin_rows.empty:
             return
-        super()._write(db, rows)
+        super()._write(db, fin_rows)
+
+    def _write_regulatory_flag(self, rows: pd.DataFrame) -> None:
+        """Set each symbol's rate-regulated status in symbols.db — set once,
+        never needs refreshing (it's a structural fact, not a time series), and
+        living on the per-company table means a new yfinance financials row
+        next year has nothing to do with it.
+        """
+        from core.database import Database
+
+        flags = rows.groupby("symbol", as_index=False)["regulatory"].max()
+        with Database(settings.SYMBOLS_DB) as sdb:
+            sdb.upsert("symbols", flags, "symbol")
 
     def _drop_yf_owned(self, db: "Database", rows: pd.DataFrame) -> pd.DataFrame:
         if not db.table_exists(self.table):
