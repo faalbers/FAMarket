@@ -1,7 +1,7 @@
 """
 Intrinsic value (Topic 4.1) — per-symbol fair-value estimates -> analysis.db.
 
-Three independent estimates plus a blended margin of safety:
+Four independent estimates plus a blended margin of safety:
 
   * intrinsic_value_graham — √(22.5 · EPS · book value per share). Graham's classic
     conservative floor; deliberately low for asset-light / high-ROE businesses.
@@ -12,6 +12,14 @@ Three independent estimates plus a blended margin of safety:
     growth rate (log-linear fit) over a horizon, Gordon terminal value, discount
     at a CAPM rate (risk-free from macro.db + beta · equity-risk-premium), less
     net debt, ÷ shares.
+  * intrinsic_value_ddm    — dividend discount model: project the TTM per-share
+    dividend at its capped trend growth over the same horizon, Gordon terminal
+    value, discount at the SAME CAPM rate as the DCF (same company, same risk,
+    whichever cash-flow stream you're discounting). Already per-share, so unlike
+    the DCF there's no shares/net-debt conversion. The model banks/insurers/REITs
+    actually get valued on — deposits/underwriting and GAAP depreciation make FCF-
+    DCF and EPS-based Graham/Lynch unreliable for them, but the dividend itself
+    isn't distorted the same way.
   * margin_of_safety       — how far price sits below the MEAN of the available
     estimates (positive = undervalued), in percent.
 
@@ -64,6 +72,7 @@ def compute(
         "intrinsic_value_graham": float("nan"),
         "intrinsic_value_lynch": float("nan"),
         "intrinsic_value_dcf": float("nan"),
+        "intrinsic_value_ddm": float("nan"),
         "margin_of_safety": float("nan"),
     }
     if m.get("valuation_basis") != "computed":  # currency mismatch -> not comparable
@@ -77,9 +86,11 @@ def compute(
     out["intrinsic_value_graham"] = _graham(eps, bvps)
     out["intrinsic_value_lynch"] = _lynch(eps, m)
     out["intrinsic_value_dcf"] = _dcf(fin, m, quote, shares, risk_free)
+    out["intrinsic_value_ddm"] = _ddm(m, quote, risk_free)
 
     estimates = [out[k] for k in
-                 ("intrinsic_value_graham", "intrinsic_value_lynch", "intrinsic_value_dcf")
+                 ("intrinsic_value_graham", "intrinsic_value_lynch",
+                  "intrinsic_value_dcf", "intrinsic_value_ddm")
                  if pd.notna(out[k]) and out[k] > 0]
     if estimates and price and price > 0:
         fair = sum(estimates) / len(estimates)
@@ -101,16 +112,27 @@ def _lynch(eps: float, m: dict) -> float:
     return eps * min(growth, settings.LYNCH_GROWTH_CAP)
 
 
-def _dcf(fin: pd.DataFrame, m: dict, quote: pd.Series | None, shares: float, risk_free: float) -> float:
-    fcf0 = fcf_ttm(fin)
-    if pd.isna(fcf0) or fcf0 <= 0 or pd.isna(shares) or shares <= 0:
-        return float("nan")
+def _cost_of_equity(quote: pd.Series | None, risk_free: float) -> float:
+    """CAPM cost of equity, floored to keep a minimum spread over terminal growth.
 
+    Shared by the DCF and DDM — same company, same risk, same rate regardless of
+    which cash-flow stream (FCF vs. dividends) it's discounting.
+    """
     beta = float(quote["beta"]) if quote is not None and pd.notna(quote.get("beta")) else settings.DCF_DEFAULT_BETA
     discount = risk_free + beta * settings.DCF_EQUITY_RISK_PREMIUM
     gt = settings.DCF_TERMINAL_GROWTH
     if discount - gt < settings.DCF_MIN_DISCOUNT_SPREAD:
         discount = gt + settings.DCF_MIN_DISCOUNT_SPREAD
+    return discount
+
+
+def _dcf(fin: pd.DataFrame, m: dict, quote: pd.Series | None, shares: float, risk_free: float) -> float:
+    fcf0 = fcf_ttm(fin)
+    if pd.isna(fcf0) or fcf0 <= 0 or pd.isna(shares) or shares <= 0:
+        return float("nan")
+
+    discount = _cost_of_equity(quote, risk_free)
+    gt = settings.DCF_TERMINAL_GROWTH
 
     # growth estimate from FCF trend growth (log-linear fit), floored at 0.
     g_pct = m.get("fcf_growth_trend")
@@ -130,3 +152,30 @@ def _dcf(fin: pd.DataFrame, m: dict, quote: pd.Series | None, shares: float, ris
         net_debt = (td if pd.notna(td) else 0.0) - (cash if pd.notna(cash) else 0.0)
     equity_value = pv - net_debt
     return equity_value / shares if equity_value > 0 else float("nan")
+
+
+def _ddm(m: dict, quote: pd.Series | None, risk_free: float) -> float:
+    """Two-stage dividend discount model: project the TTM per-share dividend at
+    its capped trend growth, Gordon terminal value, discount at CAPM cost of
+    equity. Already per-share (a dividend rate, not a company aggregate) — no
+    shares/net-debt conversion needed, unlike the DCF.
+    """
+    d0 = m.get("div_rate_ttm")
+    if pd.isna(d0) or d0 <= 0:
+        return float("nan")
+
+    discount = _cost_of_equity(quote, risk_free)
+    gt = settings.DCF_TERMINAL_GROWTH
+
+    # growth estimate from dividend trend growth (log-linear fit), floored at 0.
+    g_pct = m.get("div_growth_trend")
+    g = max(min((g_pct / 100) if pd.notna(g_pct) else 0.0, settings.DCF_GROWTH_CAP), 0.0)
+
+    n = settings.DCF_PROJECTION_YEARS
+    div, pv = d0, 0.0
+    for t in range(1, n + 1):
+        div *= 1 + g
+        pv += div / (1 + discount) ** t
+    terminal = div * (1 + gt) / (discount - gt)
+    pv += terminal / (1 + discount) ** n
+    return pv if pv > 0 else float("nan")

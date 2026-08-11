@@ -290,11 +290,11 @@ RECONCILE_TOLERANCE_PCT: float = 0.10
 # --------------------------------------------------------------------------- #
 GRAHAM_MULTIPLIER: float = 22.5        # Graham's 15 (P/E) × 1.5 (P/B)
 LYNCH_GROWTH_CAP: float = 25.0         # cap on growth% used as Lynch fair P/E
-DCF_PROJECTION_YEARS: int = 10         # explicit FCF projection horizon
-DCF_TERMINAL_GROWTH: float = 0.025     # perpetual growth after the horizon
-DCF_EQUITY_RISK_PREMIUM: float = 0.05  # added to risk-free via beta (CAPM)
+DCF_PROJECTION_YEARS: int = 10         # explicit projection horizon (DCF + DDM)
+DCF_TERMINAL_GROWTH: float = 0.025     # perpetual growth after the horizon (DCF + DDM)
+DCF_EQUITY_RISK_PREMIUM: float = 0.05  # added to risk-free via beta (CAPM; DCF + DDM)
 DCF_DEFAULT_BETA: float = 1.0          # used when a symbol has no beta
-DCF_GROWTH_CAP: float = 0.15           # cap on historical FCF growth in projection
+DCF_GROWTH_CAP: float = 0.15           # cap on trend growth in projection (DCF + DDM)
 DCF_MIN_DISCOUNT_SPREAD: float = 0.02  # floor on (discount − terminal growth)
 # Betas beyond this are corrupted yfinance data, not real risk (checked against the
 # live quotes.db 2026-08-09: 97.2% of reported betas sit within ±5, the rest jump
