@@ -156,7 +156,7 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "PEG",
         "category": "Valuation",
         "unit": "x",
-        "what_it_is": "Trailing P/E divided by the 3-year EPS growth rate (in %).",
+        "what_it_is": "Trailing P/E divided by the EPS trend growth rate (log-linear fit, in %).",
         "how_to_use": [
             "Around 1 is fairly priced for its growth (Lynch's rule of thumb).",
             "Under 1 suggests growth at a discount; NULL when growth is zero or negative.",
@@ -572,7 +572,7 @@ PARAM_HINTS: dict[str, dict] = {
         "what_it_is": "Growth of free cash flow (operating cash flow + capex), derived from deep annual history. Same windows as revenue growth.",
         "how_to_use": [
             "The cash check on EPS growth — both should roughly agree over time.",
-            "Feeds the DCF intrinsic value (5y CAGR, capped at 15%).",
+            "Feeds the DCF intrinsic value (trend growth, capped at 15%).",
             "Volatility % and CV % low + R² near 1 = steady cash generation; high vol = lumpy or capex-heavy years.",
             "Trend growth %/yr — a steadier alternative to CAGR, fit across the full ~5-year window instead of just the two endpoints.",
         ],
@@ -1117,7 +1117,7 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "DCF",
         "category": "Intrinsic Value",
         "unit": "$",
-        "what_it_is": "Per-share DCF: trailing FCF projected 10 years at its historical CAGR (capped 15%), discounted at risk-free + beta × 5%, plus terminal value, minus net debt.",
+        "what_it_is": "Per-share DCF: trailing FCF projected 10 years at its trend growth rate (log-linear fit, capped 15%), discounted at risk-free + beta × 5%, plus terminal value, minus net debt.",
         "how_to_use": [
             "The most complete model — and the most assumption-sensitive.",
             "Treat as a rough anchor; demand a margin of safety, not precision.",
@@ -1140,7 +1140,7 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Lynch",
         "category": "Intrinsic Value",
         "unit": "$",
-        "what_it_is": "Peter Lynch fair value: EPS × growth rate (3y EPS CAGR %, capped at 25) used as the fair P/E.",
+        "what_it_is": "Peter Lynch fair value: EPS × growth rate (EPS trend growth %, log-linear fit, capped at 25) used as the fair P/E.",
         "how_to_use": [
             "Embodies PEG = 1: a grower deserves its growth rate as a P/E.",
             "Only meaningful for steady growers; NULL without positive EPS and growth.",

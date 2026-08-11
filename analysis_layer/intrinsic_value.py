@@ -5,11 +5,13 @@ Three independent estimates plus a blended margin of safety:
 
   * intrinsic_value_graham — √(22.5 · EPS · book value per share). Graham's classic
     conservative floor; deliberately low for asset-light / high-ROE businesses.
-  * intrinsic_value_lynch  — EPS · fair P/E, where fair P/E is the earnings growth
-    rate (Lynch: a fairly priced grower trades at P/E ≈ growth%). Growth capped.
-  * intrinsic_value_dcf    — simple FCF DCF: project TTM FCF at capped historical
-    growth over a horizon, Gordon terminal value, discount at a CAPM rate
-    (risk-free from macro.db + beta · equity-risk-premium), less net debt, ÷ shares.
+  * intrinsic_value_lynch  — EPS · fair P/E, where fair P/E is the EPS trend growth
+    rate (log-linear fit, steadier than endpoint CAGR — Lynch: a fairly priced
+    grower trades at P/E ≈ growth%). Growth capped.
+  * intrinsic_value_dcf    — simple FCF DCF: project TTM FCF at its capped trend
+    growth rate (log-linear fit) over a horizon, Gordon terminal value, discount
+    at a CAPM rate (risk-free from macro.db + beta · equity-risk-premium), less
+    net debt, ÷ shares.
   * margin_of_safety       — how far price sits below the MEAN of the available
     estimates (positive = undervalued), in percent.
 
@@ -92,10 +94,8 @@ def _graham(eps: float, bvps: float) -> float:
 
 
 def _lynch(eps: float, m: dict) -> float:
-    """EPS × fair P/E, fair P/E = earnings growth% (3y CAGR, 5y fallback), capped."""
-    growth = m.get("eps_cagr_3y")
-    if pd.isna(growth):
-        growth = m.get("eps_cagr_5y")
+    """EPS × fair P/E, fair P/E = EPS trend growth% (log-linear fit), capped."""
+    growth = m.get("eps_growth_trend")
     if pd.isna(eps) or eps <= 0 or pd.isna(growth) or growth <= 0:
         return float("nan")
     return eps * min(growth, settings.LYNCH_GROWTH_CAP)
@@ -112,10 +112,8 @@ def _dcf(fin: pd.DataFrame, m: dict, quote: pd.Series | None, shares: float, ris
     if discount - gt < settings.DCF_MIN_DISCOUNT_SPREAD:
         discount = gt + settings.DCF_MIN_DISCOUNT_SPREAD
 
-    # growth estimate from historical FCF CAGR (5y, 3y fallback), floored at 0.
-    g_pct = m.get("fcf_cagr_5y")
-    if pd.isna(g_pct):
-        g_pct = m.get("fcf_cagr_3y")
+    # growth estimate from FCF trend growth (log-linear fit), floored at 0.
+    g_pct = m.get("fcf_growth_trend")
     g = max(min((g_pct / 100) if pd.notna(g_pct) else 0.0, settings.DCF_GROWTH_CAP), 0.0)
 
     n = settings.DCF_PROJECTION_YEARS

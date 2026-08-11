@@ -648,9 +648,9 @@ def compute(
     # Negative = net buybacks, which lift per-share growth; positive = dilution.
     m["share_count_chg_1y"] = _pct(_cagr(P.annual(fin, "diluted_average_shares"), 1))
 
-    # PEG: trailing P/E over 3y EPS CAGR (%); guard non-positive growth.
-    g3 = m.get("eps_cagr_3y")
-    m["peg"] = _div(m["pe"], g3) if (pd.notna(g3) and g3 > 0) else float("nan")
+    # PEG: trailing P/E over EPS trend growth (%, log-linear fit); guard non-positive growth.
+    g_eps = m.get("eps_growth_trend")
+    m["peg"] = _div(m["pe"], g_eps) if (pd.notna(g_eps) and g_eps > 0) else float("nan")
 
     # -- income / dividends ------------------------------------------------- #
     m.update(_income_block(fin, dividends, price, ni, fcf, as_of))

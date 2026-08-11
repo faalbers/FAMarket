@@ -397,12 +397,12 @@ def _fill_ttm_gaps(fsym_asof: P.SymbolPeriods, m: dict, price: float) -> None:
     else:
         m["roic_basis"] = "ttm"
 
-    # peg = pe / eps_cagr_3y — recomputed here because metrics.compute() built it
-    # from the ORIGINAL (possibly still-blank) pe, before the pe fix above ran.
+    # peg = pe / eps_growth_trend — recomputed here because metrics.compute() built
+    # it from the ORIGINAL (possibly still-blank) pe, before the pe fix above ran.
     if pd.isna(m.get("peg")):
-        g3 = m.get("eps_cagr_3y")
-        if pd.notna(m.get("pe")) and pd.notna(g3) and g3 > 0:
-            m["peg"] = metrics._div(m["pe"], g3)
+        g_eps = m.get("eps_growth_trend")
+        if pd.notna(m.get("pe")) and pd.notna(g_eps) and g_eps > 0:
+            m["peg"] = metrics._div(m["pe"], g_eps)
 
 
 def _build_symbol(symbol: str, osym: pd.DataFrame, fsym: pd.DataFrame, macro: pd.DataFrame,
