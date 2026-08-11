@@ -262,6 +262,10 @@ def run_analysis(subset: list[str] | None = None) -> dict:
         ind = quote.get("industry") if quote is not None else None
         sec_type = getattr(rec, "security_type", None)
         screen_type = classify_screen_type(sec_type, sec, ind)
+        # regulatory is 0/1/NaN (NaN = not yet EDGAR-checked) -- NaN is truthy in
+        # Python, so `bool(nan or 0)` would wrongly read "unknown" as "regulated".
+        reg_raw = getattr(rec, "regulatory", None)
+        regulated = bool(reg_raw) if pd.notna(reg_raw) else False
 
         m = metrics.compute(sym, fsym, quote, price,
                             dividends=div_by.get(sym), splits=split_by.get(sym),
@@ -270,7 +274,8 @@ def run_analysis(subset: list[str] | None = None) -> dict:
                             reconcile=reconcile,
                             risk_free=risk_free)
         t = technical.compute(sym, osym, first_date=first_date_by.get(sym))
-        iv = intrinsic_value.compute(sym, fsym, quote, price, m, risk_free)
+        iv = intrinsic_value.compute(sym, fsym, quote, price, m, risk_free,
+                                      screen_type=screen_type, regulated=regulated)
         est_m = estimates_metrics.compute(sym, est_by.get(sym), forward_pe=m.get("forward_pe"))
         sig_m = signals_metrics.compute(sym, surp_by.get(sym), own_by.get(sym), asof=signals_asof)
         # Fund provider/sponsor — funds only (NULL for stocks). Filtered as a

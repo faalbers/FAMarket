@@ -264,6 +264,7 @@ BASES: list[Base] = [
     _b("intrinsic_value_lynch", "Lynch value", "Intrinsic Value", frozenset({STANDARD, BANK, INSURANCE})),
     _b("intrinsic_value_dcf", "DCF value", "Intrinsic Value", frozenset({STANDARD})),
     _b("intrinsic_value_ddm", "DDM value", "Intrinsic Value", frozenset({STANDARD, BANK, INSURANCE, REIT})),
+    _b("fair_value", "Fair value", "Intrinsic Value", frozenset({STANDARD, BANK, INSURANCE, REIT})),
     _b("margin_of_safety", "Margin of safety", "Intrinsic Value", frozenset({STANDARD, BANK, INSURANCE, REIT})),
     # -- Relative strength -------------------------------------------------- #
     _b("rs_rank", "RS Rank", "Relative Strength", ALL_TRADED),

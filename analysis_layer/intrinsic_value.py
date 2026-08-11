@@ -1,7 +1,7 @@
 """
 Intrinsic value (Topic 4.1) — per-symbol fair-value estimates -> analysis.db.
 
-Four independent estimates plus a blended margin of safety:
+Four independent estimates plus a type-gated blend and margin of safety:
 
   * intrinsic_value_graham — √(22.5 · EPS · book value per share). Graham's classic
     conservative floor; deliberately low for asset-light / high-ROE businesses.
@@ -19,9 +19,16 @@ Four independent estimates plus a blended margin of safety:
     the DCF there's no shares/net-debt conversion. The model banks/insurers/REITs
     actually get valued on — deposits/underwriting and GAAP depreciation make FCF-
     DCF and EPS-based Graham/Lynch unreliable for them, but the dividend itself
-    isn't distorted the same way.
-  * margin_of_safety       — how far price sits below the MEAN of the available
-    estimates (positive = undervalued), in percent.
+    isn't distorted the same way. Same reasoning applies to rate-regulated
+    utilities/pipelines (EDGAR ASC-980 `regulatory` flag on symbols.db).
+  * fair_value             — MEDIAN of whichever estimates are applicable to the
+    symbol's type (`_applicable_models`, gated on `screen_type` + `regulated`) and
+    computed positive. Median rather than mean: DCF has a long high-side tail
+    (terminal-value/growth-assumption blowups) and Lynch collapses toward $0 for
+    low/no-growth names — either one can drag a plain mean off; median is robust
+    to a single outlier on either side.
+  * margin_of_safety       — how far price sits below `fair_value`
+    (positive = undervalued), in percent.
 
 Reuses metrics' work: EPS and growth come from the already-computed metrics dict
 `m` (so EPS is split-adjusted and consistent). When metrics fell back to yfinance
@@ -33,12 +40,32 @@ non-USD fundamentals, so we skip them entirely.
 from __future__ import annotations
 
 import math
+import statistics
 
 import pandas as pd
 
 from config import settings
 from analysis_layer import _periods as P
+from analysis_layer import screen_type as ST
 from analysis_layer.metrics import fcf_ttm
+
+
+def _applicable_models(screen_type: str | None, regulated: bool) -> frozenset[str]:
+    """Which of the four models are conceptually sound for this symbol's type.
+
+    DCF/Graham/Lynch lean on FCF/EPS, which GAAP depreciation and deposit/
+    underwriting accounting distort for banks, insurers, REITs, and rate-
+    regulated utilities/pipelines — see module docstring.
+    """
+    if screen_type == ST.REIT:
+        return frozenset({"ddm"})
+    if screen_type in (ST.BANK, ST.INSURANCE):
+        return frozenset({"graham", "lynch", "ddm"})
+    if screen_type == ST.STANDARD:
+        if regulated:
+            return frozenset({"graham", "lynch", "ddm"})
+        return frozenset({"graham", "lynch", "dcf", "ddm"})
+    return frozenset()  # etf / fund / preferred / minimal — none apply
 
 
 def _num(x) -> float:
@@ -55,6 +82,14 @@ def _shares(quote: pd.Series | None, fin: pd.DataFrame) -> float:
     return float("nan")
 
 
+_MODEL_COLUMN = {
+    "graham": "intrinsic_value_graham",
+    "lynch": "intrinsic_value_lynch",
+    "dcf": "intrinsic_value_dcf",
+    "ddm": "intrinsic_value_ddm",
+}
+
+
 def compute(
     symbol: str,
     fin: P.SymbolPeriods,
@@ -62,17 +97,23 @@ def compute(
     price: float,
     m: dict,
     risk_free: float,
+    screen_type: str | None = None,
+    regulated: bool = False,
 ) -> dict:
     """Intrinsic values for one symbol. `risk_free` is an annual fraction (0.043).
 
     `m` is this symbol's metrics dict (for split-adjusted EPS and growth). Missing
     inputs / non-stock securities yield NaN; foreign-currency filers are skipped.
+    `screen_type`/`regulated` gate which of the four estimates feed `fair_value`
+    and `margin_of_safety` (see `_applicable_models`); the four raw
+    `intrinsic_value_*` columns are always computed regardless of type.
     """
     out = {
         "intrinsic_value_graham": float("nan"),
         "intrinsic_value_lynch": float("nan"),
         "intrinsic_value_dcf": float("nan"),
         "intrinsic_value_ddm": float("nan"),
+        "fair_value": float("nan"),
         "margin_of_safety": float("nan"),
     }
     if m.get("valuation_basis") != "computed":  # currency mismatch -> not comparable
@@ -88,13 +129,14 @@ def compute(
     out["intrinsic_value_dcf"] = _dcf(fin, m, quote, shares, risk_free)
     out["intrinsic_value_ddm"] = _ddm(m, quote, risk_free)
 
-    estimates = [out[k] for k in
-                 ("intrinsic_value_graham", "intrinsic_value_lynch",
-                  "intrinsic_value_dcf", "intrinsic_value_ddm")
-                 if pd.notna(out[k]) and out[k] > 0]
-    if estimates and price and price > 0:
-        fair = sum(estimates) / len(estimates)
-        out["margin_of_safety"] = (fair - price) / fair * 100
+    applicable = _applicable_models(screen_type, regulated)
+    estimates = [out[_MODEL_COLUMN[model]] for model in applicable
+                 if pd.notna(out[_MODEL_COLUMN[model]]) and out[_MODEL_COLUMN[model]] > 0]
+    if estimates:
+        out["fair_value"] = statistics.median(estimates)
+        if price and price > 0:
+            fair = out["fair_value"]
+            out["margin_of_safety"] = (fair - price) / fair * 100
     return out
 
 
