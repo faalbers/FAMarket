@@ -307,6 +307,27 @@ WACC_BETA_MAX_ABS: float = 10.0
 # (e.g. a balance that drops 99% between quarters while TTM interest expense stays
 # at its prior level) that would otherwise blow up the ratio despite a normal beta.
 WACC_MAX_COST_OF_DEBT: float = 0.5
+
+# --------------------------------------------------------------------------- #
+# Valuation scenarios (bear / base / bull) — analysis_layer/valuation_scenarios.py
+# --------------------------------------------------------------------------- #
+# Bear/bull growth = trend growth ∓ (residual volatility × this multiplier), using
+# each method's own metrics._trend_stats() vol column (eps/fcf/div_growth_vol) — an
+# uncertainty-scaled stand-in for the manual scenario-rebuild professionals do by
+# hand (no named industry-standard formula found for this specific technique,
+# 2026-08 research; treat as FAMarket's own, tunable, not "how Wall Street does it").
+VALUATION_SCENARIO_VOL_MULTIPLIER: float = 1.0
+# Guardrail: flag when the assumed terminal ROIC-WACC spread (roic_vs_wacc,
+# percentage points) is wide enough that the Gordon terminal value is implicitly
+# assuming an implausibly persistent excess return forever (Damodaran: terminal
+# growth alone isn't the risk — the excess-return spread paired with it is).
+GUARDRAIL_ROIC_WACC_SPREAD_MAX: float = 20.0
+# Qualitative red-flag thresholds (visible on Output, never auto-applied to
+# fair_value_bear — see valuation_scenarios.py module docstring for why).
+BEAR_FLAG_CASH_CONVERSION_MIN: float = 100.0   # ocf_to_ni_3y/5y (%) below this = weak
+BEAR_FLAG_MOAT_GAP_MIN: float = 3.0            # roic_vs_wacc (pp) below this = thin/no moat
+BEAR_FLAG_INTEREST_COVERAGE_MIN: float = 2.0   # interest_coverage (x) below this = weak
+BEAR_FLAG_BENEISH_THRESHOLD: float = -1.78     # beneish_m_score above this = likely manipulator
 # ROIC beyond +/-500% is treated as an invested_capital-near-zero artifact, not real
 # capital efficiency (checked 2026-08-09: 98.4% of reported ROIC sits within +/-500%,
 # the 99.9th percentile jumps straight to ~10,900% — same near-zero-denominator

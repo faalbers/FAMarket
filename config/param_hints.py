@@ -1182,6 +1182,113 @@ PARAM_HINTS: dict[str, dict] = {
         ],
         "vs_peers": "No — it's already an absolute discount measure.",
     },
+    "fair_value_bear": {
+        "name": "Fair value (bear)",
+        "category": "Intrinsic Value",
+        "unit": "$",
+        "what_it_is": "fair_value recomputed with each applicable model's growth input pulled down to trend growth minus its own residual volatility (Graham excluded — it has no forward growth input to flex, so it never varies by scenario).",
+        "how_to_use": [
+            "The pessimistic end of the range — compare against fair_value_bull to see how sensitive the valuation actually is.",
+            "A narrow bear-to-bull spread means a steady growth history; a wide one means a noisy one.",
+            "NULL under the same conditions as fair_value.",
+        ],
+        "vs_peers": "No — compare price to value.",
+    },
+    "fair_value_bull": {
+        "name": "Fair value (bull)",
+        "category": "Intrinsic Value",
+        "unit": "$",
+        "what_it_is": "fair_value recomputed with each applicable model's growth input pushed up to trend growth plus its own residual volatility (Graham excluded, same as fair_value_bear).",
+        "how_to_use": [
+            "The optimistic end of the range.",
+            "NULL under the same conditions as fair_value.",
+        ],
+        "vs_peers": "No — compare price to value.",
+    },
+    "margin_of_safety_bear": {
+        "name": "Safety mgn (bear)",
+        "category": "Intrinsic Value",
+        "unit": "%",
+        "what_it_is": "margin_of_safety computed against fair_value_bear instead of fair_value.",
+        "how_to_use": [
+            "Still positive here means undervalued even in the pessimistic case.",
+            "NULL wherever fair_value_bear is NULL.",
+        ],
+        "vs_peers": "No — it's already an absolute discount measure.",
+    },
+    "margin_of_safety_bull": {
+        "name": "Safety mgn (bull)",
+        "category": "Intrinsic Value",
+        "unit": "%",
+        "what_it_is": "margin_of_safety computed against fair_value_bull instead of fair_value.",
+        "how_to_use": [
+            "NULL wherever fair_value_bull is NULL.",
+        ],
+        "vs_peers": "No — it's already an absolute discount measure.",
+    },
+    "valuation_guardrail_flag": {
+        "name": "Valuation guardrail",
+        "category": "Intrinsic Value",
+        "unit": "",
+        "what_it_is": "True when the DCF/DDM's discount rate needed its minimum-spread floor to stay above terminal growth, or the ROIC-WACC gap implies an implausibly wide excess return persisting forever in the terminal value.",
+        "how_to_use": [
+            "A warning, not a hard block — the fair-value numbers still compute either way.",
+            "Filter to True to find names whose valuation assumptions are at the edge of plausibility.",
+        ],
+        "vs_peers": "No — an absolute mechanical check.",
+    },
+    "bear_flag_cash_conversion": {
+        "name": "Bear flag: cash conversion",
+        "category": "Intrinsic Value",
+        "unit": "",
+        "what_it_is": "True when trailing OCF/net-income (ocf_to_ni_3y, falling back to 5y) is below 100% — cash flow isn't keeping pace with reported earnings.",
+        "how_to_use": [
+            "Visible only — nothing here adjusts fair_value_bear automatically. No professional framework exists for turning this into a numeric valuation haircut, so it's shown for you to weigh yourself.",
+            "STANDARD screen type only; NULL/False elsewhere.",
+        ],
+        "vs_peers": "No — an absolute threshold on the company's own ratio.",
+    },
+    "bear_flag_moat_narrowing": {
+        "name": "Bear flag: thin moat",
+        "category": "Intrinsic Value",
+        "unit": "",
+        "what_it_is": "True when the ROIC-WACC gap (roic_vs_wacc) is below 3 percentage points — little or no economic moat by this proxy.",
+        "how_to_use": [
+            "Visible only, same as the other bear flags — not applied to any number.",
+            "STANDARD screen type only; NULL/False elsewhere.",
+        ],
+        "vs_peers": "No — an absolute threshold on the company's own spread.",
+    },
+    "bear_flag_interest_coverage": {
+        "name": "Bear flag: weak coverage",
+        "category": "Intrinsic Value",
+        "unit": "",
+        "what_it_is": "True when interest_coverage (EBIT / interest expense) is below 2x.",
+        "how_to_use": [
+            "Visible only, same as the other bear flags — not applied to any number.",
+        ],
+        "vs_peers": "No — an absolute threshold, not peer-relative.",
+    },
+    "bear_flag_earnings_quality": {
+        "name": "Bear flag: earnings quality",
+        "category": "Intrinsic Value",
+        "unit": "",
+        "what_it_is": "True when beneish_m_score is above -1.78 — Beneish's own back-tested cutoff for a likely earnings manipulator.",
+        "how_to_use": [
+            "Visible only, same as the other bear flags — not applied to any number.",
+        ],
+        "vs_peers": "No — Beneish's absolute cutoff.",
+    },
+    "bear_flag_count": {
+        "name": "Bear flags",
+        "category": "Intrinsic Value",
+        "unit": "",
+        "what_it_is": "How many of the 4 bear-flag checks are True for this symbol (0-4).",
+        "how_to_use": [
+            "A quick triage column — sort descending to find names with the most red flags stacked up.",
+        ],
+        "vs_peers": "No — a simple count.",
+    },
     # ------------------------------------------------------------------ #
     # Relative Strength
     # ------------------------------------------------------------------ #

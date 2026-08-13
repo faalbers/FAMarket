@@ -10,11 +10,13 @@ Four independent estimates plus a type-gated blend and margin of safety:
     grower trades at P/E ≈ growth%). Growth capped.
   * intrinsic_value_dcf    — simple FCF DCF: project TTM FCF at its capped trend
     growth rate (log-linear fit) over a horizon, Gordon terminal value, discount
-    at a CAPM rate (risk-free from macro.db + beta · equity-risk-premium), less
-    net debt, ÷ shares.
+    at the real weighted WACC (metrics._wacc: CAPM cost of equity blended with
+    after-tax cost of debt) when available, else a CAPM cost-of-equity fallback
+    (risk-free from macro.db + beta · equity-risk-premium), less net debt, ÷
+    shares.
   * intrinsic_value_ddm    — dividend discount model: project the TTM per-share
     dividend at its capped trend growth over the same horizon, Gordon terminal
-    value, discount at the SAME CAPM rate as the DCF (same company, same risk,
+    value, discount at the SAME rate as the DCF (same company, same risk,
     whichever cash-flow stream you're discounting). Already per-share, so unlike
     the DCF there's no shares/net-debt conversion. The model banks/insurers/REITs
     actually get valued on — deposits/underwriting and GAAP depreciation make FCF-
@@ -124,10 +126,13 @@ def compute(
     equity = P.latest(fin, "stockholders_equity")
     bvps = equity / shares if pd.notna(equity) and pd.notna(shares) and shares > 0 else float("nan")
 
+    wacc_pct = _num(m.get("wacc"))
+    wacc = wacc_pct / 100 if pd.notna(wacc_pct) else float("nan")
+
     out["intrinsic_value_graham"] = _graham(eps, bvps)
     out["intrinsic_value_lynch"] = _lynch(eps, m)
-    out["intrinsic_value_dcf"] = _dcf(fin, m, quote, shares, risk_free)
-    out["intrinsic_value_ddm"] = _ddm(m, quote, risk_free)
+    out["intrinsic_value_dcf"] = _dcf(fin, m, quote, shares, risk_free, wacc=wacc)
+    out["intrinsic_value_ddm"] = _ddm(m, quote, risk_free, wacc=wacc)
 
     applicable = _applicable_models(screen_type, regulated)
     estimates = [out[_MODEL_COLUMN[model]] for model in applicable
@@ -146,38 +151,66 @@ def _graham(eps: float, bvps: float) -> float:
     return math.sqrt(settings.GRAHAM_MULTIPLIER * eps * bvps)
 
 
-def _lynch(eps: float, m: dict) -> float:
-    """EPS × fair P/E, fair P/E = EPS trend growth% (log-linear fit), capped."""
-    growth = m.get("eps_growth_trend")
-    if pd.isna(eps) or eps <= 0 or pd.isna(growth) or growth <= 0:
+def _lynch(eps: float, m: dict, growth: float = float("nan")) -> float:
+    """EPS × fair P/E, fair P/E = EPS trend growth% (log-linear fit), capped.
+
+    `growth` overrides `m["eps_growth_trend"]` (same percent units) when given
+    (not NaN) — the bear/bull scenario growth from `valuation_scenarios.py`.
+    """
+    g = growth if pd.notna(growth) else _num(m.get("eps_growth_trend"))
+    if pd.isna(eps) or eps <= 0 or pd.isna(g) or g <= 0:
         return float("nan")
-    return eps * min(growth, settings.LYNCH_GROWTH_CAP)
+    return eps * min(g, settings.LYNCH_GROWTH_CAP)
 
 
-def _cost_of_equity(quote: pd.Series | None, risk_free: float) -> float:
-    """CAPM cost of equity, floored to keep a minimum spread over terminal growth.
+def _raw_discount(quote: pd.Series | None, risk_free: float, wacc: float = float("nan")) -> float:
+    """Discount rate before the minimum-spread floor is applied — `wacc` (an
+    annual fraction, same units as `risk_free`) directly when given (not NaN),
+    else CAPM cost of equity. Split out from `_cost_of_equity` so
+    `valuation_scenarios.py` can check whether the floor had to kick in (a
+    guardrail signal: the raw rate was already too close to terminal growth).
+    """
+    if pd.notna(wacc):
+        return wacc
+    beta = float(quote["beta"]) if quote is not None and pd.notna(quote.get("beta")) else settings.DCF_DEFAULT_BETA
+    return risk_free + beta * settings.DCF_EQUITY_RISK_PREMIUM
+
+
+def _cost_of_equity(quote: pd.Series | None, risk_free: float, wacc: float = float("nan")) -> float:
+    """Discount rate for the DCF/DDM, floored to keep a minimum spread over
+    terminal growth. `wacc` is the real weighted WACC from `metrics._wacc()`
+    — cost of equity blended with after-tax cost of debt, computed today for
+    the ROIC-vs-WACC moat proxy — used directly when available; else this
+    falls back to CAPM cost of equity (see `_raw_discount`).
 
     Shared by the DCF and DDM — same company, same risk, same rate regardless of
     which cash-flow stream (FCF vs. dividends) it's discounting.
     """
-    beta = float(quote["beta"]) if quote is not None and pd.notna(quote.get("beta")) else settings.DCF_DEFAULT_BETA
-    discount = risk_free + beta * settings.DCF_EQUITY_RISK_PREMIUM
+    discount = _raw_discount(quote, risk_free, wacc)
     gt = settings.DCF_TERMINAL_GROWTH
     if discount - gt < settings.DCF_MIN_DISCOUNT_SPREAD:
         discount = gt + settings.DCF_MIN_DISCOUNT_SPREAD
     return discount
 
 
-def _dcf(fin: pd.DataFrame, m: dict, quote: pd.Series | None, shares: float, risk_free: float) -> float:
+def _dcf(
+    fin: pd.DataFrame,
+    m: dict,
+    quote: pd.Series | None,
+    shares: float,
+    risk_free: float,
+    growth: float = float("nan"),
+    wacc: float = float("nan"),
+) -> float:
     fcf0 = fcf_ttm(fin)
     if pd.isna(fcf0) or fcf0 <= 0 or pd.isna(shares) or shares <= 0:
         return float("nan")
 
-    discount = _cost_of_equity(quote, risk_free)
+    discount = _cost_of_equity(quote, risk_free, wacc)
     gt = settings.DCF_TERMINAL_GROWTH
 
     # growth estimate from FCF trend growth (log-linear fit), floored at 0.
-    g_pct = m.get("fcf_growth_trend")
+    g_pct = growth if pd.notna(growth) else _num(m.get("fcf_growth_trend"))
     g = max(min((g_pct / 100) if pd.notna(g_pct) else 0.0, settings.DCF_GROWTH_CAP), 0.0)
 
     n = settings.DCF_PROJECTION_YEARS
@@ -196,21 +229,28 @@ def _dcf(fin: pd.DataFrame, m: dict, quote: pd.Series | None, shares: float, ris
     return equity_value / shares if equity_value > 0 else float("nan")
 
 
-def _ddm(m: dict, quote: pd.Series | None, risk_free: float) -> float:
+def _ddm(
+    m: dict,
+    quote: pd.Series | None,
+    risk_free: float,
+    growth: float = float("nan"),
+    wacc: float = float("nan"),
+) -> float:
     """Two-stage dividend discount model: project the TTM per-share dividend at
-    its capped trend growth, Gordon terminal value, discount at CAPM cost of
-    equity. Already per-share (a dividend rate, not a company aggregate) — no
-    shares/net-debt conversion needed, unlike the DCF.
+    its capped trend growth, Gordon terminal value, discount at the same rate
+    `_cost_of_equity` resolves for the DCF. Already per-share (a dividend rate,
+    not a company aggregate) — no shares/net-debt conversion needed, unlike the
+    DCF.
     """
-    d0 = m.get("div_rate_ttm")
+    d0 = _num(m.get("div_rate_ttm"))
     if pd.isna(d0) or d0 <= 0:
         return float("nan")
 
-    discount = _cost_of_equity(quote, risk_free)
+    discount = _cost_of_equity(quote, risk_free, wacc)
     gt = settings.DCF_TERMINAL_GROWTH
 
     # growth estimate from dividend trend growth (log-linear fit), floored at 0.
-    g_pct = m.get("div_growth_trend")
+    g_pct = growth if pd.notna(growth) else _num(m.get("div_growth_trend"))
     g = max(min((g_pct / 100) if pd.notna(g_pct) else 0.0, settings.DCF_GROWTH_CAP), 0.0)
 
     n = settings.DCF_PROJECTION_YEARS

@@ -39,7 +39,7 @@ from core.database import Database
 from core.logging_config import get_logger
 from core import meminfo
 from analysis_layer import _periods as P
-from analysis_layer import metrics, technical, intrinsic_value, peers, scoring
+from analysis_layer import metrics, technical, intrinsic_value, valuation_scenarios, peers, scoring
 from analysis_layer import estimates as estimates_metrics
 from analysis_layer import signals as signals_metrics
 from analysis_layer import sector_index
@@ -276,6 +276,8 @@ def run_analysis(subset: list[str] | None = None) -> dict:
         t = technical.compute(sym, osym, first_date=first_date_by.get(sym))
         iv = intrinsic_value.compute(sym, fsym, quote, price, m, risk_free,
                                       screen_type=screen_type, regulated=regulated)
+        vs = valuation_scenarios.compute(sym, fsym, quote, price, m, risk_free, iv,
+                                          screen_type=screen_type, regulated=regulated)
         est_m = estimates_metrics.compute(sym, est_by.get(sym), forward_pe=m.get("forward_pe"))
         sig_m = signals_metrics.compute(sym, surp_by.get(sym), own_by.get(sym), asof=signals_asof)
         # Fund provider/sponsor — funds only (NULL for stocks). Filtered as a
@@ -294,7 +296,7 @@ def run_analysis(subset: list[str] | None = None) -> dict:
             # raw weighted return -> universe-ranked into rs_rank in scoring; kept
             # in the table so subset runs can re-rank the un-recomputed rows too
             "rs_raw": technical.relative_strength_raw(osym),
-            **m, **t, **iv, **est_m, **sig_m,
+            **m, **t, **iv, **vs, **est_m, **sig_m,
         })
         if i % _PROGRESS_EVERY == 0:
             log.info("Analysis — per-symbol metrics %d/%d (%d to go)…",

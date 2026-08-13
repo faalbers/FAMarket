@@ -266,6 +266,16 @@ BASES: list[Base] = [
     _b("intrinsic_value_ddm", "DDM value", "Intrinsic Value", frozenset({STANDARD, BANK, INSURANCE, REIT})),
     _b("fair_value", "Fair value", "Intrinsic Value", frozenset({STANDARD, BANK, INSURANCE, REIT})),
     _b("margin_of_safety", "Margin of safety", "Intrinsic Value", frozenset({STANDARD, BANK, INSURANCE, REIT})),
+    _b("fair_value_bear", "Fair value (bear)", "Intrinsic Value", frozenset({STANDARD, BANK, INSURANCE, REIT})),
+    _b("fair_value_bull", "Fair value (bull)", "Intrinsic Value", frozenset({STANDARD, BANK, INSURANCE, REIT})),
+    _b("margin_of_safety_bear", "Safety mgn (bear)", "Intrinsic Value", frozenset({STANDARD, BANK, INSURANCE, REIT})),
+    _b("margin_of_safety_bull", "Safety mgn (bull)", "Intrinsic Value", frozenset({STANDARD, BANK, INSURANCE, REIT})),
+    _b("valuation_guardrail_flag", "Valuation guardrail", "Intrinsic Value", frozenset({STANDARD, BANK, INSURANCE, REIT})),
+    _b("bear_flag_cash_conversion", "Bear flag: cash conversion", "Intrinsic Value", frozenset({STANDARD})),
+    _b("bear_flag_moat_narrowing", "Bear flag: thin moat", "Intrinsic Value", frozenset({STANDARD})),
+    _b("bear_flag_interest_coverage", "Bear flag: weak coverage", "Intrinsic Value", frozenset({STANDARD, REIT})),
+    _b("bear_flag_earnings_quality", "Bear flag: earnings quality", "Intrinsic Value", frozenset({STANDARD})),
+    _b("bear_flag_count", "Bear flags", "Intrinsic Value", frozenset({STANDARD, REIT})),
     # -- Relative strength -------------------------------------------------- #
     _b("rs_rank", "RS Rank", "Relative Strength", ALL_TRADED),
     # -- Scores (engine-gated; offered where meaningful) -------------------- #
