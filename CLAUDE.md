@@ -88,6 +88,17 @@ The API port is **8765**, not 8000 — 8000 is taken by a local MCP server on th
 machine; `serve_ui.py --port` and `frontend/vite.config.ts`'s proxy target must
 stay in sync.
 
+**`serve_ui.py` only ever serves whatever was last built** — it does not
+watch or rebuild `frontend/dist` itself. So: whenever a change touches
+`frontend/src/**` and the user is testing (or will test) via `serve_ui.py`
+rather than `npm run dev`, run `cd frontend; npm run build; cd ..`
+immediately as part of that change — don't wait to be asked, and don't wait
+for the user to report something "not working" before checking this. A UI
+fix that isn't rebuilt looks, to the user, identical to a UI fix that
+doesn't work — confirmed 2026-08-13, a scroll-position bug fix on Output's
+column picker tested as "still broken" purely because `dist` was stale, not
+because the fix was wrong.
+
 Type-check with `npx pyright api services` and, in `frontend/`, `npx tsc -b`.
 
 There is **no test framework** — this is a deliberate decision (ROADMAP Topic 9.1).

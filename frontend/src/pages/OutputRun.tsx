@@ -43,6 +43,15 @@ type Row = { i: number; symbol: string };
 
 export function OutputRun({ runId }: { runId: string }) {
   const [paramCols, setParamCols] = useState<string[]>([]);
+  // Drives the column-picker's option list (`extra` -> services/columns.py
+  // options()), kept separate from paramCols so simply toggling a column in
+  // the picker never changes this. If it did, the column-options query below
+  // would refetch on every click, handing ColumnPicker a new `options` array
+  // and resetting cmdk's scroll position to the top. Only updated by actions
+  // that can introduce a variant column the type-based option list wouldn't
+  // otherwise offer (initial load, "Load" preset) -- a toggled column is by
+  // definition already in the list, so it never needs to widen `extra`.
+  const [extraCols, setExtraCols] = useState<string[]>([]);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -66,12 +75,15 @@ export function OutputRun({ runId }: { runId: string }) {
 
   // The run's own param columns are the starting column set.
   useEffect(() => {
-    if (meta) setParamCols(meta.param_cols ?? []);
+    if (meta) {
+      setParamCols(meta.param_cols ?? []);
+      setExtraCols(meta.param_cols ?? []);
+    }
   }, [meta]);
 
   const { data: optionData } = useQuery({
-    queryKey: ["column-options", meta?.screen_types, paramCols],
-    queryFn: () => columnOptions(meta?.screen_types ?? [], paramCols),
+    queryKey: ["column-options", meta?.screen_types, extraCols],
+    queryFn: () => columnOptions(meta?.screen_types ?? [], extraCols),
     enabled: Boolean(meta),
     staleTime: 5 * 60_000,
   });
@@ -307,6 +319,7 @@ export function OutputRun({ runId }: { runId: string }) {
                 const res = await loadSelection("params");
                 if (res.cancelled || !res.items) return;
                 setParamCols((prev) => [...new Set([...prev, ...res.items!])]);
+                setExtraCols((prev) => [...new Set([...prev, ...res.items!])]);
               }}
             >
               <FolderOpen size={12} /> Add
