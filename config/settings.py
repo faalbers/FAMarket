@@ -294,7 +294,27 @@ DCF_PROJECTION_YEARS: int = 10         # explicit projection horizon (DCF + DDM)
 DCF_TERMINAL_GROWTH: float = 0.025     # perpetual growth after the horizon (DCF + DDM)
 DCF_EQUITY_RISK_PREMIUM: float = 0.05  # added to risk-free via beta (CAPM; DCF + DDM)
 DCF_DEFAULT_BETA: float = 1.0          # used when a symbol has no beta
-DCF_GROWTH_CAP: float = 0.15           # cap on trend growth in projection (DCF + DDM)
+# Growth FADES linearly from its year-1 start rate to DCF_TERMINAL_GROWTH across the
+# projection horizon (DCF + DDM), rather than holding one flat capped rate for the
+# whole decade and then cliff-dropping to terminal. This cap bounds only the year-1
+# START of that fade — it exists to reject corrupted trend inputs (yfinance can report
+# 300%+ trend growth), not to model the business. Replaced a flat DCF_GROWTH_CAP=0.15
+# on 2026-08-13: any symbol whose trend growth exceeded that cap projected the SAME
+# 15% in bear, base and bull alike, collapsing the scenario range to a single number
+# on exactly the high-growth names where uncertainty is largest (NVMI: bear 27.5% /
+# base 43.3% / bull 59.0% all clipped to 15%). Per Damodaran, a growth cap belongs to
+# the TERMINAL stage; explicit-period hypergrowth is faded toward terminal instead.
+#
+# 0.35 calibrated against the live universe 2026-08-13: the old flat 15% clipped 57% of
+# FCF growers (median trend 18.4%, 90th pct 71%), which is why so many ranges collapsed;
+# 35% clips 25% of them and cuts the DCF's zero-width-range rate to ~8%. Raising it
+# further keeps chasing a thinner tail (50% clips 16%) at the cost of trusting trend
+# figures that are increasingly likely to be one-off artifacts rather than a real growth
+# rate. NOTE the fade is materially MORE conservative than the old flat cap for ordinary
+# growers — a 10%-trend name compounds 1.83x over the horizon vs 2.59x flat, a 15% name
+# 2.30x vs 4.05x — so fair_value fell across most of the universe when this landed. That
+# is the intended correction (nothing grows at its trailing rate for a decade), not drift.
+DCF_FADE_START_CAP: float = 0.35
 DCF_MIN_DISCOUNT_SPREAD: float = 0.02  # floor on (discount − terminal growth)
 # Betas beyond this are corrupted yfinance data, not real risk (checked against the
 # live quotes.db 2026-08-09: 97.2% of reported betas sit within ±5, the rest jump
@@ -317,6 +337,14 @@ WACC_MAX_COST_OF_DEBT: float = 0.5
 # hand (no named industry-standard formula found for this specific technique,
 # 2026-08 research; treat as FAMarket's own, tunable, not "how Wall Street does it").
 VALUATION_SCENARIO_VOL_MULTIPLIER: float = 1.0
+# Floor on the BEAR scenario's year-1 growth (percent). Negative on purpose: a bear
+# case that shrinks for a while before stabilising at terminal growth is a legitimate
+# story (revenue decline, dividend cut), and practitioner guidance is that coded bear
+# cases are systematically too gentle. Base/bull keep a 0% floor. NOTE: Lynch requires
+# positive growth, so a negative bear growth NaNs its bear value and — via the
+# coherent-method-set rule — drops Lynch from that symbol's bear AND bull blend.
+# That's honest (P/E ≈ growth says nothing about a shrinking company), not a bug.
+VALUATION_SCENARIO_BEAR_GROWTH_FLOOR: float = -10.0
 # Guardrail: flag when the assumed terminal ROIC-WACC spread (roic_vs_wacc,
 # percentage points) is wide enough that the Gordon terminal value is implicitly
 # assuming an implausibly persistent excess return forever (Damodaran: terminal

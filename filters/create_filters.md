@@ -133,6 +133,26 @@ skip the value traps (cheap companies that deserve to be cheap).
   has stopped voting against it.
 - **Size**: $1B and bigger. **Kinds**: normal stocks only. **Risk**: moderate.
 - **Results**: ~20-150 names. **Sorting**: value first, tiebreak quality.
+
+Update (2026-08-13) — the valuation engine changed underneath this filter, so the
+old numbers don't mean the same thing:
+- **`margin_of_safety` is now a stricter bar than it was.** The DCF/DDM behind
+  `fair_value` now fade growth down to the terminal rate instead of holding the
+  trailing rate flat for ten years, which lowered fair value for most ordinary
+  companies. A 30% margin of safety is therefore harder to clear than when this
+  brief was written — **recalibrate the threshold against a dry run** rather than
+  assuming 30% still returns a similar-sized list. Lower it if the list comes back
+  too thin; the intent is "meaningfully cheap", not the specific number.
+- **Use the bear case for the value-trap half of the goal.** There are now
+  `margin_of_safety_bear` / `fair_value_bear` columns (the same models re-run on
+  pessimistic growth). "Still undervalued in the bear case" is a much better
+  value-trap filter than the base number alone — prefer requiring a positive
+  `margin_of_safety_bear` over pushing the base threshold higher.
+- **`bear_flag_count` is built for exactly this brief's "deserve to be cheap"
+  concern** — it counts red flags (weak cash conversion, thin moat, weak interest
+  coverage, earnings-quality risk). Requiring a low count (0, or at most 1) is a
+  cheap way to screen out the traps. `valuation_guardrail_flag` marks names whose
+  valuation assumptions are at the edge of plausibility — worth excluding here.
 ---
 filter: small_cap_winners
 instructions:

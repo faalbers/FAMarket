@@ -278,6 +278,38 @@ needs.
        - Peter Lynch Fair Value (EPS + growth rate)
        - Simple DCF (FCF history + growth estimates + FRED risk-free rate + beta)
        - Results: intrinsic_value_graham, intrinsic_value_lynch, intrinsic_value_dcf, margin_of_safety
+     - ✅ IMPLEMENTED amendment (2026-08-13): bear/base/bull valuation ranges +
+       a growth FADE, replacing the flat growth cap the DCF/DDM originally used.
+       `analysis_layer/valuation_scenarios.py` reruns Lynch/DCF/DDM against a bear
+       and a bull starting growth (trend ∓ that metric's own residual volatility)
+       and blends each scenario with the same type gate as fair_value, yielding
+       fair_value_bear/bull + margin_of_safety_bear/bull. Graham is base-only (pure
+       trailing, nothing forward to flex). Also adds valuation_guardrail_flag and
+       four visible-but-never-auto-applied bear_flag_* red flags (cash conversion,
+       thin moat, weak coverage, earnings quality).
+       The DCF/DDM projection now FADES growth linearly from its trend start rate
+       (bounded by DCF_FADE_START_CAP=0.35) to DCF_TERMINAL_GROWTH by the final
+       year, replacing `DCF_GROWTH_CAP=0.15` held flat for the whole horizon. The
+       old flat cap clipped 57% of FCF growers, so bear/base/bull all projected the
+       identical 15% and the range collapsed to a point on exactly the high-growth
+       names where uncertainty is largest. Per Damodaran a growth cap belongs to
+       the terminal stage, not the explicit period. Note this makes the base DCF/DDM
+       materially more conservative for ordinary growers (a 10%-trend name compounds
+       1.83x over the horizon vs 2.59x flat), so fair_value fell across most of the
+       universe — intended, not drift. The bear scenario may also start from negative
+       growth (VALUATION_SCENARIO_BEAR_GROWTH_FLOOR=-10%) and fade up.
+       Same date, a second fix found while measuring the fade: a scenario that
+       CANNOT be computed (no usable trend/vol history) now yields NULL instead of
+       silently falling back to the base value and publishing it as both bear and
+       bull. That fallback, not the growth cap, turned out to be the dominant cause
+       of zero-width ranges (79% of them universe-wide) — and a zero-width range
+       reads as certainty precisely where there is no estimate at all, which is the
+       opposite of what the whole scenario feature exists to communicate. NULL means
+       "no range available"; filtering on margin_of_safety_bear therefore EXCLUDES
+       such names rather than judging them on a number that isn't a bear case.
+       Deliberately NOT built: coherent multi-input scenarios (needs margin trend/vol
+       data that doesn't exist yet), Monte Carlo distributions, probability-weighted
+       expected value, exit-multiple terminal values, football-field chart.
      - ✅ IMPLEMENTED amendment (2026-06-21): added six filter-only "cheap win" metrics
        derived from data already loaded — market_cap (new Size category),
        gross_margin_trend_3y / operating_margin_trend_3y (pct-point change vs ~3y ago),

@@ -18,10 +18,21 @@ scenario lever for this pass.
     scaled stand-in for the manual scenario-rebuild professionals do by hand,
     not a named industry technique (see settings.py comment). A steady grower
     gets a narrow spread; a noisy one gets a wide one, automatically.
+    The bear growth may be NEGATIVE (floored at
+    VALUATION_SCENARIO_BEAR_GROWTH_FLOOR), which the DCF/DDM handle as a
+    starting rate that fades up toward terminal. Lynch cannot: fair P/E ≈
+    growth% is undefined for a shrinking company, so its bear value goes NaN
+    and the coherent-method-set rule below then drops Lynch from that
+    symbol's bear AND bull blend. Intended, not a bug.
   * fair_value_bear / fair_value_bull — median of whichever methods are
     applicable to the symbol's type (same `_applicable_models` gate as the
     base `fair_value`), Graham excluded from both, and further restricted to
     methods that produce a POSITIVE value in base AND bear AND bull alike.
+    BOTH ARE NULL when no applicable method can build a scenario at all (no
+    usable trend/vol history) — deliberately, rather than echoing the base
+    value back as a zero-width "range" that would read as certainty where
+    there is no estimate. A NULL here means "no range available", which is a
+    different and more honest statement than "bear equals bull".
     Without that last restriction a method can drop out of only one side —
     e.g. Lynch requires positive growth, so a stock whose bear growth floors
     to 0 loses Lynch from the bear median but keeps it in base/bull — which
@@ -81,20 +92,25 @@ def _num(x) -> float:
 def _scenario_growth(m: dict, growth_key: str) -> tuple[float, float]:
     """(bear, bull) growth%, from `growth_key`'s trend ∓ its own residual
     volatility column (`{base}_vol`, e.g. eps_growth_trend -> eps_growth_vol).
-    Bear floored at 0 (a shrinking-forever assumption isn't a "bear case",
-    it's a different model). Bull is left uncapped here — _lynch/_dcf/_ddm
-    each apply their own growth cap regardless of what's passed in, so
-    capping twice would be redundant. NaN trend or vol (insufficient history,
-    non-positive values) -> NaN scenario; the downstream method already
-    returns NaN/floors-to-zero-growth for a NaN growth input, matching how it
-    already handles a NaN base-case trend.
+
+    Bear is floored at `VALUATION_SCENARIO_BEAR_GROWTH_FLOOR`, which is
+    NEGATIVE: since the DCF/DDM fade any starting rate up or down toward
+    terminal growth, a negative start means "shrinks for a while, then
+    stabilises" — a real bear story, not a shrinking-forever model. Bull is
+    left unbounded here; each method applies its own ceiling
+    (`DCF_FADE_START_CAP`, `LYNCH_GROWTH_CAP`) to whatever it's passed, so
+    bounding twice would be redundant.
+
+    NaN trend or vol (insufficient history, non-positive values) -> NaN
+    scenario, which the downstream method handles the same way it already
+    handles a NaN base-case trend.
     """
     trend = _num(m.get(growth_key))
     vol = _num(m.get(f"{growth_key.removesuffix('_trend')}_vol"))
     if pd.isna(trend) or pd.isna(vol):
         return float("nan"), float("nan")
     spread = vol * settings.VALUATION_SCENARIO_VOL_MULTIPLIER
-    return max(trend - spread, 0.0), trend + spread
+    return max(trend - spread, settings.VALUATION_SCENARIO_BEAR_GROWTH_FLOOR), trend + spread
 
 
 def _guardrail_flag(quote: pd.Series | None, risk_free: float, wacc: float, m: dict) -> bool:
@@ -175,17 +191,39 @@ def compute(
 
     out["valuation_guardrail_flag"] = _guardrail_flag(quote, risk_free, wacc, m)
 
-    eps_bear, eps_bull = _scenario_growth(m, "eps_growth_trend")
-    out["intrinsic_value_lynch_bear"] = IV._lynch(eps, m, growth=eps_bear)
-    out["intrinsic_value_lynch_bull"] = IV._lynch(eps, m, growth=eps_bull)
+    # A NaN scenario growth means the scenario is UNCOMPUTABLE for this method
+    # (no usable trend/vol history), so its value stays NaN. The models must not
+    # be called with it: their `growth` parameter falls back to the base trend
+    # when handed NaN, which would silently return the base value and publish it
+    # as both "bear" and "bull" — a zero-width range that reads as certainty
+    # where there is in fact no estimate at all. NULL says that honestly.
+    # (Verified 2026-08-13: this fallback accounted for 79% of all zero-width
+    # ranges universe-wide, dwarfing the growth-cap clipping the fade addressed.)
+    bear_floor = settings.VALUATION_SCENARIO_BEAR_GROWTH_FLOOR / 100
 
+    eps_bear, eps_bull = _scenario_growth(m, "eps_growth_trend")
+    if pd.notna(eps_bear):
+        out["intrinsic_value_lynch_bear"] = IV._lynch(eps, m, growth=eps_bear)
+    if pd.notna(eps_bull):
+        out["intrinsic_value_lynch_bull"] = IV._lynch(eps, m, growth=eps_bull)
+
+    # The bear calls pass the negative floor through: _dcf/_ddm bound their own
+    # start rate at 0 by default (the base case), which would otherwise clamp a
+    # negative bear growth straight back to flat.
     fcf_bear, fcf_bull = _scenario_growth(m, "fcf_growth_trend")
-    out["intrinsic_value_dcf_bear"] = IV._dcf(fin, m, quote, shares, risk_free, growth=fcf_bear, wacc=wacc)
-    out["intrinsic_value_dcf_bull"] = IV._dcf(fin, m, quote, shares, risk_free, growth=fcf_bull, wacc=wacc)
+    if pd.notna(fcf_bear):
+        out["intrinsic_value_dcf_bear"] = IV._dcf(fin, m, quote, shares, risk_free,
+                                                  growth=fcf_bear, wacc=wacc, growth_floor=bear_floor)
+    if pd.notna(fcf_bull):
+        out["intrinsic_value_dcf_bull"] = IV._dcf(fin, m, quote, shares, risk_free,
+                                                  growth=fcf_bull, wacc=wacc)
 
     div_bear, div_bull = _scenario_growth(m, "div_growth_trend")
-    out["intrinsic_value_ddm_bear"] = IV._ddm(m, quote, risk_free, growth=div_bear, wacc=wacc)
-    out["intrinsic_value_ddm_bull"] = IV._ddm(m, quote, risk_free, growth=div_bull, wacc=wacc)
+    if pd.notna(div_bear):
+        out["intrinsic_value_ddm_bear"] = IV._ddm(m, quote, risk_free,
+                                                  growth=div_bear, wacc=wacc, growth_floor=bear_floor)
+    if pd.notna(div_bull):
+        out["intrinsic_value_ddm_bull"] = IV._ddm(m, quote, risk_free, growth=div_bull, wacc=wacc)
 
     applicable = IV._applicable_models(screen_type, regulated) - {"graham"}
 

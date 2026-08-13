@@ -8,17 +8,18 @@ Four independent estimates plus a type-gated blend and margin of safety:
   * intrinsic_value_lynch  — EPS · fair P/E, where fair P/E is the EPS trend growth
     rate (log-linear fit, steadier than endpoint CAGR — Lynch: a fairly priced
     grower trades at P/E ≈ growth%). Growth capped.
-  * intrinsic_value_dcf    — simple FCF DCF: project TTM FCF at its capped trend
-    growth rate (log-linear fit) over a horizon, Gordon terminal value, discount
-    at the real weighted WACC (metrics._wacc: CAPM cost of equity blended with
-    after-tax cost of debt) when available, else a CAPM cost-of-equity fallback
-    (risk-free from macro.db + beta · equity-risk-premium), less net debt, ÷
-    shares.
+  * intrinsic_value_dcf    — simple FCF DCF: project TTM FCF over a horizon at a
+    growth rate that FADES linearly from its trend rate (log-linear fit, bounded
+    by `DCF_FADE_START_CAP`) down to terminal growth by the final year, Gordon
+    terminal value, discount at the real weighted WACC (metrics._wacc: CAPM cost
+    of equity blended with after-tax cost of debt) when available, else a CAPM
+    cost-of-equity fallback (risk-free from macro.db + beta · equity-risk-
+    premium), less net debt, ÷ shares.
   * intrinsic_value_ddm    — dividend discount model: project the TTM per-share
-    dividend at its capped trend growth over the same horizon, Gordon terminal
-    value, discount at the SAME rate as the DCF (same company, same risk,
-    whichever cash-flow stream you're discounting). Already per-share, so unlike
-    the DCF there's no shares/net-debt conversion. The model banks/insurers/REITs
+    dividend on the same fading growth path over the same horizon, Gordon
+    terminal value, discount at the SAME rate as the DCF (same company, same
+    risk, whichever cash-flow stream you're discounting). Already per-share, so
+    unlike the DCF there's no shares/net-debt conversion. The model banks/insurers/REITs
     actually get valued on — deposits/underwriting and GAAP depreciation make FCF-
     DCF and EPS-based Graham/Lynch unreliable for them, but the dividend itself
     isn't distorted the same way. Same reasoning applies to rate-regulated
@@ -193,6 +194,34 @@ def _cost_of_equity(quote: pd.Series | None, risk_free: float, wacc: float = flo
     return discount
 
 
+def _fade_start(g_pct: float, floor: float) -> float:
+    """Year-1 growth as a fraction, from a percent trend rate.
+
+    Bounded above by `DCF_FADE_START_CAP` (a data-quality guard against
+    corrupted trend inputs, not a view on the business — see settings) and
+    below by `floor`, which is 0 for the base case and may be negative for a
+    bear scenario.
+    """
+    g = (g_pct / 100) if pd.notna(g_pct) else 0.0
+    return max(min(g, settings.DCF_FADE_START_CAP), floor)
+
+
+def _fade_path(g0: float, n: int) -> list[float]:
+    """Per-year growth rates declining linearly from `g0` in year 1 to the
+    terminal rate in year `n`.
+
+    The two/three-stage shape practitioners use for a company growing well
+    above the economy: nothing compounds at its current rate forever, and the
+    decline is where the difference between a bear and a bull story actually
+    lives. Year n lands exactly on terminal growth, so the Gordon terminal
+    value that follows connects smoothly instead of cliff-dropping.
+    """
+    gt = settings.DCF_TERMINAL_GROWTH
+    if n <= 1:
+        return [g0]
+    return [g0 + (gt - g0) * (t - 1) / (n - 1) for t in range(1, n + 1)]
+
+
 def _dcf(
     fin: pd.DataFrame,
     m: dict,
@@ -201,6 +230,7 @@ def _dcf(
     risk_free: float,
     growth: float = float("nan"),
     wacc: float = float("nan"),
+    growth_floor: float = 0.0,
 ) -> float:
     fcf0 = fcf_ttm(fin)
     if pd.isna(fcf0) or fcf0 <= 0 or pd.isna(shares) or shares <= 0:
@@ -209,13 +239,13 @@ def _dcf(
     discount = _cost_of_equity(quote, risk_free, wacc)
     gt = settings.DCF_TERMINAL_GROWTH
 
-    # growth estimate from FCF trend growth (log-linear fit), floored at 0.
+    # FCF trend growth (log-linear fit) sets where the fade STARTS; it then
+    # declines to terminal growth over the horizon.
     g_pct = growth if pd.notna(growth) else _num(m.get("fcf_growth_trend"))
-    g = max(min((g_pct / 100) if pd.notna(g_pct) else 0.0, settings.DCF_GROWTH_CAP), 0.0)
-
     n = settings.DCF_PROJECTION_YEARS
+
     fcf, pv = fcf0, 0.0
-    for t in range(1, n + 1):
+    for t, g in enumerate(_fade_path(_fade_start(g_pct, growth_floor), n), start=1):
         fcf *= 1 + g
         pv += fcf / (1 + discount) ** t
     terminal = fcf * (1 + gt) / (discount - gt)
@@ -235,12 +265,13 @@ def _ddm(
     risk_free: float,
     growth: float = float("nan"),
     wacc: float = float("nan"),
+    growth_floor: float = 0.0,
 ) -> float:
-    """Two-stage dividend discount model: project the TTM per-share dividend at
-    its capped trend growth, Gordon terminal value, discount at the same rate
-    `_cost_of_equity` resolves for the DCF. Already per-share (a dividend rate,
-    not a company aggregate) — no shares/net-debt conversion needed, unlike the
-    DCF.
+    """Dividend discount model: project the TTM per-share dividend at a growth
+    rate fading to terminal (same shape as the DCF — an H-model), Gordon
+    terminal value, discount at the same rate `_cost_of_equity` resolves for
+    the DCF. Already per-share (a dividend rate, not a company aggregate) — no
+    shares/net-debt conversion needed, unlike the DCF.
     """
     d0 = _num(m.get("div_rate_ttm"))
     if pd.isna(d0) or d0 <= 0:
@@ -249,13 +280,12 @@ def _ddm(
     discount = _cost_of_equity(quote, risk_free, wacc)
     gt = settings.DCF_TERMINAL_GROWTH
 
-    # growth estimate from dividend trend growth (log-linear fit), floored at 0.
+    # Dividend trend growth (log-linear fit) sets where the fade STARTS.
     g_pct = growth if pd.notna(growth) else _num(m.get("div_growth_trend"))
-    g = max(min((g_pct / 100) if pd.notna(g_pct) else 0.0, settings.DCF_GROWTH_CAP), 0.0)
-
     n = settings.DCF_PROJECTION_YEARS
+
     div, pv = d0, 0.0
-    for t in range(1, n + 1):
+    for t, g in enumerate(_fade_path(_fade_start(g_pct, growth_floor), n), start=1):
         div *= 1 + g
         pv += div / (1 + discount) ** t
     terminal = div * (1 + gt) / (discount - gt)
