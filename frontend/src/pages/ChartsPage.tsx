@@ -22,6 +22,9 @@ const PeriodLineView = lazy(() =>
   import("@/pages/PeriodLineView").then((m) => ({ default: m.PeriodLineView })),
 );
 const RadarView = lazy(() => import("@/pages/RadarView").then((m) => ({ default: m.RadarView })));
+const ValuationRangeView = lazy(() =>
+  import("@/pages/ValuationRangeView").then((m) => ({ default: m.ValuationRangeView })),
+);
 const HeatmapView = lazy(() =>
   import("@/pages/HeatmapView").then((m) => ({ default: m.HeatmapView })),
 );
@@ -54,6 +57,8 @@ export function ChartsPage() {
         return <PeriodLineView symbols={symbols} cols={cols} kind="dividends" />;
       case "radar":
         return <RadarView symbols={symbols} />;
+      case "valuation_range":
+        return <ValuationRangeView symbols={symbols} />;
       case "heatmap":
         return <HeatmapView symbols={symbols} cols={cols} kind="metrics" />;
       case "scores_heatmap":

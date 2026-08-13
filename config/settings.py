@@ -356,6 +356,13 @@ BEAR_FLAG_CASH_CONVERSION_MIN: float = 100.0   # ocf_to_ni_3y/5y (%) below this 
 BEAR_FLAG_MOAT_GAP_MIN: float = 3.0            # roic_vs_wacc (pp) below this = thin/no moat
 BEAR_FLAG_INTEREST_COVERAGE_MIN: float = 2.0   # interest_coverage (x) below this = weak
 BEAR_FLAG_BENEISH_THRESHOLD: float = -1.78     # beneish_m_score above this = likely manipulator
+# Right-hand limit of the valuation-range chart's axis, in percent above today's
+# price (the left limit is fixed at -100%: fair value can't go below zero). Trend
+# growth produces a brutal upside tail — measured 2026-08-13, the bull case runs to
+# p99 ~ +3,700% and max ~ +318,000% — and on a shared axis one such symbol flattens
+# every ordinary bar to a hairline. Bars past this are drawn clipped, with an
+# overflow marker and their true value kept for the tooltip, so nothing is hidden.
+VALUATION_CHART_AXIS_MAX_PCT: float = 200.0
 # ROIC beyond +/-500% is treated as an invested_capital-near-zero artifact, not real
 # capital efficiency (checked 2026-08-09: 98.4% of reported ROIC sits within +/-500%,
 # the 99.9th percentile jumps straight to ~10,900% — same near-zero-denominator

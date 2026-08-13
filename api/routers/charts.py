@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from api.dialogs import DialogRequest, ask_path
 from config import settings
-from services import chart_data, filter_fail, fundamentals_data, scores_data
+from services import chart_data, filter_fail, fundamentals_data, scores_data, valuation_data
 
 router = APIRouter(prefix="/api/charts")
 
@@ -95,6 +95,14 @@ def heatmap(
     kind: str = Query(default="metrics"),
 ) -> dict[str, Any]:
     return scores_data.heatmap_view(_symbols(symbols), _csv(cols), kind)
+
+
+# --------------------------------------------------------------------------- #
+# valuation range (football field)
+# --------------------------------------------------------------------------- #
+@router.get("/valuation-range")
+def valuation_range(symbols: str = Query(default="")) -> dict[str, Any]:
+    return valuation_data.football_field_view(_symbols(symbols))
 
 
 # --------------------------------------------------------------------------- #

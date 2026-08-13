@@ -35,6 +35,7 @@ export const CHART_VIEWS = [
   "fundamentals_bar",
   "fundamentals_line",
   "radar",
+  "valuation_range",
   "dividend_line",
   "heatmap",
   "scores_heatmap",

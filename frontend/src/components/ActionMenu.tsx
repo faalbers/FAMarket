@@ -21,6 +21,7 @@ const CHART_ACTIONS: { view: string; label: string; withCols?: boolean; group: s
   { view: "fundamentals_bar", label: "Fundamentals over time", withCols: true, group: "Charts" },
   { view: "fundamentals_line", label: "Fundamentals growth lines", withCols: true, group: "Charts" },
   { view: "radar", label: "Category scores radar", group: "Charts" },
+  { view: "valuation_range", label: "Valuation range", group: "Charts" },
   { view: "heatmap", label: "Metrics heat map", withCols: true, group: "Charts" },
   { view: "scores_heatmap", label: "Scores heat map", group: "Charts" },
   { view: "dividend_line", label: "Dividend yield", group: "Dividends" },
