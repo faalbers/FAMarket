@@ -394,9 +394,17 @@ ALTMAN_BUYBACK_MKTCAP_FLOOR: float = 1e9  # ...at/above this market cap AND curr
 # Peer comparison (Topic 4.3)
 # --------------------------------------------------------------------------- #
 # Metrics that get _vs_sector / _vs_industry columns (% above/below peer median).
+# ps/pb/p_fcf/ev_revenue added 2026-08-13: they were computed but never peer-compared,
+# which left the two multiples that need a peer anchor MOST without one. P/S is the most
+# sector-dependent multiple there is (software ~10x sales vs grocery ~0.3x), so a raw
+# threshold is close to meaningless across sectors; P/B is the core multiple for banks,
+# insurers and REITs, whose peer-comparable set is otherwise the thinnest of any type.
+# Non-positive values are masked before the median for the ones whose scoring rule says
+# `positive_only` — see analysis_layer/peers._peer_input.
 PEER_COMPARABLE_METRICS: tuple[str, ...] = (
     "pe", "forward_pe", "peg", "gross_margin", "operating_margin", "net_margin",
     "roe", "roa", "ev_ebitda", "revenue_cagr_3y", "debt_to_equity",
+    "ps", "pb", "p_fcf", "ev_revenue",
 )
 MIN_PEERS_FOR_MEDIAN: int = 3       # below this a sector/industry median is too noisy
 MIN_PEERS_FOR_PERCENTILE: int = 5   # below this fall back to the universe for scoring

@@ -432,6 +432,28 @@ needs.
      - Two columns per metric: `_vs_sector` and `_vs_industry` — stored as % above/below peer median
      - No median values stored — just the relative % difference
      - Two grouping levels: Sector (broad) and Industry (narrow)
+     - ✅ IMPLEMENTED amendment (2026-08-13): **P/S, P/B, P/FCF and EV/Revenue added** to
+       `PEER_COMPARABLE_METRICS`. They were computed but never peer-compared, which left the
+       two multiples that need a peer anchor MOST without one — P/S is the most
+       sector-dependent multiple there is (software ~10x sales vs grocery ~0.3x), and P/B is
+       the core multiple for banks, insurers and REITs, whose peer-comparable set was
+       otherwise the thinnest of any type (they now get it on 758/773 and 268/291 rows).
+       Surfaced while building filters whose briefs asked for "P/S below its industry" and
+       "P/B below industry peers" and found no such column.
+       Same change fixes two correctness bugs in the peer math:
+       (a) **non-positive values are now masked before the median** for metrics whose
+       scoring rule declares `positive_only` (read from `scoring_rules.DEFAULT_RULES`, so
+       the two layers cannot disagree). A negative multiple means "not applicable", not
+       "cheap": 2,266 loss-making names carried a `pe_vs_industry` of -180% at the median
+       (worst -68,000,000%), reported as a deep discount and dragging the peer median with
+       them. `ps` gained `positive_only` for the same reason (negative P/S = negative
+       revenue); `ev_revenue` deliberately did NOT, because its negatives are negative
+       ENTERPRISE VALUE on positive revenue — net cash above market cap, a real and
+       genuinely cheap situation.
+       (b) **infinities are converted to NaN** in `_stats.relative_to_group_median` — a
+       near-zero (not exactly zero) median overflowed the ratio, which the zero guard
+       missed; 21 such rows were already stored, and `Infinity` is not valid JSON for the
+       UI to parse.
 
    - ✅ Subtopic 4.4 — Scoring & ranking approach
      - Both raw metrics AND composite scores available

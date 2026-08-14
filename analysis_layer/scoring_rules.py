@@ -58,7 +58,13 @@ DEFAULT_RULES: dict[str, dict] = {
     "forward_pe":   {"shape": "lower_better", "anchor": "peer", "positive_only": True},
     "peg":          {"shape": "lower_better", "anchor": "absolute", "value": 1.0, "positive_only": True},
     "pb":           {"shape": "lower_better", "anchor": "peer", "positive_only": True},
-    "ps":           {"shape": "lower_better", "anchor": "peer"},
+    # positive_only added 2026-08-13: market cap is never negative, so a negative P/S
+    # means negative REVENUE (a restatement/reversal artifact) — meaningless rather
+    # than cheap, same class as a negative P/E. 36 rows in the live universe.
+    # ev_revenue deliberately does NOT get this: its negatives are negative ENTERPRISE
+    # VALUE (net cash above market cap) on positive revenue, which is a real and
+    # genuinely-cheap situation worth keeping.
+    "ps":           {"shape": "lower_better", "anchor": "peer", "positive_only": True},
     "p_fcf":        {"shape": "lower_better", "anchor": "peer", "positive_only": True},
     "ev_ebitda":    {"shape": "lower_better", "anchor": "peer", "positive_only": True},
     "ev_revenue":   {"shape": "lower_better", "anchor": "peer"},

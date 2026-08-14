@@ -24,6 +24,12 @@ def relative_to_group_median(
     NaN where the value is missing, the group has fewer than `min_n` non-null
     values, or the median is zero. Rows with a NaN group key (e.g. a fund with no
     sector) are left NaN — they have no peers to compare against.
+
+    A median that is merely NEAR zero (rather than exactly zero) overflows the
+    ratio to +/-inf, which the zero guard alone doesn't catch — 21 such rows were
+    already stored in `pe_vs_industry` before this was handled. Those are converted
+    to NaN too: an infinite "percent above the median" is not a usable comparison,
+    and it is not valid JSON either, so it would fail on the way to the UI.
     """
     out = pd.Series(np.nan, index=values.index, dtype="float64")
     df = pd.DataFrame({"v": pd.to_numeric(values, errors="coerce"), "g": groups})
@@ -35,7 +41,7 @@ def relative_to_group_median(
         if med == 0 or pd.isna(med):
             continue
         out.loc[vals.index] = (vals - med) / abs(med) * 100
-    return out
+    return out.replace([np.inf, -np.inf], np.nan)
 
 
 def percentile_rank(values: pd.Series, ascending: bool = True) -> pd.Series:
