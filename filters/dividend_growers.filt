@@ -1,0 +1,135 @@
+{
+  "version": 1,
+  "saved_at": "2026-08-13T22:49:57+00:00",
+  "selected_types": [
+    "standard",
+    "bank",
+    "insurance"
+  ],
+  "comment": "**What it does**\nIncome that grows: a decent yield today plus a reliable annual raise, with safety ranked above size of yield.\n- **Your choices:** 2-6% yield (high yield is a warning, not a bonus), 5%+ dividend growth, 5+ year raise streak, 2x FCF coverage, 30-60% payout, profitable only, $2B+, calm-ish, banks and insurers included.\n- Coverage is FCF-based on purpose \u2014 the payout ratio can be flattered by accounting, cash flow can't.\n\n**How to tweak**\n- **This is the tightest block:** `div_payout_ratio` 30-60 cuts the list hard. Widen to 20-70 for noticeably more names.\n- More yield, less safety: raise the yield band's top from 6% to 8%.\n- Longer track record: raise the raise-streak from 5 to 10 years.\n\n**How to sort for best picks**\n- Sort by `income_score`, tiebreak `quality_score`, or `div_coverage` to lead with the safest payouts.\n- Avoid sorting by `growth_score` (not the goal) and raw `div_yield_ttm` (sorting by yield alone puts the riskiest payers on top \u2014 the opposite of this screen's intent).\n\n_Built 2026-08-13 \u00b7 47 matches at build time._",
+  "ai_instructions": "Find stocks that pay me a decent dividend today AND raise it every year \u2014 income\nthat grows. Safety over size: I would rather have 3% growing safely than 7% at risk.\n- **Goal**: income (growing). **Dividends**: required \u2014 the whole point.\n- **Yield**: roughly 2-6% \u2014 an unusually high yield is a warning, not a bonus.\n- **Growth**: dividend raised ~5%+ a year, with a raise streak of 5+ years.\n- **Safety first**: the dividend must be covered ~2x by free cash flow, and the\n  payout ratio must sit in the comfortable 30-60% band. Profitable companies only.\n- **Kinds**: normal stocks plus banks and insurance. **Size**: $2B and bigger.\n- **Risk**: calm-ish stocks (no wild movers). **Results**: ~50-200 names.\n- **Sorting**: income first, tiebreak quality.",
+  "blocks": [
+    {
+      "enabled": true,
+      "param": "div_yield_ttm",
+      "window": null,
+      "compare": "value",
+      "op": "between",
+      "vmode": "V",
+      "value": 2,
+      "vmode2": "V",
+      "value2": 6,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "div",
+      "window": "cagr_3y",
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 5,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "div",
+          "window": "cagr_5y",
+          "compare": "value",
+          "op": ">=",
+          "vmode": "V",
+          "value": 5,
+          "vmode2": "V",
+          "value2": null,
+          "or_children": []
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "param": "div_consecutive_years",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 5,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "div_coverage",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 2,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "div_coverage",
+          "window": null,
+          "compare": "value",
+          "op": "is null",
+          "vmode": "V",
+          "value": null,
+          "vmode2": "V",
+          "value2": null,
+          "or_children": []
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "param": "div_payout_ratio",
+      "window": null,
+      "compare": "value",
+      "op": "between",
+      "vmode": "V",
+      "value": 30,
+      "vmode2": "V",
+      "value2": 60,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "net_margin",
+      "window": null,
+      "compare": "value",
+      "op": ">",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "market_cap",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 2000000000,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "atr_pct",
+      "window": null,
+      "compare": "value",
+      "op": "<=",
+      "vmode": "V",
+      "value": 4.0,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    }
+  ]
+}

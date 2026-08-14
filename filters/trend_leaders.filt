@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "saved_at": "2026-08-13T22:49:57+00:00",
+  "selected_types": [
+    "standard"
+  ],
+  "comment": "**What it does**\nThe full Minervini trend template \u2014 pure price action, no fundamentals at all.\n- **Your choices:** above the 50-day; 50 > 150 > 200-day stack; within 25% of the 52-week high; 30%+ above the 52-week low; RS Rank 80+; tradeable volume; $300M+.\n- The moving-average stack is expressed as real column-to-column comparisons, so it is the genuine template rather than an approximation.\n- Count swings with the market, which is expected for this screen.\n\n**How to tweak**\n- Widen it: drop `rs_rank` from 80 to 70, or the 52-week-high distance from 25% to 35%.\n- Only the strongest: raise `rs_rank` to 90.\n- Expect this count to swing a lot with market conditions \u2014 that IS the signal.\n\n**How to sort for best picks**\n- Sort by `rs_rank`, tiebreak `momentum_score`.\n- Avoid sorting by every fundamental score \u2014 `value_score`, `quality_score`, `growth_score`. This screen is pure price action on purpose; fundamentals aren't part of the thesis.\n\n_Built 2026-08-13 \u00b7 342 matches at build time._",
+  "ai_instructions": "Find stocks in a confirmed strong uptrend \u2014 the full Minervini trend template,\npure price action, no fundamentals at all.\n- **Goal**: momentum. **Dividends / profits**: ignore completely \u2014 price only.\n- **The template**: price above the 50-day line; 50-day above 150-day above\n  200-day (the full stack); within 25% of the 52-week high; at least 30% above\n  the 52-week low; RS Rank 80+.\n- **Tradeable**: enough daily volume. **Size**: $300M and bigger.\n- **Kinds**: normal stocks only. **Risk**: volatile is fine \u2014 that is the game.\n- **Results**: whatever the market gives (~50-300 depending on conditions).\n- **Sorting**: RS Rank first, tiebreak momentum score.",
+  "blocks": [
+    {
+      "enabled": true,
+      "param": "price_vs_ma_50",
+      "window": null,
+      "compare": "value",
+      "op": ">",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "ma_50",
+      "window": null,
+      "compare": "value",
+      "op": ">",
+      "vmode": "P",
+      "value": "ma_150",
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "ma_150",
+      "window": null,
+      "compare": "value",
+      "op": ">",
+      "vmode": "P",
+      "value": "ma_200",
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "pct_from_52w_high",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": -25,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "pct_from_52w_low",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 30,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "rs_rank",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 80,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "vol_20d_avg",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 100000,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "market_cap",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 300000000,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    }
+  ]
+}

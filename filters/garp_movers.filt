@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "saved_at": "2026-08-13T22:49:57+00:00",
+  "selected_types": [
+    "standard",
+    "bank",
+    "insurance"
+  ],
+  "comment": "**What it does**\nGrowth at a discount that the market has started to notice.\n- **Your choices:** forward PEG at or below 1, 10%+ expected earnings growth, RS Rank 60+, above the 200-day line, 3+ analysts, profitable, $500M+, banks and insurers included.\n- Forward PEG (not trailing) is the core test, so the growth being paid for is next year's expected growth, not last year's.\n\n**How to tweak**\n- Widen it: raise the `forward_peg` ceiling from 1.0 to 1.5.\n- Faster growth: raise `forward_eps_growth` from 10% to 20%.\n- More established: raise `market_cap` from $500M to $2B.\n\n**How to sort for best picks**\n- Sort by `momentum_score`, tiebreak `value_score`, or `forward_peg` ascending for the purest GARP read.\n- Avoid sorting by `income_score` and `growth_score` alone (growth without the price discipline is a different screen).\n\n_Built 2026-08-13 \u00b7 210 matches at build time._",
+  "ai_instructions": "Find growth at a discount that the market has started to notice \u2014 the \"value on\nthe move\" recipe (PEG with estimated growth plus momentum).\n- **Goal**: growth at a reasonable price. **Dividends**: ignore.\n- **The core test**: forward PEG around 1 or below \u2014 paying less than the growth\n  rate for next year's expected earnings growth (10%+).\n- **Moving**: decent price strength already (RS Rank 60+), above the 200-day line.\n- **Trustworthy estimates**: at least 3 analysts covering. Profitable companies.\n- **Size**: $500M and bigger. **Kinds**: normal stocks plus banks and insurance.\n- **Risk**: moderate. **Results**: ~30-150 names.\n- **Sorting**: momentum first, tiebreak value.",
+  "blocks": [
+    {
+      "enabled": true,
+      "param": "forward_peg",
+      "window": null,
+      "compare": "value",
+      "op": "between",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": 1.0,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "forward_eps_growth",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 10,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "rs_rank",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 60,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "price_vs_ma_200",
+      "window": null,
+      "compare": "value",
+      "op": ">",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "analyst_count",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 3,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "net_margin",
+      "window": null,
+      "compare": "value",
+      "op": ">",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "market_cap",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 500000000,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "atr_pct",
+      "window": null,
+      "compare": "value",
+      "op": "<=",
+      "vmode": "V",
+      "value": 5.5,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    }
+  ]
+}

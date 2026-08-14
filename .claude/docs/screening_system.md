@@ -4,7 +4,8 @@ Audience: **Claude Code** (not the user). Read when the user explicitly asks, or
 skill that references this doc runs (e.g. `/make_filters`) — otherwise never auto-load at
 session start. Reading it reloads the full working understanding of (a) every parameter the analysis phase creates, (b) the filter
 system, and (c) how to author `.filt` files correctly. This doc is a compressed cache of
-knowledge derived from the codebase + external research (2026-07-28). The code remains
+knowledge derived from the codebase + external research (2026-07-28, **refreshed
+2026-08-13** for the bear/base/bull valuation work). The code remains
 the source of truth — if this doc and the code disagree, the code wins; flag the drift.
 
 Source files this doc summarizes (re-read them only when detail beyond this doc is needed):
@@ -22,7 +23,7 @@ Source files this doc summarizes (re-read them only when detail beyond this doc 
 
 ## 1. System context (minimum needed)
 
-- `analysis.db` (table `analysis`) holds one row per symbol with ~229 columns: raw metrics,
+- `analysis.db` (table `analysis`) holds one row per symbol with ~283 columns: raw metrics,
   growth windows, peer-relative `_vs_sector`/`_vs_industry` columns, per-metric `_goodness`
   (0-100) columns, category `*_score`s, `rs_rank`, `rs_raw`, and a `screen_type` column.
 - Filters run **in pandas over that one table** (`filter_engine.run_filter`): restrict rows
@@ -84,12 +85,16 @@ Rule = default scoring-rule shape/anchor from `scoring_rules.DEFAULT_RULES` (dri
 - `peg` (x; same) — trailing P/E ÷ 3y EPS CAGR%. Rule: absolute anchor at **1.0** (Lynch: ≈1 fair, <1 growth at a discount). NULL when growth ≤ 0.
 - `pb` (x; + REIT) — the core multiple for banks/insurers/REITs; <1 = below book, check why.
 - `ps`, `p_fcf`, `ev_ebitda`, `ev_revenue` (x; **standard only**) — sales/cash/EV multiples; hidden for financials & REITs by design. EV/EBITDA rough bands: <8 cheap, >15 expensive (sector-dependent). P/FCF NULL when FCF < 0.
+- **Peer columns (2026-08-13):** `ps`, `pb`, `p_fcf` and `ev_revenue` now have `_vs_sector`/`_vs_industry` alongside the original 11 — P/S because it is the most sector-dependent multiple there is, P/B because it is the core multiple for banks/insurers/REITs. Non-positive values are masked before the peer median for every `positive_only` metric, so a negative P/E or negative-book-value P/B no longer reports as a deep discount (it reads NULL instead). `ev_revenue` keeps its negatives on purpose — those are negative ENTERPRISE VALUE (net cash above market cap), which is genuinely cheap rather than an artifact.
 - `eps_ttm` ($; standard/bank/insurance) — raw earnings input; negative disables P/E, PEG, Graham, Lynch.
 
 ### Profitability (rule higher_better/peer; margins standard-only, returns incl. financials)
 - `roe`, `roa` (%; standard/bank/insurance) — 15%+ sustained ROE = quality; banks: ROA ~1%+ solid. High ROE + high D/E = leverage not skill.
 - `roic` (%; standard) — NOPAT / invested capital; >~10% (cost of capital) creates value. The cleanest quality metric.
+- `wacc` (%; standard) — real weighted cost of capital: CAPM cost of equity blended with after-tax cost of debt. NULL unless beta AND debt/interest data are present and plausible (never guessed). **Also the DCF/DDM discount rate** since 2026-08-13 — a NULL here means those models fell back to plain CAPM cost of equity.
+- `roic_vs_wacc` (pp; standard; absolute pivot 0) — the moat proxy: value created above the cost of capital. `roic_vs_wacc_5y` (pp) — same gap using the 5y median ROIC, so a one-good-year spread doesn't read as durable. `roic_trend_3y` (pp; standard) — 3y level change in ROIC itself (widening or narrowing capital efficiency; NOT a trend of the gap — historical WACC isn't stored).
 - `gross_margin`, `operating_margin`, `fcf_margin` (%; standard), `net_margin` (%; + financials).
+- `ocf_to_ni_3y`, `ocf_to_ni_5y` (%; standard; absolute pivot 100) — cash conversion: operating cash flow as a % of net income, averaged over profitable years only. Below 100 = earnings not backed by cash, the classic earnings-quality warning. Loss years and near-breakeven outliers are excluded from the average rather than allowed to distort it.
 - `gross_margin_trend_3y`, `operating_margin_trend_3y` (pp change; standard; universe-ranked) — direction signals: widening = pricing power / efficiency; **N/A for pre-revenue or short-history names** (gotcha §7).
 - DuPont trio (standard/bank/insurance): `asset_turnover` (x, revenue/assets — efficiency), `equity_multiplier` (x, assets/equity — 1.0 = no debt, high = leverage-inflated ROE), `roe_roa_gap` (pp — how much ROE is debt-driven; small positive = real ROE, large = leverage, negative = losses amplified).
 
@@ -105,7 +110,8 @@ Rule = default scoring-rule shape/anchor from `scoring_rules.DEFAULT_RULES` (dri
 
 ### Growth
 Four growth **bases** — `revenue` (types: +REIT), `eps`, `book_value` (standard/bank/insurance), `fcf` (standard) — each expand to windows (column = `{base}_{window}`):
-`cagr_1y`, `cagr_3y`, `cagr_5y`, `yoy_q` (latest quarter YoY), `growth_vol` (%, lower better), `growth_r2` (0-1 fit quality, higher better), `growth_cv` (%, lower better).
+`cagr_1y`, `cagr_3y`, `cagr_5y`, `growth_trend` (%/yr), `yoy_q` (latest quarter YoY), `growth_vol` (%, lower better), `growth_r2` (0-1 fit quality, higher better), `growth_cv` (%, lower better).
+- `growth_trend` is a **log-linear fit across the whole window**, not an endpoint-to-endpoint CAGR — steadier, because one freak first or last year can't swing it. It is what Lynch/DCF/DDM actually consume, and its paired `growth_vol` is what sets the bear/bull scenario spread. NULL when any value in the window is ≤ 0 (a compound rate across a loss year is undefined).
 Not every base has every window (dividends have no `yoy_q`); `filter_registry.growth_windows()` is data-driven.
 - `book_value` growth is THE growth metric for banks/insurers (earnings compound into book; ~10%+ + reasonable P/B = classic financial screen).
 - `fcf` growth from deep annual history; feeds DCF (5y CAGR capped at 15%).
@@ -151,11 +157,19 @@ Not every base has every window (dividends have no `yoy_q`); `filter_registry.gr
 - `atr_pct` (%; TRADED_NO_MF) — daily movement size: 1-2% calm large cap, 5%+ very volatile. **Calibrated ceiling for broad screens: 5.5** (5.0 clips solid industrials).
 - `history_years` (yr, fractional) — data-quality gate: require `> 5` for 5y CAGRs to be meaningful; low = recent IPO/thin backfill.
 
-### Intrinsic Value (standard/bank/insurance; DCF standard-only)
-- `intrinsic_value_dcf` ($) — 10y FCF projection at historical CAGR (cap 15%), discount = risk-free + beta×5%, + terminal, − net debt. Most complete, most assumption-sensitive. NULL when FCF < 0.
-- `intrinsic_value_graham` ($) — √(22.5 × EPS × BVPS); conservative; NULL if EPS or BV negative.
-- `intrinsic_value_lynch` ($) — EPS × 3y-EPS-CAGR% (cap 25) as fair P/E (PEG=1 embodied); needs positive EPS + growth.
-- `margin_of_safety` (%; pivot 0) — (avg available fair values − price)/fair × 100; 30+ = classic value bar; fewer contributing models = noisier.
+### Intrinsic Value (types vary — DCF standard-only, DDM also REIT)
+
+**Four models, one type-gated blend, plus a bear/bull range** (rewritten 2026-08-13).
+
+- `intrinsic_value_graham` ($; standard/bank/insurance) — √(22.5 × EPS × BVPS); conservative floor, ignores growth entirely, structurally harsh on asset-light businesses. NULL if EPS or BV negative.
+- `intrinsic_value_lynch` ($; same) — EPS × EPS **trend** growth% (cap 25) as fair P/E. Saturates for hypergrowth names by design — the cap is the standard published implementation, not our invention.
+- `intrinsic_value_dcf` ($; standard) — 10y FCF projection where growth **FADES linearly** from its trend rate (start bounded by `DCF_FADE_START_CAP`, 0.35) down to terminal growth by the final year, discounted at the real `wacc` where available else CAPM, + Gordon terminal, − net debt. NULL when FCF ≤ 0. (Replaced a flat 15% cap held for the whole decade — that clipped 57% of FCF growers and collapsed the scenario range.)
+- `intrinsic_value_ddm` ($; standard/bank/insurance/REIT) — the same fading path applied to the per-share dividend. **The model financials and REITs actually get valued on**, since deposits/underwriting and GAAP depreciation break FCF- and EPS-based models for them.
+- `fair_value` ($) — **MEDIAN** (not mean) of whichever models are conceptually sound for the symbol's type: all four for standard, Graham+Lynch+DDM for banks/insurers/regulated utilities, DDM only for REITs. Median so one blown-up DCF or near-zero Lynch can't dominate.
+- `margin_of_safety` (%; pivot 0) — (fair_value − price) / fair_value × 100. **Universe median is ≈ −26% and only ~38% of valued names clear 0**, so "negative" is the norm with these deliberately conservative models — read it relatively, not as an absolute verdict.
+- `fair_value_bear` / `fair_value_bull` ($), `margin_of_safety_bear` / `margin_of_safety_bull` (%) — the same blend re-run with each model's growth pushed down/up by its own `growth_vol`. **Graham is base-only** (nothing forward to flex), so `fair_value` can legitimately sit OUTSIDE the bear→bull range — 35% of the time. Never treat that as an error.
+- `valuation_guardrail_flag` (0/1; COMPANY) — the discount rate needed its minimum-spread floor, or the ROIC−WACC spread implies an implausibly persistent excess return. A warning, not a blocker.
+- `bear_flag_cash_conversion` / `bear_flag_moat_narrowing` / `bear_flag_interest_coverage` / `bear_flag_earnings_quality` (0/1) and `bear_flag_count` (0-4) — red flags derived from `ocf_to_ni`, `roic_vs_wacc`, `interest_coverage` and `beneish_m_score`. **Visible only — never auto-applied to any valuation number**, because no professional framework exists for converting red flags into numeric assumption deltas. `bear_flag_count <= 1` is a cheap, effective value-trap gate.
 
 ### Relative Strength
 - `rs_rank` (0-99; used as-is by the rule) — IBD-style weighted trailing return (four ~3-month windows, 40/20/20/20 recent-heavy), **ranked WITHIN security type** (universe is ~65% mutual funds — cross-type ranking would distort). 80+ leads; NULL under ~1y history. `rs_raw` is the persisted input (for subset-run re-ranking; not a filter metric).
@@ -332,9 +346,22 @@ Filter Fail review reveals a new trap or a better calibration, add it HERE.
 | `debt_to_ebitda`/`interest_coverage` N/A | no debt / no interest expense (often the HEALTHIEST names) | add `is null` OR child (see quality_compounders.filt) |
 | `atr_pct` NULL for mutual funds | flat NAV, no intraday range | exclude mutual_fund from types or fallback |
 | `rs_rank` NULL | <~1y price history | pair with `history_years` gate or accept the drop |
+| **`<metric>_vs_sector`/`_vs_industry` silently all-False** | the column only exists for metrics in `settings.PEER_COMPARABLE_METRICS` — a block on any other metric's peer variant returns ZERO rows, silently | check the tuple first. `ps`/`pb`/`p_fcf`/`ev_revenue` were added 2026-08-13 (they had zeroed `small_cap_winners` and `financial_compounders`), so the list is now 15; anything still outside it must use the **Score variant** (`compare: "score"` → `{col}_goodness`), which is peer-anchored anyway |
+| `fair_value_bear`/`_bull` NULL | no usable trend/vol history, so no scenario could be computed | NULL here means **"no range available", NOT "no downside"** — a filter on `margin_of_safety_bear` therefore EXCLUDES those names rather than judging them. Intended; add an `is null` OR child only if you want them back |
 
 Calibrations learned from Filter Fail reviews (starting points, not hard rules):
 `current_ratio` floor **1.1** for broad growth screens; `atr_pct` ceiling **5.5**.
+
+From the 2026-08-13 rebuild of all 13 briefs (counts against the post-fade universe):
+- `margin_of_safety >= 30` now yields ~694 standard names before other blocks; **15 is the
+  better "meaningfully cheap" bar** post-fade (the fade lowered fair values, so the old 30
+  means something stricter than it used to).
+- `div_payout_ratio` **30-60 is the single tightest income block** — it cut `dividend_growers`
+  from 168 to 68 on its own. Widen to 20-70 when a fuller list matters.
+- Screens that intersect several strict-but-explicit asks land ~15 rather than the usual
+  20-500: `defensive_anchors` (D/E<1 + Altman>3 + 10y streak + low ATR) and
+  `undervalued_quality` (cheap vs industry + ROIC + above MA200). That scarcity is real,
+  not a bug — say so rather than quietly loosening what the brief explicitly asked for.
 
 ---
 
@@ -377,6 +404,6 @@ When writing a `.filt` comment's "How to sort" section, match the sort to the th
 |---|---|---|---|
 | Growth / emerging | `growth_score` | `momentum_score` (market recognition) | `overall/quality/value_score` — reward mature/cheap names, bury early growers |
 | Quality compounder | `quality_score` | `momentum_score` (hot industries) | `income_score` (not the goal), `value_score` (compounders rarely cheap) |
-| Value / margin of safety | `value_score` or `margin_of_safety` | `quality_score` (avoid value traps) | `momentum_score` (value often means out of favor) |
+| Value / margin of safety | `margin_of_safety_bear` (still cheap in the pessimistic case — the strongest single value test) or `value_score` | `quality_score` (avoid value traps); `bear_flag_count` ascending | `momentum_score` (value often means out of favor) |
 | Income | `income_score` | `quality_score` / `div_coverage` | `growth_score` |
 | Momentum / trend | `momentum_score` or `rs_rank` | `growth_score` or `eps_revision_1m` | `value_score` |

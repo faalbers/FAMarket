@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "saved_at": "2026-08-13T22:49:57+00:00",
+  "selected_types": [
+    "standard",
+    "bank",
+    "insurance",
+    "reit"
+  ],
+  "comment": "**What it does**\nFollow the smart money \u2014 companies where insiders are net BUYING with their own cash.\n- **Your choices:** $300M-$10B (where the signal is strongest), some minimum price strength so you're not catching a falling knife, banks included, volatility and pre-profit both fine.\n- Buying is the informative side; selling has many innocent motives. The bar is set at a meaningful net-buy stake rather than any purchase at all, which keeps the list to a usable size.\n\n**How to tweak**\n- Widen it: drop `insider_net_buy_pct` from 10 to 1 (any net buying), or `rs_rank` from 55 to 40.\n- Stronger conviction only: raise `insider_net_buy_pct` to 25.\n- Smaller caps, where the research says the signal is strongest: lower the `market_cap` ceiling from $10B to $2B.\n\n**How to sort for best picks**\n- Sort by `growth_score`, tiebreak `momentum_score`.\n- Avoid sorting by `overall_score` (dilutes the insider signal into unrelated factors) and `value_score`.\n\n_Built 2026-08-13 \u00b7 298 matches at build time._",
+  "ai_instructions": "Find companies where the insiders are putting their own money in \u2014 net insider\nBUYING (the research says buying is the informative side, and the signal is\nstrongest in smaller companies).\n- **Goal**: follow the smart money. **Dividends**: ignore.\n- **The signal**: insiders net buying over the last ~6 months.\n- **Where it works**: small and mid caps, roughly $300M-$10B.\n- **Not a falling knife**: some minimum price strength so I'm not catching\n  collapses insiders are averaging into.\n- **Kinds**: normal stocks, banks, insurance and REITs (the signal is actually\n  strongest in banks). **Risk**: volatile OK. Pre-profit OK.\n- **Results**: ~50-300 names. **Sorting**: growth first, tiebreak momentum.",
+  "blocks": [
+    {
+      "enabled": true,
+      "param": "insider_net_buy_pct",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 10,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "market_cap",
+      "window": null,
+      "compare": "value",
+      "op": "between",
+      "vmode": "V",
+      "value": 300000000,
+      "vmode2": "V",
+      "value2": 10000000000,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "rs_rank",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 55,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "vol_20d_avg",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 50000,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    }
+  ]
+}

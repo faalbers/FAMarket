@@ -1,0 +1,134 @@
+{
+  "version": 1,
+  "saved_at": "2026-08-13T22:49:57+00:00",
+  "selected_types": [
+    "standard"
+  ],
+  "comment": "**What it does**\nCompanies that could become dominant \u2014 explosive, still-accelerating revenue, margins ahead of their industry, and a market starting to notice.\n- **Your choices:** $1B-$80B, 20%+ revenue growth AND faster than its own 3-year pace, pre-profit is fine, volatility accepted, broad list.\n- Because pre-profit names are welcome, the margin test carries an `is null` fallback \u2014 a company is never dropped just for lacking margin data.\n\n**How to tweak**\n- Fewer, faster names: raise revenue growth from 20% to 30%.\n- Earlier entries: drop `rs_rank` from 60 to 40 (before the market fully notices).\n- Smaller hunting ground: lower the `market_cap` ceiling from $80B to $20B.\n\n**How to sort for best picks**\n- Sort by `growth_score`, tiebreak `momentum_score` (market recognition).\n- Avoid sorting by `overall_score` / `quality_score` / `value_score` \u2014 all three reward mature, cheap, already-profitable names and bury exactly the early-stage growers this screen exists to find.\n\n_Built 2026-08-13 \u00b7 135 matches at build time._",
+  "ai_instructions": "I want to find companies that could become the next dominant player in their industry, like NVDA was early in its growth story, but not limited to tech \u2014 any sector. These are companies with explosive revenue growth that is accelerating, a strong competitive position versus their peers, and a market that is already starting to recognise them. They don't need to be profitable yet but their unit economics should be improving. They should be big enough to be real but small enough to still have massive room to grow.\n\nUpdate (2026-07-28) \u2014 checklist answers added after a brief review; where this\ndiffers from the text above, this wins:\n- **Size**: $1B-$80B market cap (big enough to be real, small enough to 10x).\n- **\"Explosive growth\"** = revenue growing 20%+ a year (history or analyst\n  forecast) AND faster than its own 3-year pace.\n- **Competitive position** = margins above its industry (gross or operating).\n- **Not yet profitable is fine** \u2014 never drop a company only because a margin or\n  history number has no data yet.\n- **Risk**: volatility is expected and accepted \u2014 no calm-stock requirement.\n- **Results**: a broad discovery list is fine (~100-300 names).\n- **Dividends**: ignore. **Kinds**: normal stocks only.\n- **Sorting**: growth first, tiebreak momentum; avoid overall / quality / value\n  scores (they bury early-stage names).",
+  "blocks": [
+    {
+      "enabled": true,
+      "param": "market_cap",
+      "window": null,
+      "compare": "value",
+      "op": "between",
+      "vmode": "V",
+      "value": 1000000000,
+      "vmode2": "V",
+      "value2": 80000000000,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "revenue",
+      "window": "cagr_3y",
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 20,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "forward_rev_growth",
+          "window": null,
+          "compare": "value",
+          "op": ">=",
+          "vmode": "V",
+          "value": 20,
+          "vmode2": "V",
+          "value2": null,
+          "or_children": []
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "param": "revenue_accel",
+      "window": null,
+      "compare": "value",
+      "op": ">",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "revenue",
+          "window": "yoy_q",
+          "compare": "value",
+          "op": ">=",
+          "vmode": "V",
+          "value": 30,
+          "vmode2": "V",
+          "value2": null,
+          "or_children": []
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "param": "gross_margin",
+      "window": null,
+      "compare": "vs_industry",
+      "op": ">",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "operating_margin",
+          "window": null,
+          "compare": "vs_industry",
+          "op": ">",
+          "vmode": "V",
+          "value": 0,
+          "vmode2": "V",
+          "value2": null,
+          "or_children": []
+        },
+        {
+          "enabled": true,
+          "param": "gross_margin",
+          "window": null,
+          "compare": "vs_industry",
+          "op": "is null",
+          "vmode": "V",
+          "value": null,
+          "vmode2": "V",
+          "value2": null,
+          "or_children": []
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "param": "rs_rank",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 60,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "vol_20d_avg",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 100000,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    }
+  ]
+}

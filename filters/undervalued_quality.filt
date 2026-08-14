@@ -1,0 +1,144 @@
+{
+  "version": 1,
+  "saved_at": "2026-08-13T22:49:57+00:00",
+  "selected_types": [
+    "standard"
+  ],
+  "comment": "**What it does**\nValue WITH proof of life \u2014 cheap businesses that are actually good, so the value traps get skipped.\n- **Your choices:** meaningfully below fair value, cheaper than its own industry, real profitability, back above the 200-day line, $1B+, normal stocks only.\n- **Built to your 2026-08-13 Update:** the margin-of-safety bar is recalibrated to 15% (30% now means something stricter than when the brief was written), it requires a POSITIVE bear-case margin of safety, caps `bear_flag_count` at 1, and excludes names whose valuation assumptions are flagged as implausible.\n- **Returns ~14 names.** Cheap + genuinely good + already recovering is a rare combination; that scarcity is the point.\n\n**How to tweak**\n- **To widen past ~14 names, in order of impact:** remove the 'cheaper than its own industry' block (P/E vs industry) \u2014 it roughly thirds the list on its own.\n- Then: drop `roic` from 8 to 5, or `margin_of_safety` from 15 to 5.\n- Stricter instead: raise `margin_of_safety` back to 30, or require `bear_flag_count` = 0.\n- To hunt deeper value, drop the `price_vs_ma_200` block \u2014 but that is the 'proof of life' test, and removing it lets in falling knives.\n\n**How to sort for best picks**\n- Sort by `margin_of_safety_bear` (still cheap in the pessimistic case) or `value_score`, tiebreak `quality_score` \u2014 the anti-value-trap half of the thesis.\n- Avoid sorting by `momentum_score` (value usually means out of favour, so momentum sorts against the thesis) and `growth_score`.\n\n_Built 2026-08-13 \u00b7 14 matches at build time._",
+  "ai_instructions": "Find good businesses that are temporarily cheap \u2014 value WITH proof of life, so I\nskip the value traps (cheap companies that deserve to be cheap).\n- **Goal**: value. **Dividends**: ignore.\n- **Cheap**: trading well below fair value (margin of safety ~30%+) AND cheaper\n  than its own industry.\n- **Good**: real profitability (ROIC ~10%+) and passing basic health checks \u2014\n  profitable companies only.\n- **Proof of life**: price at least back above its 200-day average, so the market\n  has stopped voting against it.\n- **Size**: $1B and bigger. **Kinds**: normal stocks only. **Risk**: moderate.\n- **Results**: ~20-150 names. **Sorting**: value first, tiebreak quality.\n\nUpdate (2026-08-13) \u2014 the valuation engine changed underneath this filter, so the\nold numbers don't mean the same thing:\n- **`margin_of_safety` is now a stricter bar than it was.** The DCF/DDM behind\n  `fair_value` now fade growth down to the terminal rate instead of holding the\n  trailing rate flat for ten years, which lowered fair value for most ordinary\n  companies. A 30% margin of safety is therefore harder to clear than when this\n  brief was written \u2014 **recalibrate the threshold against a dry run** rather than\n  assuming 30% still returns a similar-sized list. Lower it if the list comes back\n  too thin; the intent is \"meaningfully cheap\", not the specific number.\n- **Use the bear case for the value-trap half of the goal.** There are now\n  `margin_of_safety_bear` / `fair_value_bear` columns (the same models re-run on\n  pessimistic growth). \"Still undervalued in the bear case\" is a much better\n  value-trap filter than the base number alone \u2014 prefer requiring a positive\n  `margin_of_safety_bear` over pushing the base threshold higher.\n- **`bear_flag_count` is built for exactly this brief's \"deserve to be cheap\"\n  concern** \u2014 it counts red flags (weak cash conversion, thin moat, weak interest\n  coverage, earnings-quality risk). Requiring a low count (0, or at most 1) is a\n  cheap way to screen out the traps. `valuation_guardrail_flag` marks names whose\n  valuation assumptions are at the edge of plausibility \u2014 worth excluding here.",
+  "blocks": [
+    {
+      "enabled": true,
+      "param": "margin_of_safety",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 15,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "margin_of_safety_bear",
+      "window": null,
+      "compare": "value",
+      "op": ">",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "bear_flag_count",
+      "window": null,
+      "compare": "value",
+      "op": "<=",
+      "vmode": "V",
+      "value": 1,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "valuation_guardrail_flag",
+      "window": null,
+      "compare": "value",
+      "op": "=",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "valuation_guardrail_flag",
+          "window": null,
+          "compare": "value",
+          "op": "is null",
+          "vmode": "V",
+          "value": null,
+          "vmode2": "V",
+          "value2": null,
+          "or_children": []
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "param": "pe",
+      "window": null,
+      "compare": "vs_industry",
+      "op": "<",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "roic",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 8,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "net_margin",
+      "window": null,
+      "compare": "value",
+      "op": ">",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "price_vs_ma_200",
+      "window": null,
+      "compare": "value",
+      "op": ">",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "market_cap",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 1000000000,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "atr_pct",
+      "window": null,
+      "compare": "value",
+      "op": "<=",
+      "vmode": "V",
+      "value": 5.5,
+      "vmode2": "V",
+      "value2": null,
+      "or_children": []
+    }
+  ]
+}
