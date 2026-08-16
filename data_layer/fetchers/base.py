@@ -42,8 +42,12 @@ class BaseFetcher(ABC):
     applies_to: tuple[str, ...] = ()    # security types handled; () = all types
     target_db: str = ""                 # path attr name on settings, e.g. "QUOTES_DB"
     table: str = ""                     # destination table
-    write_mode: str = "upsert"          # "upsert" | "append" | "replace"
+    write_mode: str = "upsert"          # "upsert" | "append" | "replace" | "replace_by"
     upsert_key: str | list[str] = "symbol"
+    # For write_mode="replace_by": the single column whose groups this fetcher owns
+    # outright, i.e. every stored row for a fetched value of it is deleted before
+    # the new rows land. See core.database.Database.replace_by.
+    replace_by_key: str = "symbol"
     # Per-symbol skip window after a successful fetch. None = settings.FETCH_LOCK_DAYS
     # (the weekly default — refetch every run). A large value makes a fetcher a
     # one-time backfill: once a symbol succeeds it is skipped on all future runs
@@ -129,6 +133,8 @@ class BaseFetcher(ABC):
             db.append(self.table, rows)
         elif self.write_mode == "replace":
             db.replace(self.table, rows)
+        elif self.write_mode == "replace_by":
+            db.replace_by(self.table, rows, key=self.replace_by_key)
         else:
             db.upsert(self.table, rows, key=self.upsert_key)
 

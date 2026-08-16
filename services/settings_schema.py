@@ -39,7 +39,11 @@ HELP: dict[str, str] = {
     "GROWTH_TREND_YEARS": "Recent annual points used for the growth trend-quality stats (R², residual volatility, CV).",
     "FETCH_LOCK_DAYS": "After a successful fetch, skip that symbol+fetcher for this many days.",
     "DEFAULT_BATCH_SIZE": "Rows fetched/committed per batch for batched APIs (some APIs override this in code).",
-    "OHLCV_INITIAL_YEARS": "Years of price history pulled on a symbol's first OHLCV load.",
+    "OHLCV_HISTORY_YEARS": (
+        "Years of price history pulled on EVERY OHLCV fetch. Each fetch fully "
+        "replaces the symbol's stored rows over this window, so this is the whole "
+        "depth of ohlcv.db — lowering it discards the difference."
+    ),
     "FETCH_ABANDONMENT_ENABLED": "Master switch for the abandonment policy. Off = a run touches every symbol, ignoring strikes and staleness.",
     "MAX_NO_DATA_FETCHES": "Abandon a symbol after this many consecutive fetches that return no data at all. Resets the moment data returns.",
     "OHLCV_STALE_WEEKS": "Stop fetching a symbol whose newest stored OHLCV bar is older than this many weeks.",
@@ -193,7 +197,7 @@ def sections() -> list[dict[str, Any]]:
             "fields": [
                 _field("FETCH_LOCK_DAYS", "Re-fetch lock (days)", "int", lo=0, hi=60, group="Scheduling & batching"),
                 _field("DEFAULT_BATCH_SIZE", "Batch size", "int", lo=1, hi=2000, group="Scheduling & batching"),
-                _field("OHLCV_INITIAL_YEARS", "OHLCV initial load (years)", "int", lo=1, hi=50, group="Scheduling & batching"),
+                _field("OHLCV_HISTORY_YEARS", "OHLCV history window (years)", "int", lo=1, hi=50, group="Scheduling & batching"),
                 _field("FETCH_ABANDONMENT_ENABLED", "Policy enabled (master switch)", "bool", group="Abandonment"),
                 _field("MAX_NO_DATA_FETCHES", "Max no-data fetches", "int", lo=1, hi=20, group="Abandonment"),
                 _field("OHLCV_STALE_WEEKS", "OHLCV stale (weeks)", "int", lo=1, hi=104, group="Staleness"),

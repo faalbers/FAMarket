@@ -180,8 +180,12 @@ FINANCIALS_YEARLY_STALE_QUARTERS: int = 6      # newest annual period_end older 
 # own. A viability gate — governed by FETCH_ABANDONMENT_ENABLED, not the 5-day lock.
 FINANCIALS_REPORT_LAG_DAYS: int = 45
 
-# Minimum history pulled on an initial OHLCV load.
-OHLCV_INITIAL_YEARS: int = 10
+# Price history window pulled on EVERY OHLCV fetch, not just the first (renamed
+# from OHLCV_INITIAL_YEARS 2026-08-15). Each fetch fully replaces the symbol's
+# stored rows over this window, so it defines the entire depth of ohlcv.db.
+# Raising it deepens history on the next fetch; LOWERING it discards the
+# difference, since rows outside the window are deleted rather than kept stale.
+OHLCV_HISTORY_YEARS: int = 30
 
 # OHLCV recency window for validation: a symbol whose newest OHLCV bar is older
 # than this fails the "recent data" check in reassess_state (is_validated=False)
@@ -195,9 +199,10 @@ OHLCV_INACTIVE_AFTER_WEEKS: int = 8
 # Detected by comparing the returned row count against the expected NYSE
 # session count for the symbol's own previously-stored window (skipped when
 # there's no prior data to compare against — e.g. a symbol's first-ever
-# fetch). Log-only: the bad rows are still written (harmless — upsert never
-# deletes, so older correct dates are untouched) and the symbol naturally
-# retries on the normal fetch cadence; this only makes the failure visible.
+# fetch). Since OHLCV moved to full per-symbol replace (2026-08-15) this also
+# GATES the destructive write: a symbol under the coverage threshold is upserted
+# instead of replaced, so a truncated response keeps the stored history rather
+# than deleting it. The symbol still retries on the normal fetch cadence.
 OHLCV_VALIDITY_CHECK_ENABLED: bool = True
 OHLCV_VALIDITY_MIN_COVERAGE_PCT: float = 0.5   # flag if returned/expected sessions < this
 

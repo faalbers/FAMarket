@@ -27,7 +27,7 @@
   See "UI stack — Streamlit → React + FastAPI" at the end of Key Decisions.
 - `pandas_market_calendars` used to determine last completed trading session
 - Completeness definition for financial periods → deferred to coding phase
-- SQLite wrapper uses explicit, opinionated methods per operation: `db.append()`, `db.replace()`, `db.upsert(key=)` — no generic read/write (improvement over previous build)
+- SQLite wrapper uses explicit, opinionated methods per operation: `db.append()`, `db.replace()`, `db.replace_by(key=)`, `db.upsert(key=)` — no generic read/write (improvement over previous build). `replace_by` added 2026-08-15 for the OHLCV write-mode change (Subtopic 2.2): drops only the groups present in the frame, so one symbol's history can be rewritten outright without touching any other
 - Separate SQLite databases by data type — cross-database merging done in pandas
 - All API parameters stored as individual columns; schema grows dynamically via ALTER TABLE ADD COLUMN
 - Batch fetching with `ratelimit` + `tenacity` (rate limiting + auto retry)
@@ -117,7 +117,23 @@ needs.
        a Fetch Control toggle, and `scripts.run_fetch --allow-market-open` turn it off
        for testing. This is shipped — do NOT re-assess as future work.
    - ✅ Subtopic 2.2 — Incremental fetch by data type
-     - OHLCV → append by date; initial fetch = 10 years minimum
+     - OHLCV → ~~append/upsert by date; initial fetch = 10 years minimum~~
+       **REVISED 2026-08-15: FULL per-symbol replace over a fixed
+       `OHLCV_HISTORY_YEARS` = 30 window** (`db.replace_by(key="symbol")`).
+       Replaces the original incremental model, which was wrong for prices:
+       Yahoo retro-adjusts the whole series (splits rescale `close` +
+       `adj_close`, dividends rescale `adj_close`), and because the request
+       used a window relative to *today* it slid forward a day at a time,
+       stranding the rows that fell out the back on a frozen adjustment basis.
+       Measured before the fix: ~912k stranded rows and a ragged per-symbol
+       seam — e.g. MLI's 2016 closes sat exactly 2× off after its 2026 2:1
+       split. Replacing the symbol's rows makes the store exactly what Yahoo
+       last returned: one basis, no stranded tail, self-repairing next fetch.
+       Two consequences: the request must use an explicit `start=` (yfinance's
+       `period=` vocabulary stops at "10y"), and the truncation check now
+       **gates** the destructive write — a symbol under
+       `OHLCV_VALIDITY_MIN_COVERAGE_PCT` falls back to upsert so a short Yahoo
+       response can never delete good history.
      - End date always capped to last completed trading session (pandas_market_calendars)
      - yfinance history() call returns Dividends column alongside OHLCV — dividend history fetched for free in the same call, no separate API needed
      - Financials (annual/quarterly) → append by date; re-check incomplete periods each run

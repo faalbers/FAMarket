@@ -2,9 +2,16 @@
 Opinionated SQLite wrapper.
 
 Design decision (roadmap "Key Decisions"): no generic read/write. Every write
-goes through an explicit method that names the intent — `append`, `replace`, or
-`upsert(key=...)`. This was a deliberate improvement over the previous build,
-where a generic write made it ambiguous what would happen to existing rows.
+goes through an explicit method that names the intent — `append`, `replace`,
+`replace_by(key=...)` or `upsert(key=...)`. This was a deliberate improvement
+over the previous build, where a generic write made it ambiguous what would
+happen to existing rows.
+
+The four verbs differ only in what they do to rows already stored:
+  * `append`      — keep everything, add rows.
+  * `replace`     — drop the whole table, rewrite it.
+  * `replace_by`  — drop just the groups present in the frame, rewrite those.
+  * `upsert`      — keep everything, overwrite rows matching the key.
 
 Other decisions baked in here:
   * One DataFrame in, one table out — pandas is the interchange format. Cross-
@@ -38,6 +45,12 @@ _SQLITE_AFFINITY = {
 
 def _affinity(dtype: object) -> str:
     return _SQLITE_AFFINITY.get(str(dtype), "TEXT")
+
+
+# Conservative cap on bound parameters in one statement. SQLite's own limit is
+# 999 on older builds and 32766 since 3.32; staying under the low one keeps
+# `IN (...)` chunking safe regardless of which SQLite the interpreter bundles.
+_MAX_SQL_PARAMS = 900
 
 
 class Database:
@@ -107,6 +120,24 @@ class Database:
                     f'ALTER TABLE "{table}" ADD COLUMN "{col}" {_affinity(df[col].dtype)}'
                 )
 
+    def _ensure_key_index(self, table: str, key: str) -> None:
+        """Index `key` for `replace_by`'s DELETE, unless one already leads with it.
+
+        Without this, a table created by `replace_by` on a fresh database has no
+        index at all, and every `DELETE ... WHERE key IN (...)` full-scans a table
+        that grows to tens of millions of rows. The leading-column check keeps us
+        from adding a redundant second index when a composite one already serves
+        the lookup — ohlcv's UNIQUE (symbol, date) covers `symbol` queries, so an
+        established database gains nothing and pays no extra disk.
+        """
+        for idx in self.conn.execute(f'PRAGMA index_list("{table}")').fetchall():
+            info = self.conn.execute(f'PRAGMA index_info("{idx[1]}")').fetchall()
+            if info and info[0][2] == key:      # seqno 0 == leading column
+                return
+        self.conn.execute(
+            f'CREATE INDEX IF NOT EXISTS "ix_{table}_{key}" ON "{table}" ("{key}")'
+        )
+
     # -- reads --------------------------------------------------------------- #
     def read(
         self, table: str, where: str | None = None, params: Iterable | None = None
@@ -156,6 +187,48 @@ class Database:
         recalculation that runs after every fetch (Topic 4.2).
         """
         df.to_sql(table, self.conn, if_exists="replace", index=False)
+        self.conn.commit()
+        return len(df)
+
+    def replace_by(self, table: str, df: pd.DataFrame, key: str) -> int:
+        """Delete every stored row whose `key` appears in `df`, then insert `df`.
+
+        The "own this group outright" verb, between `append` (keep everything) and
+        `replace` (drop the whole table). Use it when a fetch returns the COMPLETE
+        current state of a group and any stored row outside that state is wrong
+        rather than merely old — OHLCV price history is the case it exists for:
+        Yahoo retro-adjusts the whole series for splits/dividends, so a row the
+        fetch no longer covers is stale at a different adjustment basis, and
+        upserting would silently leave it behind (see the yfinance_ohlcv note).
+
+        `key` is a single column (e.g. "symbol"); every distinct value present in
+        `df` has its existing rows removed first. Delete + insert run in ONE
+        transaction, so an interrupted run can never leave a group deleted with
+        nothing written back.
+        """
+        if df.empty:
+            return 0
+        if key not in df.columns:
+            raise ValueError(f"replace_by: key column {key!r} not in DataFrame")
+        if not self.table_exists(table):
+            n = self.append(table, df)
+            self._ensure_key_index(table, key)
+            return n
+
+        self._ensure_columns(table, df)
+        self._ensure_key_index(table, key)
+        groups = df[key].dropna().unique().tolist()
+        try:
+            # sqlite3 opens the transaction implicitly on the first DML statement
+            # and holds it until commit, so both statements land together.
+            for i in range(0, len(groups), _MAX_SQL_PARAMS):
+                chunk = groups[i : i + _MAX_SQL_PARAMS]
+                ph = ",".join("?" * len(chunk))
+                self.conn.execute(f'DELETE FROM "{table}" WHERE "{key}" IN ({ph})', chunk)
+            df.to_sql(table, self.conn, if_exists="append", index=False)
+        except Exception:
+            self.conn.rollback()
+            raise
         self.conn.commit()
         return len(df)
 
