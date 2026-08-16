@@ -16,9 +16,25 @@ Sanitize (Topic 9.4) is two-level:
   * field-level fix  — inf/NaN -> None, "N/A"/""/"None" strings -> None
   * record-level reject — no usable price -> skip the whole symbol (return None)
 
-OHLCV write mode (confirmed): upsert keyed on (symbol, date), not raw append. Same
-end state as "append new dates" but idempotent, so a re-run or an overlapping fetch
-can't create duplicate rows.
+OHLCV write mode (revised 2026-08-15): FULL per-symbol replace over a fixed
+settings.OHLCV_HISTORY_YEARS window — `db.replace_by(key="symbol")`, not upsert.
+
+This replaced upsert-on-(symbol, date), which looked equivalent but was not.
+Yahoo retro-adjusts the whole price series: a split rescales `close` AND
+`adj_close` for every earlier bar, a dividend rescales `adj_close`. Because the
+old fetch asked for a window relative to TODAY, that window slid forward a day
+per day and rows falling out the back were never rewritten again — frozen at
+whatever adjustment basis was in force when a fetch last reached them. The store
+ended up holding two different bases with a ragged, per-symbol seam between them
+(measured 2026-08-15: ~912k stranded rows, and e.g. MLI showed a clean 0.506
+step in its 2016 closes matching its 2026 2:1 split).
+
+Deleting the symbol's rows before writing makes the stored series exactly what
+Yahoo last returned — one basis, no stranded tail, and self-repairing on the next
+fetch. The cost is that a silently TRUNCATED Yahoo response would now destroy
+good history, so `_check_coverage` is a gate on the destructive path, not just a
+flag: a symbol under settings.OHLCV_VALIDITY_MIN_COVERAGE_PCT falls back to
+upsert and keeps what is stored (see `_write`).
 
 PHASE 2 OPTIMIZATION (decided, deferred): OHLCV stays a per-symbol loop in Phase 1
 so it shares the one rate-limit / retry / fetch_status model in base.py. yfinance's
@@ -209,7 +225,12 @@ class YFinanceOHLCV(BaseFetcher):
     )
     target_db = "OHLCV_DB"
     table = "ohlcv"
-    write_mode = "upsert"          # idempotent by (symbol, date) — see module note
+    # Full per-symbol replace: the fetch returns the symbol's COMPLETE history on
+    # the current adjustment basis, so any stored row it doesn't cover is stale,
+    # not merely old. See the module note. `_write` below keeps upsert as the
+    # fallback for a fetch that looks truncated.
+    write_mode = "replace_by"
+    replace_by_key = "symbol"
     upsert_key = ["symbol", "date"]
     stale_after_days = settings.OHLCV_STALE_WEEKS * 7  # base.stale_symbols by `date`
 
@@ -221,8 +242,11 @@ class YFinanceOHLCV(BaseFetcher):
         # right after this call returns.
         self._pending_flag: dict | None = None
 
+        # An explicit start date, NOT period=: yfinance only accepts a fixed
+        # period vocabulary ("1d".."10y", "ytd", "max"), so a settings-driven
+        # "{N}y" silently stops being valid the moment N leaves that list.
         hist = yf.Ticker(symbol).history(
-            period=f"{settings.OHLCV_INITIAL_YEARS}y",
+            start=self._history_start().strftime("%Y-%m-%d"),
             auto_adjust=False,   # keep both Close and Adj Close
             actions=True,        # include Dividends + Stock Splits
         )
@@ -232,16 +256,51 @@ class YFinanceOHLCV(BaseFetcher):
         self._check_coverage(symbol, rows, self._val_db)
         return rows
 
+    @staticmethod
+    def _history_start() -> pd.Timestamp:
+        """First date to request: a FIXED settings.OHLCV_HISTORY_YEARS window.
+
+        Anchored on the last completed session rather than "now" so the requested
+        window and the completed-session write gate agree on where the series ends.
+        """
+        anchor = last_completed_session()
+        if anchor is None:
+            anchor = pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()
+        return anchor - pd.DateOffset(years=settings.OHLCV_HISTORY_YEARS)
+
+    def _write(self, db: Database, rows: pd.DataFrame) -> None:
+        """Full replace per symbol — except for symbols flagged as truncated.
+
+        A destructive write is only safe when the response is trustworthy. Any
+        symbol `_check_coverage` flagged this run returned far fewer sessions than
+        its own stored history implies (the Yahoo silent-truncation bug), so
+        deleting its rows first would trade real history for a short one. Those
+        fall back to upsert: the good rows survive, the fetch still lands, and the
+        run-summary WARNING still names them. Everything else is fully replaced.
+        """
+        if rows.empty:
+            return
+        flagged = {f["symbol"] for f in getattr(self, "_flagged", [])}
+        if not flagged:
+            super()._write(db, rows)
+            return
+        suspect = rows["symbol"].isin(flagged)
+        super()._write(db, rows[~suspect])                       # write_mode: replace_by
+        db.upsert(self.table, rows[suspect], key=self.upsert_key)
+
     def _check_coverage(self, symbol: str, rows: pd.DataFrame, db: Database) -> None:
         """Flag a fetch that returned far fewer sessions than the symbol's own
         stored history implies it should have (the Yahoo silent-truncation bug —
-        see dev_docs/Yfinance_History_Truncation_Issue.md). Accept-and-flag: the
-        rows are still written as normal (harmless, upsert never deletes). A flag
-        is surfaced three ways: a debug line now, a run-summary WARNING at the
-        end of `run()`, and — via self._pending_flag, read by base.py right
-        after fetch_one returns — persisted onto this symbol's fetch_status row
-        (coverage_actual/coverage_expected/coverage_checked_at) for durable,
-        queryable history (see fetch_status.coverage_flags()).
+        see dev_docs/Yfinance_History_Truncation_Issue.md).
+
+        This is a GATE, not just a flag (changed 2026-08-15, when OHLCV moved to
+        full per-symbol replace): a flagged symbol is written with upsert instead
+        of replace_by, so a truncated response can never delete real history. See
+        `_write`. A flag is surfaced three ways: a debug line now, a run-summary
+        WARNING at the end of `run()`, and — via self._pending_flag, read by
+        base.py right after fetch_one returns — persisted onto this symbol's
+        fetch_status row (coverage_actual/coverage_expected/coverage_checked_at)
+        for durable, queryable history (see fetch_status.coverage_flags()).
 
         Skipped when there's no existing stored data for the symbol — a
         first-ever fetch has no baseline to compare against.
@@ -256,8 +315,9 @@ class YFinanceOHLCV(BaseFetcher):
         cutoff = last_completed_session()
         if cutoff is None:
             return
-        floor = cutoff - pd.DateOffset(years=settings.OHLCV_INITIAL_YEARS)
-        expected_start = max(pd.Timestamp(min_date), floor)
+        # The request window floors how far back a response can legitimately go,
+        # so expect sessions from whichever is later: it, or the stored first date.
+        expected_start = max(pd.Timestamp(min_date), self._history_start())
         expected = session_count(expected_start, cutoff)
         if expected <= 0:
             return

@@ -153,10 +153,11 @@ Three intentionally decoupled layers plus shared infrastructure:
   `financials`, `estimates`, `analysis`, `macro`, `indices` — paths in `config/settings.py`). There are
   **no cross-database SQL joins**; merge in pandas instead.
 - **The SQLite wrapper is opinionated by design** (`core/database.py`): never a
-  generic write. Use the verb that names the intent — `append` (add rows, e.g.
-  new OHLCV dates), `replace` (drop + rewrite, e.g. the analysis rebuild), or
-  `upsert(key=...)` (insert-or-update). pandas DataFrames are the interchange
-  format.
+  generic write. Use the verb that names the intent — `append` (add rows),
+  `replace` (drop + rewrite the whole table, e.g. the analysis rebuild),
+  `replace_by(key=...)` (drop just the groups present in the frame and rewrite
+  them, e.g. one symbol's price history) or `upsert(key=...)`
+  (insert-or-update). pandas DataFrames are the interchange format.
 - **Schema grows dynamically**: every API field is its own column (no JSON
   blobs); unknown columns are added via `ALTER TABLE ADD COLUMN` automatically on
   write. `NULL` means "not applicable" for that symbol.
@@ -228,6 +229,16 @@ Three intentionally decoupled layers plus shared infrastructure:
   bypass it.
 - **Logging is summary-level only** (`core/logging_config.py`): batch progress
   and failures, no per-symbol/per-value noise; sanitize fixes are silent.
+- **OHLCV fully replaces a symbol's rows on every fetch** — `write_mode =
+  "replace_by"` over a fixed `settings.OHLCV_HISTORY_YEARS` (30) window, NOT
+  upsert-and-accumulate. Yahoo retro-adjusts the whole series (a split rescales
+  `close` and `adj_close`, a dividend rescales `adj_close`), so any stored row
+  the current fetch doesn't cover is stale at a *different adjustment basis*,
+  not merely old. The old sliding `period="10y"` window stranded ~912k such rows
+  with a ragged per-symbol seam (fixed 2026-08-15). Consequences: the request
+  uses an explicit `start=` (yfinance's `period=` vocabulary has no "30y"), and
+  the truncation check in `_check_coverage` **gates** the destructive write —
+  a short response falls back to upsert so it can't delete real history.
 - **Prices**: all price-based calculations use `adj_close` of the **last
   completed trading session** (via `pandas-market-calendars`) — never intraday.
   OHLCV writes are gated the same way: `sanitize_ohlcv` drops any bar past the last
