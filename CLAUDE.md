@@ -229,6 +229,19 @@ Three intentionally decoupled layers plus shared infrastructure:
   bypass it.
 - **Logging is summary-level only** (`core/logging_config.py`): batch progress
   and failures, no per-symbol/per-value noise; sanitize fixes are silent.
+- **Indices get price history but nothing else.** `load_fetch_universe()` drops
+  every `security_type == "index"` (~13.4k symbols) — they have no fundamentals
+  to fetch. The exception is `settings.BENCHMARK_SYMBOLS` (^GSPC, ^IXIC, ^DJI,
+  ^NDX, ^RUT, ^VIX, ^TNX), which `load_ohlcv_universe()` adds to the **OHLCV
+  step only** — the real run and `report_fetch()` must both use it, or the dry
+  run understates OHLCV. Never widen `load_fetch_universe` instead:
+  `YFinanceQuotes.applies_to` is `()` (ALL types), and for an index a quote
+  alone satisfies `reassess_state`, which would mark it `is_validated` and drop
+  it into the analysis universe. `analysis_layer/pipeline._universe()` excludes
+  indices outright as a second line of defence. It's an allow-list because only
+  a handful of index symbols have real Yahoo history; the rest return one bar.
+  The SPDR sector ETFs (XLK, XLRE, …) are **not** indices — `security_type
+  "etf"`, already in the shared universe, already fetched.
 - **OHLCV fully replaces a symbol's rows on every fetch** — `write_mode =
   "replace_by"` over a fixed `settings.OHLCV_HISTORY_YEARS` (30) window, NOT
   upsert-and-accumulate. Yahoo retro-adjusts the whole series (a split rescales

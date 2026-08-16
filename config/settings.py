@@ -187,6 +187,42 @@ FINANCIALS_REPORT_LAG_DAYS: int = 45
 # difference, since rows outside the window are deleted rather than kept stale.
 OHLCV_HISTORY_YEARS: int = 30
 
+# Market indices that DO get price history (2026-08-15). Indices are otherwise
+# excluded from fetching entirely — orchestrator.load_fetch_universe() drops
+# security_type == "index" — because they carry no fetchable fundamentals. Price
+# history is the exception: these are the benchmarks worth charting against.
+#
+# An ALLOW-LIST, not a blanket un-exclusion: of the ~13.4k index symbols Polygon
+# discovers, only a handful have real history on Yahoo. The rest (e.g. ^NQAULC,
+# ^DWCBSS) return a single bar for today, so fetching them all would cost hours
+# per run to store thousands of one-row symbols.
+#
+# Fetched via load_ohlcv_universe(), which adds these to the OHLCV step ONLY —
+# never to the shared universe, since YFinanceQuotes applies to ALL types and a
+# quote alone is enough to mark an index is_validated (see reassess_state), which
+# would pull it into the analysis universe.
+#
+# Use ^GSPC, NOT ^SPX: they are the same series under two tickers (verified
+# identical closes). symbols.db carries Polygon's ^SPX, but ^GSPC is the
+# Yahoo-canonical name. ^GSPC and ^IXIC aren't in symbols.db at all — harmless,
+# the rows are built from this constant and fetch_status has no FK to symbols.
+#
+# NOT the SPDR sector ETFs (XLK, XLF, XLRE, ...): those are security_type "etf",
+# already in the shared universe, and already fully fetched. Adding them here
+# would fetch them twice a run and mislabel their security type.
+# Symbol -> display name. The name seeds the symbols.db row for any benchmark
+# discovery never found (see symbols.ensure_benchmark_symbols), so every symbol
+# holding price data also has an identity row to label a chart with.
+BENCHMARK_SYMBOLS: dict[str, str] = {
+    "^GSPC": "S&P 500",
+    "^IXIC": "NASDAQ Composite",
+    "^DJI": "Dow Jones Industrial Average",
+    "^NDX": "NASDAQ-100",
+    "^RUT": "Russell 2000 Index",
+    "^VIX": "Cboe Volatility Index",
+    "^TNX": "Cboe Interest Rate 10 Year T Note",
+}
+
 # OHLCV recency window for validation: a symbol whose newest OHLCV bar is older
 # than this fails the "recent data" check in reassess_state (is_validated=False)
 # and so drops out of the analysis universe. (Distinct from the staleness probe

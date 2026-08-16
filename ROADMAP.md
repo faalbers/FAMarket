@@ -1034,8 +1034,23 @@ needs.
        implicit "minimal scope-tier" handling for `index`). They are
        reference-only, carry no fetchable fundamentals, and are typed `index` at
        discovery time, so `orchestrator.load_fetch_universe()` drops
-       `security_type == "index"` before any fetcher runs. Benchmark OHLCV, if
-       ever needed, stays an analysis-layer concern.
+       `security_type == "index"` before any fetcher runs. ~~Benchmark OHLCV, if
+       ever needed, stays an analysis-layer concern.~~
+     - ✅ 2026-08-15: **benchmark OHLCV is no longer deferred** — resolves the
+       struck-through line above. Indices still get no quotes and no
+       fundamentals (that reasoning stands), but a short allow-list now gets
+       PRICE history: `settings.BENCHMARK_SYMBOLS` = ^GSPC, ^IXIC, ^DJI, ^NDX,
+       ^RUT, ^VIX, ^TNX, added by `orchestrator.load_ohlcv_universe()` to the
+       OHLCV step ONLY. An allow-list because of the ~13.4k Polygon index
+       symbols only a handful have real Yahoo history — the rest return a single
+       bar for today. It must NOT be done by relaxing `load_fetch_universe`:
+       `YFinanceQuotes.applies_to` is `()` (all types), and a quote alone marks
+       an index `is_validated` (`reassess_state`: "everything else -> quote"),
+       which would pull it into the analysis universe. `analysis_layer.pipeline
+       ._universe()` now also excludes `security_type == "index"` outright,
+       clearing 410 pre-validated indices that had leaked into analysis.db.
+       Consuming the series (relative strength vs ^GSPC, chart overlays) is
+       still open.
      - Live log output shown in UI during fetch run
      - ✅ 2026-06-19: the fetch now runs as its OWN detached OS process
        (`data_layer/launcher.py` spawns `scripts/run_fetch.py` with Windows

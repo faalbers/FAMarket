@@ -46,9 +46,9 @@ from core.database import Database
 from core.logging_config import get_logger, roll_log, setup_logging
 from core.net import configure_tls
 from core.shutdown_guard import ShutdownGuard
-from data_layer import cancel, fetch_status, run_state
+from data_layer import cancel, fetch_status, run_state, symbols
 from data_layer.fetchers.yfinance_fetcher import YFinanceOHLCV
-from data_layer.orchestrator import load_fetch_universe
+from data_layer.orchestrator import load_ohlcv_universe
 
 
 def _parse_args() -> argparse.Namespace:
@@ -99,8 +99,8 @@ def _dry_run(subset: list[str] | None) -> None:
     fetcher = YFinanceOHLCV()
     with Database(settings.SYMBOLS_DB) as sdb:
         fetch_status.ensure_table(sdb)
-        universe = load_fetch_universe(sdb, subset)
-        print(f"universe (active, non-index): {len(universe):,}")
+        universe = load_ohlcv_universe(sdb, subset)
+        print(f"OHLCV universe (+benchmarks): {len(universe):,}")
         print(f"FETCH_ABANDONMENT_ENABLED   : {settings.FETCH_ABANDONMENT_ENABLED}")
         for label, respect_lock in (("lock ON ", True), ("lock OFF", False)):
             _, stats = fetcher.select_due(universe, sdb, respect_lock)
@@ -164,7 +164,8 @@ def main() -> None:
 
         with Database(settings.SYMBOLS_DB) as sdb:
             fetch_status.ensure_table(sdb)
-            universe = load_fetch_universe(sdb, subset)
+            symbols.ensure_benchmark_symbols(sdb)
+            universe = load_ohlcv_universe(sdb, subset)
             log.info("Universe — %d active symbols", len(universe))
             summary = YFinanceOHLCV().run(universe, sdb, respect_lock=False)
 

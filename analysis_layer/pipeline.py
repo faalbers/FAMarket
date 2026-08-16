@@ -174,11 +174,23 @@ def _events_by_symbol(events: pd.DataFrame, col: str) -> dict[str, pd.Series]:
 
 
 def _universe(symbols: pd.DataFrame, subset: list[str] | None) -> pd.DataFrame:
-    """Active + validated symbols (Topic 8: the analysis processing gate)."""
+    """Active + validated symbols (Topic 8: the analysis processing gate).
+
+    Indices are excluded outright: an index has no fundamentals, so every ratio,
+    score and peer comparison computed for one is meaningless, and it lands in
+    Filter/Output as a junk row. The is_active/is_validated flags do NOT catch
+    them — `reassess_state` validates security_type "index" on a quote alone, so
+    410 pre-validated indices (^AAPLCW, ^BOX15F27, ...) had leaked into
+    analysis.db by 2026-08-15. Benchmark indices now carry OHLCV as well (see
+    settings.BENCHMARK_SYMBOLS), which makes this gate load-bearing rather than
+    just corrective — price history for charting must not become a screening row.
+    """
     df = symbols
     for flag in ("is_active", "is_validated"):
         if flag in df.columns:
             df = df[df[flag] == 1]
+    if "security_type" in df.columns:
+        df = df[df["security_type"] != "index"]
     if subset is not None:
         df = df[df["symbol"].isin(subset)]
     return df.reset_index(drop=True)

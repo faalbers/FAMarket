@@ -364,6 +364,42 @@ def save_symbols(db: Database, discovered: pd.DataFrame) -> int:
     return len(df)
 
 
+def ensure_benchmark_symbols(db: Database) -> int:
+    """Give every settings.BENCHMARK_SYMBOLS entry a symbols.db row. Additive-only.
+
+    Discovery finds most benchmarks via Polygon, but not all: Polygon names the
+    S&P 500 `^SPX` and has no Nasdaq Composite entry, so `^GSPC` and `^IXIC` are
+    absent. They still get price history (load_ohlcv_universe builds their fetch
+    rows from the constant, not from this table), which would otherwise leave a
+    symbol holding OHLCV with no name or type for a chart to label it with.
+
+    Only MISSING symbols are written — an existing row is never touched, so this
+    can't disturb what discovery owns. Seeded rows are typed `index`, which keeps
+    them out of the shared fetch universe (no quotes, no fundamentals) and out of
+    the analysis universe, exactly like every other index.
+    """
+    existing: set = set()
+    if db.table_exists(TABLE):
+        stored = db.read(TABLE)
+        if not stored.empty:
+            existing = set(stored["symbol"])
+    missing = {s: n for s, n in settings.BENCHMARK_SYMBOLS.items() if s not in existing}
+    if not missing:
+        return 0
+    df = pd.DataFrame({
+        "symbol": list(missing),
+        "name": list(missing.values()),
+        "security_type": "index",
+        "source": "benchmark",
+        "is_active": 1,
+        "is_validated": 0,
+    })
+    db.upsert(TABLE, df, key="symbol")
+    log.info("symbols.db — seeded %d benchmark index symbol(s): %s",
+             len(df), ", ".join(missing))
+    return len(df)
+
+
 def resolve_types_from_quotes() -> int:
     """Fill missing security_type in symbols.db from the yfinance quoteType.
 

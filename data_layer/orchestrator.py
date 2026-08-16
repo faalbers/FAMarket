@@ -31,6 +31,7 @@ from core.database import Database
 from core.logging_config import get_logger, roll_log, setup_logging
 from core.net import configure_tls
 from data_layer import cancel, fetch_status, symbols
+from data_layer.fetchers.base import BaseFetcher
 from data_layer.fetchers.edgar_fetcher import EDGARFinancials
 from data_layer.fetchers.fred_fetcher import fetch_fred
 from data_layer.fetchers.yfinance_fetcher import (
@@ -67,6 +68,40 @@ def load_fetch_universe(
     return df.reset_index(drop=True)
 
 
+def load_ohlcv_universe(
+    db: Database, subset: list[str] | None = None
+) -> pd.DataFrame:
+    """The shared fetch universe PLUS the benchmark indices (Topic on indices).
+
+    OHLCV is the one fetcher indices belong in: they have no fundamentals to
+    fetch, but they do have price history, and a benchmark series is worth
+    charting against. `load_fetch_universe` drops every index for the other
+    fetchers' sake, so the allow-list is re-added here and ONLY here.
+
+    Deliberately not done by relaxing the filter in `load_fetch_universe`:
+    YFinanceQuotes has `applies_to = ()` (all types), so an index reaching the
+    shared universe would also be quoted — and a quote alone marks an index
+    is_validated (`symbols.reassess_state`: "everything else -> quote"), which
+    would drop it into the analysis universe and produce junk screening rows.
+    Keeping the benchmarks out of the shared universe also keeps them out of the
+    end-of-run reassessment, so their is_active/is_validated are never touched.
+    """
+    universe = load_fetch_universe(db, subset)
+    benchmarks = [s for s in settings.BENCHMARK_SYMBOLS
+                  if subset is None or s in set(subset)]
+    if not benchmarks:
+        return universe
+    # security_type "index" is kept by YFinanceOHLCV.select_symbols (its
+    # applies_to lists it) and rejected by every other Group 2 fetcher's.
+    extra = pd.DataFrame({"symbol": benchmarks, "security_type": "index"})
+    known = set(universe["symbol"]) if not universe.empty else set()
+    extra = extra[~extra["symbol"].isin(known)]      # never double-list a symbol
+    if extra.empty:
+        return universe
+    cols = list(universe.columns) if not universe.empty else list(extra.columns)
+    return pd.concat([universe, extra.reindex(columns=cols)], ignore_index=True)
+
+
 #: Group 2 fetchers in run order, with a friendly label for the dry-run report.
 #: (FRED is omitted — it fetches a fixed set of macro series, not a symbol universe.)
 #:
@@ -76,7 +111,7 @@ def load_fetch_universe(
 #: that the report skips — so adding/removing a Group 2 fetcher means editing BOTH.
 #: Gate *logic* itself is shared via `BaseFetcher.select_due()` and needs no change
 #: here. See `report_fetch()`.
-def _report_fetchers() -> list[tuple[str, object]]:
+def _report_fetchers() -> list[tuple[str, BaseFetcher]]:
     return [
         ("yfinance quotes", YFinanceQuotes()),
         ("yfinance OHLCV", YFinanceOHLCV()),
@@ -111,9 +146,16 @@ def report_fetch(
         fetch_status.ensure_table(sdb)
         universe = load_fetch_universe(sdb, subset)
         report["universe"] = len(universe)
+        # OHLCV runs against a wider universe than the rest (the benchmark
+        # indices), exactly as the real run does — score it against that one or
+        # the report understates it.
+        ohlcv_universe = load_ohlcv_universe(sdb, subset)
         steps = []
         for label, fetcher in _report_fetchers():
-            _, stats = fetcher.select_due(universe, sdb, respect_lock)
+            step_universe = (
+                ohlcv_universe if isinstance(fetcher, YFinanceOHLCV) else universe
+            )
+            _, stats = fetcher.select_due(step_universe, sdb, respect_lock)
             steps.append({"step": label, **stats})
         report["steps"] = steps
     return report
@@ -223,6 +265,9 @@ def _run_fetch_groups(
     # `BaseFetcher.select_due()`, which both `.run()` and the report call.
     with Database(settings.SYMBOLS_DB) as sdb:
         fetch_status.ensure_table(sdb)
+        # Benchmarks discovery never found (^GSPC, ^IXIC) get an identity row so
+        # nothing holds price history without a name. Additive-only, idempotent.
+        symbols.ensure_benchmark_symbols(sdb)
 
         universe = load_fetch_universe(sdb, subset)
         log.info("Group 2 — %d symbols in fetch universe", len(universe))
@@ -234,7 +279,11 @@ def _run_fetch_groups(
 
         # Reload so OHLCV/financials see the freshly resolved security_type.
         universe = load_fetch_universe(sdb, subset)
-        summary["ohlcv"] = YFinanceOHLCV().run(universe, sdb, respect_lock)
+        # OHLCV alone also fetches the benchmark indices — see
+        # load_ohlcv_universe for why they must not join the shared universe.
+        summary["ohlcv"] = YFinanceOHLCV().run(
+            load_ohlcv_universe(sdb, subset), sdb, respect_lock
+        )
         if _cancelled():
             return
         summary["financials"] = YFinanceFinancials().run(universe, sdb, respect_lock)
