@@ -22,12 +22,22 @@ Usage
     python -m scripts.rebase_ohlcv
     python -m scripts.rebase_ohlcv --retry-flagged   # mop up after a full pass
 
-Yahoo intermittently returns a stub of a symbol's history instead of the whole
-series. Those fetches trip the coverage guard and fall back to upsert, so the
-symbol keeps its data but stays on the OLD adjustment basis. `--retry-flagged`
-re-runs exactly those, which is minutes rather than hours. The flag clears
-itself on a clean fetch, so rerun it every day or so until it reports nothing
-left — truncation is transient, not permanent.
+Yahoo sometimes returns a stub of a symbol's history instead of the whole series.
+Those fetches trip the coverage guard and fall back to upsert, so the symbol
+keeps its data but stays on the OLD adjustment basis. `--retry-flagged` re-runs
+those, which is minutes rather than hours.
+
+It only retries flags a refetch could actually change, and reports the rest by
+reason (fetch_status.COVERAGE_*):
+  * source_reset — Yahoo moved firstTradeDate forward past the history we hold,
+    so those years are gone upstream. Retrying returns the same stub every time
+    (verified 2026-08-19: identical response for start=1996 / start=2024 /
+    period=max / period=1y).
+  * thin — too few stored bars for the ratio to mean anything. Money-market
+    funds, rights and warrants: Yahoo serves one bar per fetch, so "1 returned
+    vs 12 stored" is normal, not a fault.
+Expect the retryable list to shrink toward zero while those two counts persist —
+they are a standing description of the universe, not a backlog to work off.
 
 Logging matches a normal run: the previous log is archived and a fresh
 logs/famarket.log is written, and the run registers in run_state so the UI's
@@ -80,18 +90,27 @@ def _parse_args() -> argparse.Namespace:
     return args
 
 
-def _flagged_symbols() -> list[str]:
-    """Symbols whose MOST RECENT OHLCV fetch tripped the coverage guard.
+# Why each non-retryable reason is skipped, in the words the operator needs at
+# the prompt. Keyed by the fetch_status.COVERAGE_* value.
+_SKIP_NOTES = {
+    fetch_status.COVERAGE_SOURCE_RESET:
+        "Yahoo reset their record, so the older history is gone upstream",
+    fetch_status.COVERAGE_THIN:
+        "too few stored bars to judge; Yahoo serves one bar per fetch for these",
+}
 
-    Those fell back to upsert, so they kept their history but are still on the
-    old split/dividend adjustment basis. `coverage_flags` marks a flag `active`
-    only while `coverage_checked_at == last_fetched`, so a symbol drops off this
-    list as soon as one clean fetch supersedes its flag — rerun until it empties.
+
+def _flagged_symbols() -> tuple[list[str], dict[str, int]]:
+    """(symbols worth retrying, {reason: count} for the ones that aren't).
+
+    A flag counts only while it is the symbol's most recent fetch
+    (`coverage_checked_at == last_fetched`), so one clean fetch drops a symbol
+    off the list. Of those still flagged, only the ones a refetch could change
+    are returned — see fetch_status.retryable_coverage_flags.
     """
     with Database(settings.SYMBOLS_DB) as sdb:
         fetch_status.ensure_table(sdb)
-        flags = fetch_status.coverage_flags(sdb, YFinanceOHLCV.name)
-    return sorted(sym for (sym, _), info in flags.items() if info["active"])
+        return fetch_status.retryable_coverage_flags(sdb, YFinanceOHLCV.name)
 
 
 def _dry_run(subset: list[str] | None) -> None:
@@ -112,10 +131,13 @@ def main() -> None:
     settings.ensure_runtime_dirs()
 
     if args.retry_flagged:
-        subset = _flagged_symbols()
-        print(f"--retry-flagged: {len(subset):,} symbol(s) still on the old basis")
+        subset, skipped = _flagged_symbols()
+        print(f"--retry-flagged: {len(subset):,} symbol(s) worth refetching")
+        for reason, note in _SKIP_NOTES.items():
+            if skipped.get(reason):
+                print(f"                 {skipped[reason]:,} skipped ({reason}) — {note}")
         if not subset:
-            print("Nothing left to retry — every flagged symbol has since fetched clean.")
+            print("Nothing left to retry — every retryable flag has since fetched clean.")
             return
     else:
         subset = (
@@ -188,12 +210,15 @@ def main() -> None:
             print("\n  Stopped early. Rerun the same command to continue —")
             print("  symbols already rebased are simply rewritten again.")
         else:
-            still = len(_flagged_symbols())
+            still, skipped = _flagged_symbols()
             if still:
-                print(f"\n  {still:,} symbol(s) still on the old basis (Yahoo served a")
-                print("  stub, so their history was kept rather than replaced).")
-                print("  Rerun with --retry-flagged in a day or so; truncation is transient.")
-            else:
+                print(f"\n  {len(still):,} symbol(s) still on the old basis (Yahoo served")
+                print("  a stub, so their history was kept rather than replaced).")
+                print("  Rerun with --retry-flagged in a day or so — this kind is transient.")
+            for reason, note in _SKIP_NOTES.items():
+                if skipped.get(reason):
+                    print(f"\n  {skipped[reason]:,} symbol(s) flagged '{reason}' — {note}")
+            if not still and not skipped:
                 print("\n  Every symbol is on the current adjustment basis.")
             print("\n  analysis.db still holds the OLD numbers —")
             print("  run a normal fetch/analysis to bring it in line.")
