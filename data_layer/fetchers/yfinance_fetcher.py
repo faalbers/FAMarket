@@ -33,8 +33,11 @@ Deleting the symbol's rows before writing makes the stored series exactly what
 Yahoo last returned — one basis, no stranded tail, and self-repairing on the next
 fetch. The cost is that a silently TRUNCATED Yahoo response would now destroy
 good history, so `_check_coverage` is a gate on the destructive path, not just a
-flag: a symbol under settings.OHLCV_VALIDITY_MIN_COVERAGE_PCT falls back to
-upsert and keeps what is stored (see `_write`).
+flag: a symbol returning under settings.OHLCV_VALIDITY_MIN_COVERAGE_PCT of the
+bars it ALREADY has stored falls back to upsert and keeps what is stored (see
+`_write`). The flag also records WHY (fetch_status.COVERAGE_*), because a Yahoo
+record whose firstTradeDate has been reset past our stored history is gone at
+source — refetching it forever is waste, unlike genuine truncation.
 
 PHASE 2 OPTIMIZATION (decided, deferred): OHLCV stays a per-symbol loop in Phase 1
 so it shares the one rate-limit / retry / fetch_status model in base.py. yfinance's
@@ -56,8 +59,8 @@ import pandas as pd
 
 from config import settings, type_map
 from core.database import Database
-from core.market_calendar import last_completed_session, session_count
-from data_layer import staleness
+from core.market_calendar import last_completed_session
+from data_layer import fetch_status, staleness
 from data_layer.fetchers.base import BaseFetcher
 
 if TYPE_CHECKING:
@@ -213,6 +216,24 @@ def sanitize_ohlcv(symbol: str, hist: pd.DataFrame) -> pd.DataFrame:
     return df[[c for c in keep if c in df.columns]]
 
 
+def _first_trade_date(metadata: dict | None) -> str | None:
+    """Yahoo's own firstTradeDate for an instrument, as an ISO date string.
+
+    Comes free with any history() call (see YFinanceOHLCV.fetch_one). Returns
+    None when Yahoo doesn't publish one — money-market funds typically don't —
+    which the coverage check reads as "can't tell", not as "reset".
+    """
+    if not metadata:
+        return None
+    raw = metadata.get("firstTradeDate")
+    if raw is None:
+        return None
+    try:
+        return pd.to_datetime(raw, unit="s", utc=True).strftime("%Y-%m-%d")
+    except (ValueError, TypeError, OverflowError, pd.errors.OutOfBoundsDatetime):
+        return None
+
+
 class YFinanceOHLCV(BaseFetcher):
     name = "yfinance_ohlcv"
     api = "yfinance"
@@ -245,7 +266,8 @@ class YFinanceOHLCV(BaseFetcher):
         # An explicit start date, NOT period=: yfinance only accepts a fixed
         # period vocabulary ("1d".."10y", "ytd", "max"), so a settings-driven
         # "{N}y" silently stops being valid the moment N leaves that list.
-        hist = yf.Ticker(symbol).history(
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(
             start=self._history_start().strftime("%Y-%m-%d"),
             auto_adjust=False,   # keep both Close and Adj Close
             actions=True,        # include Dividends + Stock Splits
@@ -253,7 +275,11 @@ class YFinanceOHLCV(BaseFetcher):
         rows = sanitize_ohlcv(symbol, hist)
         if rows.empty:
             return None
-        self._check_coverage(symbol, rows, self._val_db)
+        # history_metadata is filled from the SAME chart response history() just
+        # parsed — reading it costs no extra Yahoo request.
+        self._check_coverage(
+            symbol, rows, self._val_db, _first_trade_date(ticker.history_metadata)
+        )
         return rows
 
     @staticmethod
@@ -288,49 +314,93 @@ class YFinanceOHLCV(BaseFetcher):
         super()._write(db, rows[~suspect])                       # write_mode: replace_by
         db.upsert(self.table, rows[suspect], key=self.upsert_key)
 
-    def _check_coverage(self, symbol: str, rows: pd.DataFrame, db: Database) -> None:
-        """Flag a fetch that returned far fewer sessions than the symbol's own
-        stored history implies it should have (the Yahoo silent-truncation bug —
-        see dev_docs/Yfinance_History_Truncation_Issue.md).
+    def _check_coverage(
+        self,
+        symbol: str,
+        rows: pd.DataFrame,
+        db: Database,
+        first_trade: str | None,
+    ) -> None:
+        """Flag a fetch that returned far fewer bars than this symbol ALREADY has
+        stored (the Yahoo silent-truncation bug — see
+        dev_docs/Yfinance_History_Truncation_Issue.md).
 
-        This is a GATE, not just a flag (changed 2026-08-15, when OHLCV moved to
-        full per-symbol replace): a flagged symbol is written with upsert instead
-        of replace_by, so a truncated response can never delete real history. See
+        The baseline is the symbol's own stored row count inside the request
+        window, NOT the number of trading sessions in that window (changed
+        2026-08-19). Counting calendar sessions asks "did the response cover
+        every session up to today?", which a DELISTED symbol can never answer
+        yes to — its history legitimately stops years ago, so a perfect response
+        scored ~30% and tripped the guard. Measured against stored rows, the
+        four delisted symbols checked (JHMDX/PIPDX/IDMAX/AMRHX) return exactly
+        their stored count and score 1.00. That also makes the check ask the
+        question the gate actually exists to answer: would replacing the stored
+        rows with this response LOSE bars?
+
+        This is a GATE, not just a flag (2026-08-15, when OHLCV moved to full
+        per-symbol replace): a flagged symbol is written with upsert instead of
+        replace_by, so a truncated response can never delete real history. See
         `_write`. A flag is surfaced three ways: a debug line now, a run-summary
         WARNING at the end of `run()`, and — via self._pending_flag, read by
         base.py right after fetch_one returns — persisted onto this symbol's
-        fetch_status row (coverage_actual/coverage_expected/coverage_checked_at)
-        for durable, queryable history (see fetch_status.coverage_flags()).
+        fetch_status row for durable, queryable history (see
+        fetch_status.coverage_flags()).
+
+        A flag also records WHY, since only one of the three cases is worth ever
+        refetching — see the COVERAGE_* constants in fetch_status:
+          * too few stored bars to compare against -> THIN
+          * `first_trade` (Yahoo's own firstTradeDate, ISO date or None) is LATER
+            than the history we hold -> SOURCE_RESET; Yahoo has lost those years
+            and no amount of refetching brings them back
+          * otherwise -> TRUNCATED, the retryable Yahoo backend bug
+        THIN is tested first: under settings.OHLCV_VALIDITY_MIN_BASELINE_BARS
+        there isn't enough stored history to claim the source lost anything.
 
         Skipped when there's no existing stored data for the symbol — a
         first-ever fetch has no baseline to compare against.
         """
         if not settings.OHLCV_VALIDITY_CHECK_ENABLED:
             return
-        existing = db.query('SELECT MIN(date) AS min_date FROM "ohlcv" WHERE symbol = ?', [symbol])
-        min_date = existing["min_date"].iloc[0] if not existing.empty else None
-        if min_date is None or pd.isna(min_date):
+        # Same window the request used, so stored and returned rows are counted
+        # over identical ground.
+        window_start = self._history_start().strftime("%Y-%m-%d")
+        stored = db.query(
+            'SELECT COUNT(*) AS n, MIN(date) AS min_date FROM "ohlcv" '
+            "WHERE symbol = ? AND date >= ?",
+            [symbol, window_start],
+        )
+        if stored.empty:
+            return
+        expected = int(stored["n"].iloc[0] or 0)
+        min_date = stored["min_date"].iloc[0]
+        if expected <= 0 or min_date is None or pd.isna(min_date):
             return  # no baseline yet
-
-        cutoff = last_completed_session()
-        if cutoff is None:
-            return
-        # The request window floors how far back a response can legitimately go,
-        # so expect sessions from whichever is later: it, or the stored first date.
-        expected_start = max(pd.Timestamp(min_date), self._history_start())
-        expected = session_count(expected_start, cutoff)
-        if expected <= 0:
-            return
 
         actual = len(rows)
         coverage = actual / expected
-        if coverage < settings.OHLCV_VALIDITY_MIN_COVERAGE_PCT:
-            self._flagged.append({"symbol": symbol, "actual": actual, "expected": expected})
-            self._pending_flag = {"actual": actual, "expected": expected}
-            self.log.debug(
-                "‖ %s coverage %.0f%% (%d/%d expected sessions since %s) — possible truncation",
-                symbol, coverage * 100, actual, expected, expected_start.date(),
-            )
+        if coverage >= settings.OHLCV_VALIDITY_MIN_COVERAGE_PCT:
+            return
+
+        if expected < settings.OHLCV_VALIDITY_MIN_BASELINE_BARS:
+            reason = fetch_status.COVERAGE_THIN
+        elif first_trade is not None and first_trade > str(min_date)[:10]:
+            reason = fetch_status.COVERAGE_SOURCE_RESET
+        else:
+            reason = fetch_status.COVERAGE_TRUNCATED
+        self._flagged.append(
+            {"symbol": symbol, "actual": actual, "expected": expected, "reason": reason}
+        )
+        self._pending_flag = {
+            "actual": actual,
+            "expected": expected,
+            "reason": reason,
+            "first_trade": first_trade,
+        }
+        self.log.debug(
+            "‖ %s coverage %.0f%% (%d returned vs %d stored since %s) — %s"
+            " (yahoo first trade %s)",
+            symbol, coverage * 100, actual, expected, window_start, reason,
+            first_trade or "unknown",
+        )
 
     def run(
         self, symbols_df: pd.DataFrame, status_db: Database, respect_lock: bool = True
@@ -342,13 +412,22 @@ class YFinanceOHLCV(BaseFetcher):
         finally:
             self._val_db.close()
         if self._flagged:
+            by_reason: dict[str, list[dict]] = {}
+            for f in self._flagged:
+                by_reason.setdefault(f["reason"], []).append(f)
+            counts = ", ".join(
+                f"{reason}={len(items)}" for reason, items in sorted(by_reason.items())
+            )
+            retryable = by_reason.get(fetch_status.COVERAGE_TRUNCATED, [])
             sample = ", ".join(
-                f"{f['symbol']} ({f['actual']}/{f['expected']})" for f in self._flagged[:20]
+                f"{f['symbol']} ({f['actual']}/{f['expected']})" for f in retryable[:20]
             )
             self.log.warning(
-                "Coverage check — %d symbol(s) returned far fewer sessions than expected "
-                "(possible Yahoo truncation, see dev_docs/Yfinance_History_Truncation_Issue.md): %s%s",
-                len(self._flagged), sample, ", ..." if len(self._flagged) > 20 else "",
+                "Coverage check — %d symbol(s) returned far fewer bars than they have "
+                "stored; kept via upsert rather than replaced (%s). Only 'truncated' is "
+                "worth refetching (see dev_docs/Yfinance_History_Truncation_Issue.md)%s",
+                len(self._flagged), counts,
+                f": {sample}{', ...' if len(retryable) > 20 else ''}" if sample else ".",
             )
         return result
 

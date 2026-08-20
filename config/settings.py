@@ -232,15 +232,22 @@ OHLCV_INACTIVE_AFTER_WEEKS: int = 8
 # Fetch-time validity check for the Yahoo silent-truncation bug (see
 # dev_docs/Yfinance_History_Truncation_Issue.md): a fetch can return far fewer
 # rows than a symbol's known trading history without raising an exception.
-# Detected by comparing the returned row count against the expected NYSE
-# session count for the symbol's own previously-stored window (skipped when
-# there's no prior data to compare against — e.g. a symbol's first-ever
-# fetch). Since OHLCV moved to full per-symbol replace (2026-08-15) this also
-# GATES the destructive write: a symbol under the coverage threshold is upserted
-# instead of replaced, so a truncated response keeps the stored history rather
-# than deleting it. The symbol still retries on the normal fetch cadence.
+# Detected by comparing the returned row count against the rows this symbol
+# ALREADY has stored in the same window (skipped when there's no prior data to
+# compare against — e.g. a symbol's first-ever fetch). Since OHLCV moved to full
+# per-symbol replace (2026-08-15) this also GATES the destructive write: a symbol
+# under the coverage threshold is upserted instead of replaced, so a truncated
+# response keeps the stored history rather than deleting it. The symbol still
+# retries on the normal fetch cadence.
 OHLCV_VALIDITY_CHECK_ENABLED: bool = True
-OHLCV_VALIDITY_MIN_COVERAGE_PCT: float = 0.5   # flag if returned/expected sessions < this
+OHLCV_VALIDITY_MIN_COVERAGE_PCT: float = 0.5   # flag if returned/stored bars < this
+# Below this many stored bars the ratio above carries no signal, so the flag is
+# recorded as "thin" rather than as truncation worth retrying. Money-market
+# funds, rights and warrants sit here: Yahoo only ever serves ONE bar for them,
+# so their stored series is whatever has accumulated one fetch at a time, and
+# "1 returned vs 12 stored" is normal rather than a fault. The write gate still
+# applies — that upsert fallback is exactly what lets those bars accumulate.
+OHLCV_VALIDITY_MIN_BASELINE_BARS: int = 30
 
 # Default batch size for batched API fetches (per-API overrides below).
 DEFAULT_BATCH_SIZE: int = 100
