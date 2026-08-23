@@ -1,13 +1,25 @@
 {
   "version": 1,
-  "saved_at": "2026-08-13T23:57:51+00:00",
+  "saved_at": "2026-08-23T16:50:23+00:00",
   "selected_types": [
     "bank",
     "insurance"
   ],
-  "comment": "**What it does**\nQuality compounders among banks and insurers, judged by THEIR rules rather than the ones that don't apply to financials.\n- **Your choices:** ROE 12%+ without extreme leverage doing the work, book value growing 7%+, reasonable price-to-book, above the 200-day line, decent RS Rank, $1B+.\n- Book-value growth is the right compounding measure here \u2014 retained earnings compound into book value, which is how financials actually grow.\n- 'Reasonable OR below peers' is a real either/or: P/B at or under 2.5, or below its industry median. Negative-book-value names are excluded from the peer test rather than appearing as a deep discount.\n\n**How to tweak**\n- Widen it: drop `roe` from 12 to 10, or book-value growth from 7% to 5%.\n- Cheaper only: drop the `pb` ceiling from 2.5 to 1.5.\n- The bank+insurance universe is small (~773 rows), so counts stay modest.\n\n**How to sort for best picks**\n- Sort by `quality_score`, tiebreak `momentum_score`.\n- Avoid sorting by `value_score` (P/B is already in the filter) and `income_score` (dividends are out of scope for this screen).\n\n_Built 2026-08-13 \u00b7 65 matches at build time._",
+  "comment": "**What it does**\nQuality compounders among **banks and insurers** - the group `quality_compounders` excludes on purpose, judged by THEIR rules instead of ordinary-company rules.\n\n**Why a separate screen**: margins, ROIC, current ratio and debt/EBITDA are meaningless for a bank. Debt is their raw material, not a risk to minimise. So this screen leans on ROE, book value and price-to-book.\n\n- **Quality, their way** - ROE 12%+.\n- **Not just leverage** - equity multiplier under 15. Financials are structurally leveraged (the median here is about 8.9x), so this only cuts the true outliers - the ones whose high ROE is borrowed rather than earned.\n- **Compounding, their way** - book value growing 7%+ a year, because retained earnings compounding into book value IS how a financial compounds. Forward EPS growth is the fallback when book-value history is thin.\n- **Not overpriced** - P/B at or below 2.0, OR below its industry median.\n- **Proven** - above the 200-day line, RS Rank 50+.\n\n**The two numbers you left open**: 'reasonable' P/B and 'decent' RS Rank were mine to pick. **P/B 2.0 and RS 50** give **41 names**. P/B is the sensitive one - at 1.5 the list drops to 21, at 2.5 it rises to 58.\n\n**How to tweak**\n- **P/B is your main dial** - it does the heaviest cutting (117 down to 36 at 1.5).\n- **Want deep value?** Set `pb <= 1.0` for banks trading below book, but check WHY each one is there.\n- **Want higher quality?** Raise `roe` to 15.\n- **Want the most conservative balance sheets?** Tighten `equity_multiplier` to 10.\n- **Note**: `book_value_cagr_3y` is the metric that matters most here. If you loosen one thing, do not loosen that one.\n\n**How to sort for best picks**\n- **Sort by `quality_score`** - the thesis. For financials it leans on ROE and ROA, which is the right axis.\n- **Tiebreak on `momentum_score`** - confirmation the market agrees.\n- **Worth a look**: sort by `book_value_cagr_3y` descending for the purest reading of financial compounding.\n- **Avoid `value_score`** - it leans on sales and cash-flow multiples that are hidden for financials, so it has less to work with here than it looks.",
   "ai_instructions": "Find quality compounders among banks and insurers \u2014 the group my\nquality_compounders screen excludes on purpose, judged by THEIR rules: return on\nequity and growing book value, not margins and current ratios.\n- **Goal**: long-term growth in financials. **Kinds**: banks and insurance only.\n- **Quality, their way**: ROE 12%+ (without crazy leverage doing the work).\n- **Compounding, their way**: book value growing ~7%+ a year (earnings retained\n  into book is how financials compound); forward earnings growth as a fallback.\n- **Not overpriced**: price-to-book reasonable or below industry peers.\n- **Proven**: above the 200-day line, decent RS Rank.\n- **Dividends**: ignore for this screen. **Size**: $1B and bigger. **Risk**: moderate.\n- **Results**: ~20-150 names. **Sorting**: quality first, tiebreak momentum.",
   "blocks": [
+    {
+      "enabled": true,
+      "param": "market_cap",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 1000000000,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
     {
       "enabled": true,
       "param": "roe",
@@ -17,33 +29,8 @@
       "vmode": "V",
       "value": 12,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
-    },
-    {
-      "enabled": true,
-      "param": "book_value",
-      "window": "cagr_3y",
-      "compare": "value",
-      "op": ">=",
-      "vmode": "V",
-      "value": 7,
-      "vmode2": "V",
-      "value2": null,
-      "or_children": [
-        {
-          "enabled": true,
-          "param": "forward_eps_growth",
-          "window": null,
-          "compare": "value",
-          "op": ">=",
-          "vmode": "V",
-          "value": 7,
-          "vmode2": "V",
-          "value2": null,
-          "or_children": []
-        }
-      ]
     },
     {
       "enabled": true,
@@ -54,8 +41,46 @@
       "vmode": "V",
       "value": 15,
       "vmode2": "V",
-      "value2": null,
-      "or_children": []
+      "value2": "",
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "equity_multiplier",
+          "window": null,
+          "compare": "value",
+          "op": "is null",
+          "vmode": "V",
+          "value": "",
+          "vmode2": "V",
+          "value2": "",
+          "or_children": []
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "param": "book_value",
+      "window": "cagr_3y",
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 7,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "forward_eps_growth",
+          "window": null,
+          "compare": "value",
+          "op": ">=",
+          "vmode": "V",
+          "value": 7,
+          "vmode2": "V",
+          "value2": "",
+          "or_children": []
+        }
+      ]
     },
     {
       "enabled": true,
@@ -64,9 +89,9 @@
       "compare": "value",
       "op": "<=",
       "vmode": "V",
-      "value": 2.5,
+      "value": 2.0,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": [
         {
           "enabled": true,
@@ -77,7 +102,7 @@
           "vmode": "V",
           "value": 0,
           "vmode2": "V",
-          "value2": null,
+          "value2": "",
           "or_children": []
         }
       ]
@@ -91,7 +116,7 @@
       "vmode": "V",
       "value": 0,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
     },
     {
@@ -103,19 +128,19 @@
       "vmode": "V",
       "value": 50,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
     },
     {
       "enabled": true,
-      "param": "market_cap",
+      "param": "atr_pct",
       "window": null,
       "compare": "value",
-      "op": ">=",
+      "op": "<=",
       "vmode": "V",
-      "value": 1000000000,
+      "value": 5.5,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
     }
   ]

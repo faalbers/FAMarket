@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "saved_at": "2026-08-13T22:49:57+00:00",
+  "saved_at": "2026-08-23T16:37:23+00:00",
   "selected_types": [
     "standard"
   ],
-  "comment": "**What it does**\nCompanies that could become dominant \u2014 explosive, still-accelerating revenue, margins ahead of their industry, and a market starting to notice.\n- **Your choices:** $1B-$80B, 20%+ revenue growth AND faster than its own 3-year pace, pre-profit is fine, volatility accepted, broad list.\n- Because pre-profit names are welcome, the margin test carries an `is null` fallback \u2014 a company is never dropped just for lacking margin data.\n\n**How to tweak**\n- Fewer, faster names: raise revenue growth from 20% to 30%.\n- Earlier entries: drop `rs_rank` from 60 to 40 (before the market fully notices).\n- Smaller hunting ground: lower the `market_cap` ceiling from $80B to $20B.\n\n**How to sort for best picks**\n- Sort by `growth_score`, tiebreak `momentum_score` (market recognition).\n- Avoid sorting by `overall_score` / `quality_score` / `value_score` \u2014 all three reward mature, cheap, already-profitable names and bury exactly the early-stage growers this screen exists to find.\n\n_Built 2026-08-13 \u00b7 135 matches at build time._",
+  "comment": "**What it does**\nHunts for the **next dominant player** in any sector - the early-NVDA shape: growing explosively, speeding UP, and beating its industry on unit economics.\n\n- **Explosive** - revenue 20%+ a year, or the analyst forecast says 20%+.\n- **Accelerating** - `revenue_accel > 0` means the latest quarter is running FASTER than its own 3-year pace. This block is what separates a dominator-in-waiting from a merely fast grower.\n- **Winning its niche** - gross margin above its industry median, falling back to operating margin.\n- **Market noticing** - RS Rank 60+, plus a 100k volume floor so you can trade it.\n- **Pre-profit is fine.** If a margin number is blank the company still passes - never dropped for missing data.\n\n**Your choices baked in**: $1B-$80B (real, but room to 10x) - volatility accepted - dividends ignored - normal stocks only.\n\n**How to tweak**\n- **This list is naturally around 100.** Loosening `rs_rank` from 60 to 40 adds only about 20 names. The 20%+ accelerating-growth test is what binds, not the momentum gate - so tweak growth, not RS, to change the size.\n- **Want only the hyper-growers?** Raise the revenue blocks to 30%+.\n- **Want earlier entries**, before the market notices? Drop `rs_rank` to 40.\n- **Want a smaller-cap tilt?** Lower the cap ceiling from $80B to $20B.\n\n**How to sort for best picks**\n- **Sort by `growth_score`** - the thesis.\n- **Tiebreak on `momentum_score`** - market recognition, the second half of the thesis.\n- **Avoid `overall_score`, `quality_score` and `value_score`** - all three reward mature, cheap, already-profitable companies. They would push the early-stage names this screen exists to find straight to the bottom.",
   "ai_instructions": "I want to find companies that could become the next dominant player in their industry, like NVDA was early in its growth story, but not limited to tech \u2014 any sector. These are companies with explosive revenue growth that is accelerating, a strong competitive position versus their peers, and a market that is already starting to recognise them. They don't need to be profitable yet but their unit economics should be improving. They should be big enough to be real but small enough to still have massive room to grow.\n\nUpdate (2026-07-28) \u2014 checklist answers added after a brief review; where this\ndiffers from the text above, this wins:\n- **Size**: $1B-$80B market cap (big enough to be real, small enough to 10x).\n- **\"Explosive growth\"** = revenue growing 20%+ a year (history or analyst\n  forecast) AND faster than its own 3-year pace.\n- **Competitive position** = margins above its industry (gross or operating).\n- **Not yet profitable is fine** \u2014 never drop a company only because a margin or\n  history number has no data yet.\n- **Risk**: volatility is expected and accepted \u2014 no calm-stock requirement.\n- **Results**: a broad discovery list is fine (~100-300 names).\n- **Dividends**: ignore. **Kinds**: normal stocks only.\n- **Sorting**: growth first, tiebreak momentum; avoid overall / quality / value\n  scores (they bury early-stage names).",
   "blocks": [
     {
@@ -28,7 +28,7 @@
       "vmode": "V",
       "value": 20,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": [
         {
           "enabled": true,
@@ -39,7 +39,7 @@
           "vmode": "V",
           "value": 20,
           "vmode2": "V",
-          "value2": null,
+          "value2": "",
           "or_children": []
         }
       ]
@@ -53,21 +53,8 @@
       "vmode": "V",
       "value": 0,
       "vmode2": "V",
-      "value2": null,
-      "or_children": [
-        {
-          "enabled": true,
-          "param": "revenue",
-          "window": "yoy_q",
-          "compare": "value",
-          "op": ">=",
-          "vmode": "V",
-          "value": 30,
-          "vmode2": "V",
-          "value2": null,
-          "or_children": []
-        }
-      ]
+      "value2": "",
+      "or_children": []
     },
     {
       "enabled": true,
@@ -78,7 +65,7 @@
       "vmode": "V",
       "value": 0,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": [
         {
           "enabled": true,
@@ -89,19 +76,19 @@
           "vmode": "V",
           "value": 0,
           "vmode2": "V",
-          "value2": null,
+          "value2": "",
           "or_children": []
         },
         {
           "enabled": true,
           "param": "gross_margin",
           "window": null,
-          "compare": "vs_industry",
+          "compare": "value",
           "op": "is null",
           "vmode": "V",
-          "value": null,
+          "value": "",
           "vmode2": "V",
-          "value2": null,
+          "value2": "",
           "or_children": []
         }
       ]
@@ -115,7 +102,7 @@
       "vmode": "V",
       "value": 60,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
     },
     {
@@ -127,7 +114,7 @@
       "vmode": "V",
       "value": 100000,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
     }
   ]

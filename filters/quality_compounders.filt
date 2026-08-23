@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "saved_at": "2026-08-13T22:49:57+00:00",
+  "saved_at": "2026-08-23T16:37:23+00:00",
   "selected_types": [
     "standard"
   ],
-  "comment": "**What it does**\nLong-term (10-year) quality holds: already profitable, growing steadily, and with the market already agreeing (RS Rank 70+, above the 200-day line).\n- **Your choices:** no pre-profit names, 8%+ growth is enough (quality over speed), $2B+, normal stocks only, moderate risk, dividends ignored.\n- ROIC 10%+ is the core quality test \u2014 it's the cleanest single measure of a business that creates value.\n- 'Prioritise strong industries' is handled by SORTING, not filtering, exactly as you asked.\n\n**How to tweak**\n- Widen it: drop `rs_rank` to 60, or the growth bars from 8% to 5%.\n- Tighten it: raise `roic` to 15 (elite capital efficiency) or `rs_rank` to 80.\n- For calmer names, drop `atr_pct` from 6.0 to 4.0.\n\n**How to sort for best picks**\n- Sort by `quality_score`, tiebreak `momentum_score`.\n- Avoid sorting by `value_score` (quality compounders are rarely cheap \u2014 sorting on value buries the best names) and `income_score` (dividends are explicitly out of scope here).\n\n_Built 2026-08-13 \u00b7 73 matches at build time._",
+  "comment": "**What it does**\nFinds **buy-and-hold-for-a-decade** businesses: already profitable, compounding steadily, and with a balance sheet that will not spring a leak.\n\n- **Proven in price** - RS Rank 70+ and trading above its 200-day average.\n- **Compounding** - revenue AND earnings growing 8%+ a year. Each test also accepts the **analyst forecast** as a fallback, so a company mid-turnaround is not dropped for one messy trailing number.\n- **Quality** - ROIC 10%+ (above the rough cost of capital), positive net margin.\n- **No troubling financials** - current ratio 1.1+, debt/EBITDA under 4, Altman Z in the safe zone.\n- Debt-free companies **pass** the debt test, and asset-light software **passes** Altman. Those metrics are blank for such names, and blank would otherwise fail.\n\n**Your choices baked in**: profitable only - $2B+ - daily moves up to 6% - dividends ignored - normal stocks only (banks and insurers would strip out ROIC, margins and liquidity checks; that is what `financial_compounders` is for).\n\n**How to tweak**\n- **Too few names?** Drop `roic` to 8, or `rs_rank` to 60. Those two cut the most.\n- **Want faster growers?** Raise both 8% growth blocks to 12-15%.\n- **Want calmer names?** Tighten `atr_pct` from 6 to 4.\n- **Want a cheaper entry?** Add `margin_of_safety > 0`, but expect a much shorter list. Quality rarely looks cheap.\n\n**How to sort for best picks**\n- **Sort by `quality_score`** - that is this screen's whole thesis.\n- **Tiebreak on `momentum_score`** - this is your \"prioritise strong industries\" step. Momentum surfaces the sectors the market is rewarding right now.\n- **Avoid `value_score`** - quality compounders are almost never cheap, so it buries the best names.\n- **Avoid `income_score`** - you said dividends are irrelevant here.",
   "ai_instructions": "I want to find stocks to invest in long term, like for 10 years. These stocks need to be proven as constantly growing in price and the need to have a healthy growing business. I need to make sure they do not have troubling financials. I am just focused on them as growth and not income.\nThey also can not be too risky or volatile. But a bit of risk is OK. Also add a way to prioratize industries that have been doing really well and look like they have good growth potential.\n\nUpdate (2026-07-28) \u2014 checklist answers added after a brief review; where this\ndiffers from the text above, this wins:\n- **Proven price growth** = strong recent strength (RS Rank 70+) AND trading above\n  the 200-day average.\n- **Profitability**: must already be profitable and healthy \u2014 no pre-profit names.\n- **Growth pace**: steady 8%+ a year (revenue and EPS, history or forecast) is\n  enough \u2014 this screen is quality over speed.\n- **Size**: $2B market cap and bigger. **Kinds**: normal stocks only \u2014 on purpose:\n  mixing in banks/insurance would strip the quality metrics (ROIC, margins,\n  liquidity checks) down to the few both share. Financial compounders deserve\n  their own separate filter if ever wanted.\n- **Risk**: moderate \u2014 average daily moves up to ~6% are OK.\n- **Results**: a shortlist (roughly 20-100 names).\n- **Dividends**: ignore completely.\n- **\"Prioritize strong industries\" means SORTING, not filtering**: sort by quality\n  first, tiebreak on momentum (momentum surfaces the hot industries).",
   "blocks": [
     {
@@ -16,7 +16,7 @@
       "vmode": "V",
       "value": 2000000000,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
     },
     {
@@ -28,7 +28,7 @@
       "vmode": "V",
       "value": 70,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
     },
     {
@@ -40,19 +40,19 @@
       "vmode": "V",
       "value": 0,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
     },
     {
       "enabled": true,
-      "param": "roic",
+      "param": "atr_pct",
       "window": null,
       "compare": "value",
-      "op": ">=",
+      "op": "<=",
       "vmode": "V",
-      "value": 10,
+      "value": 6.0,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
     },
     {
@@ -64,7 +64,19 @@
       "vmode": "V",
       "value": 0,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "roic",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 10,
+      "vmode2": "V",
+      "value2": "",
       "or_children": []
     },
     {
@@ -76,7 +88,7 @@
       "vmode": "V",
       "value": 8,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": [
         {
           "enabled": true,
@@ -87,7 +99,7 @@
           "vmode": "V",
           "value": 8,
           "vmode2": "V",
-          "value2": null,
+          "value2": "",
           "or_children": []
         }
       ]
@@ -101,7 +113,7 @@
       "vmode": "V",
       "value": 8,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": [
         {
           "enabled": true,
@@ -112,57 +124,7 @@
           "vmode": "V",
           "value": 8,
           "vmode2": "V",
-          "value2": null,
-          "or_children": []
-        }
-      ]
-    },
-    {
-      "enabled": true,
-      "param": "debt_to_ebitda",
-      "window": null,
-      "compare": "value",
-      "op": "<=",
-      "vmode": "V",
-      "value": 4,
-      "vmode2": "V",
-      "value2": null,
-      "or_children": [
-        {
-          "enabled": true,
-          "param": "debt_to_ebitda",
-          "window": null,
-          "compare": "value",
-          "op": "is null",
-          "vmode": "V",
-          "value": null,
-          "vmode2": "V",
-          "value2": null,
-          "or_children": []
-        }
-      ]
-    },
-    {
-      "enabled": true,
-      "param": "interest_coverage",
-      "window": null,
-      "compare": "value",
-      "op": ">=",
-      "vmode": "V",
-      "value": 3,
-      "vmode2": "V",
-      "value2": null,
-      "or_children": [
-        {
-          "enabled": true,
-          "param": "interest_coverage",
-          "window": null,
-          "compare": "value",
-          "op": "is null",
-          "vmode": "V",
-          "value": null,
-          "vmode2": "V",
-          "value2": null,
+          "value2": "",
           "or_children": []
         }
       ]
@@ -176,8 +138,33 @@
       "vmode": "V",
       "value": 1.1,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "debt_to_ebitda",
+      "window": null,
+      "compare": "value",
+      "op": "<=",
+      "vmode": "V",
+      "value": 4,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "debt_to_ebitda",
+          "window": null,
+          "compare": "value",
+          "op": "is null",
+          "vmode": "V",
+          "value": "",
+          "vmode2": "V",
+          "value2": "",
+          "or_children": []
+        }
+      ]
     },
     {
       "enabled": true,
@@ -186,9 +173,9 @@
       "compare": "value",
       "op": ">=",
       "vmode": "V",
-      "value": 1.8,
+      "value": 3,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": [
         {
           "enabled": true,
@@ -197,24 +184,12 @@
           "compare": "value",
           "op": "is null",
           "vmode": "V",
-          "value": null,
+          "value": "",
           "vmode2": "V",
-          "value2": null,
+          "value2": "",
           "or_children": []
         }
       ]
-    },
-    {
-      "enabled": true,
-      "param": "atr_pct",
-      "window": null,
-      "compare": "value",
-      "op": "<=",
-      "vmode": "V",
-      "value": 6.0,
-      "vmode2": "V",
-      "value2": null,
-      "or_children": []
     }
   ]
 }

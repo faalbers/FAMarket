@@ -1,27 +1,15 @@
 {
   "version": 1,
-  "saved_at": "2026-08-13T22:49:57+00:00",
+  "saved_at": "2026-08-23T16:49:23+00:00",
   "selected_types": [
     "standard",
     "bank",
     "insurance",
     "reit"
   ],
-  "comment": "**What it does**\nFollow the smart money \u2014 companies where insiders are net BUYING with their own cash.\n- **Your choices:** $300M-$10B (where the signal is strongest), some minimum price strength so you're not catching a falling knife, banks included, volatility and pre-profit both fine.\n- Buying is the informative side; selling has many innocent motives. The bar is set at a meaningful net-buy stake rather than any purchase at all, which keeps the list to a usable size.\n\n**How to tweak**\n- Widen it: drop `insider_net_buy_pct` from 10 to 1 (any net buying), or `rs_rank` from 55 to 40.\n- Stronger conviction only: raise `insider_net_buy_pct` to 25.\n- Smaller caps, where the research says the signal is strongest: lower the `market_cap` ceiling from $10B to $2B.\n\n**How to sort for best picks**\n- Sort by `growth_score`, tiebreak `momentum_score`.\n- Avoid sorting by `overall_score` (dilutes the insider signal into unrelated factors) and `value_score`.\n\n_Built 2026-08-13 \u00b7 298 matches at build time._",
+  "comment": "**What it does**\nFollows the **smart money** - companies where insiders are buying with their own cash. Buying is the informative side; selling has a dozen innocent explanations.\n\n- **Real conviction** - net insider buying above 5% of insider-held shares over the last ~6 months, not a token purchase.\n- **Where it works** - $300M to $10B. The research says the effect is strongest in small and mid caps, and in banks; it is weakest in tech.\n- **Not a falling knife** - RS Rank 60+, so you are not catching a collapse that insiders are averaging into.\n- **Deliberately few blocks.** This is a single-signal screen; piling on fundamentals would dilute the very thing it is testing.\n\n**One choice you made**: 'any net buying, RS 40' returned **730** names. You chose to strengthen **both** sides - 5%+ buying AND RS 60+ - which gives **311**.\n\n**Your choices baked in**: pre-profit OK - volatile OK - dividends ignored - normal stocks, banks, insurers and REITs (banks are where this signal is strongest).\n\n**How to tweak**\n- **Two independent dials.** Signal: `insider_net_buy_pct` 2% gives ~393, 5% ~311, 10% ~224. Guard: `rs_rank` 40 gives ~433, 60 ~311, 70 fewer still.\n- **Want the research-standard version?** Set `insider_net_buy_pct > 0` and lower `rs_rank` - that is the textbook use, at the cost of a much longer list.\n- **Want the strongest documented pocket?** Restrict `sector` to Financials, where the effect is best evidenced.\n\n**How to sort for best picks**\n- **Sort by `growth_score`** - among companies insiders are buying, favour the ones with a business behind the vote.\n- **Tiebreak on `momentum_score`** - confirmation the market is starting to agree.\n- **Worth a look**: sort by `insider_net_buy_pct` descending for the loudest votes of confidence.\n- **Avoid `income_score`** - irrelevant to this thesis.",
   "ai_instructions": "Find companies where the insiders are putting their own money in \u2014 net insider\nBUYING (the research says buying is the informative side, and the signal is\nstrongest in smaller companies).\n- **Goal**: follow the smart money. **Dividends**: ignore.\n- **The signal**: insiders net buying over the last ~6 months.\n- **Where it works**: small and mid caps, roughly $300M-$10B.\n- **Not a falling knife**: some minimum price strength so I'm not catching\n  collapses insiders are averaging into.\n- **Kinds**: normal stocks, banks, insurance and REITs (the signal is actually\n  strongest in banks). **Risk**: volatile OK. Pre-profit OK.\n- **Results**: ~50-300 names. **Sorting**: growth first, tiebreak momentum.",
   "blocks": [
-    {
-      "enabled": true,
-      "param": "insider_net_buy_pct",
-      "window": null,
-      "compare": "value",
-      "op": ">=",
-      "vmode": "V",
-      "value": 10,
-      "vmode2": "V",
-      "value2": null,
-      "or_children": []
-    },
     {
       "enabled": true,
       "param": "market_cap",
@@ -36,26 +24,26 @@
     },
     {
       "enabled": true,
+      "param": "insider_net_buy_pct",
+      "window": null,
+      "compare": "value",
+      "op": ">",
+      "vmode": "V",
+      "value": 5,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
       "param": "rs_rank",
       "window": null,
       "compare": "value",
       "op": ">=",
       "vmode": "V",
-      "value": 55,
+      "value": 60,
       "vmode2": "V",
-      "value2": null,
-      "or_children": []
-    },
-    {
-      "enabled": true,
-      "param": "vol_20d_avg",
-      "window": null,
-      "compare": "value",
-      "op": ">=",
-      "vmode": "V",
-      "value": 50000,
-      "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
     }
   ]

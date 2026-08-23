@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "saved_at": "2026-08-13T23:57:51+00:00",
+  "saved_at": "2026-08-23T16:43:59+00:00",
   "selected_types": [
     "standard"
   ],
-  "comment": "**What it does**\nThe O'Shaughnessy small-cap value-and-momentum combo: cheap on sales AND already winning.\n- **Your choices:** $300M-$2B, cheap on sales versus peers, RS Rank 70+, revenue growing, tradeable volume, volatility expected.\n- Sales-based on purpose \u2014 small companies often aren't profitable yet, and that is fine here.\n- **Note:** P/S has no peer-comparison column in the database, so 'cheaper than its industry' is expressed as the peer-ranked P/S Score (70+ = cheaper than ~70% of its peer group). Same idea, correctly wired.\n\n**How to tweak**\n- Widen it: drop the P/S Score from 70 to 50 (merely mid-priced rather than cheap).\n- Tighten it: raise `rs_rank` from 70 to 85 for only the strongest movers.\n- Go smaller: lower the `market_cap` band to $100M-$1B \u2014 expect thinner liquidity.\n\n**How to sort for best picks**\n- Sort by `momentum_score`, tiebreak `growth_score`.\n- Avoid sorting by `value_score` (the P/S test already handles cheapness) and `quality_score` (small caps often aren't profitable yet \u2014 that's accepted here).\n\n_Built 2026-08-13 \u00b7 134 matches at build time._",
+  "comment": "**What it does**\nThe **O'Shaughnessy small-cap combo** - cheap on sales AND already winning. One of the best long-run track records among the classic screens.\n\n- **Small** - $300M to $2B.\n- **Cheap on sales** - price-to-sales below its industry median. Sales-based on purpose: small companies often are not profitable yet, and that is fine here.\n- **Already winning** - RS Rank 70+ and revenue growing (3-year, falling back to 1-year).\n- **Tradeable** - 100k average daily volume, so you can actually get in and out of a small cap.\n\n**Your choices baked in**: volatility expected - dividends ignored - normal stocks only.\n\n**How to tweak**\n- **Want a tighter shortlist?** Raise `rs_rank` to 80 - that is the block doing the heavy cutting (535 to 176).\n- **Want deeper value?** P/S vs industry is a relative test. Add a raw `ps < 1` block for absolute cheapness too.\n- **Want micro caps?** Lower the floor to $100M, but tighten `vol_20d_avg` or you will surface names you cannot trade.\n- **Want profitable names only?** Add `net_margin > 0` - but that removes the point of using sales rather than earnings.\n\n**How to sort for best picks**\n- **Sort by `momentum_score`** - the 'already winning' half of the thesis.\n- **Tiebreak on `growth_score`** - revenue growth behind the price move.\n- **Avoid `quality_score`** - small caps score poorly on quality by nature, so it would just rank them by size and maturity.\n- **Careful with `value_score`** - it leans on earnings multiples that many of these names do not have.",
   "ai_instructions": "Find small companies that are cheap on sales AND already winning \u2014 the\nO'Shaughnessy small-cap growth & value combo (the best long-run track record of\nthe classic screens).\n- **Goal**: growth + value combo. **Dividends**: ignore.\n- **Size**: small caps, roughly $300M-$2B.\n- **Cheap on sales**: price-to-sales below its industry (sales-based on purpose \u2014\n  small companies often aren't profitable yet, and that is FINE here).\n- **Already winning**: strong recent price strength (RS Rank 70+), revenue growing.\n- **Tradeable**: enough daily volume to get in and out.\n- **Risk**: volatile is expected. **Kinds**: normal stocks only.\n- **Results**: ~50-200 names. **Sorting**: momentum first, tiebreak growth.",
   "blocks": [
     {
@@ -28,7 +28,7 @@
       "vmode": "V",
       "value": 0,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
     },
     {
@@ -40,7 +40,7 @@
       "vmode": "V",
       "value": 70,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
     },
     {
@@ -52,30 +52,18 @@
       "vmode": "V",
       "value": 0,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": [
         {
           "enabled": true,
-          "param": "forward_rev_growth",
-          "window": null,
-          "compare": "value",
-          "op": ">",
-          "vmode": "V",
-          "value": 0,
-          "vmode2": "V",
-          "value2": null,
-          "or_children": []
-        },
-        {
-          "enabled": true,
           "param": "revenue",
-          "window": "yoy_q",
+          "window": "cagr_1y",
           "compare": "value",
           "op": ">",
           "vmode": "V",
           "value": 0,
           "vmode2": "V",
-          "value2": null,
+          "value2": "",
           "or_children": []
         }
       ]
@@ -89,7 +77,7 @@
       "vmode": "V",
       "value": 100000,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
     }
   ]

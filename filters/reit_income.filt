@@ -1,12 +1,24 @@
 {
   "version": 1,
-  "saved_at": "2026-08-13T22:49:57+00:00",
+  "saved_at": "2026-08-23T16:37:23+00:00",
   "selected_types": [
     "reit"
   ],
-  "comment": "**What it does**\nSolid income REITs \u2014 a fat but sustainable payout, filling the type the other screens exclude.\n- **Your choices:** 4-10% yield (REITs are legally high payers), revenue not shrinking, leverage within REIT norms, $1B+, moderate risk.\n- Debt tests carry `is null` fallbacks so a REIT is never dropped merely for missing a debt figure, exactly as the brief asked.\n\n**How to tweak**\n- Widen it: lower the `market_cap` floor from $1B, or the yield band's bottom from 4%.\n- Safer only: raise `interest_coverage` from 1.5 to 2.5.\n- The REIT universe is small (~291 rows), so counts here will always be modest.\n\n**How to sort for best picks**\n- Sort by `income_score`, tiebreak `quality_score`.\n- Avoid sorting by `growth_score` (REITs are income vehicles) and raw `div_yield_ttm` for the same yield-trap reason as above.\n\n_Built 2026-08-13 \u00b7 31 matches at build time._",
+  "comment": "**What it does**\nSolid **income REITs** - a fat payout that is actually sustainable. This screen covers the type your other filters deliberately exclude.\n\n- **REIT-appropriate yield** - 4-10%. REITs must legally pay out most of their income, so 4% here is normal rather than generous. Above ~10% usually signals trouble.\n- **Not shrinking** - revenue flat or growing.\n- **Debt in check** - debt/equity under 2.5, interest comfortably covered. These are REIT norms, not ordinary-company norms; REITs are leveraged by design.\n- **Missing debt data never disqualifies a REIT** - both debt tests pass when the number is blank, exactly as you asked.\n\n**Your choices baked in**: $1B+ - moderate volatility - income first.\n\n**How to tweak**\n- **This list is small because the pond is small.** There are only about 292 REITs in the database and about 152 above $1B. Loosening the debt tests moves the count by a handful, not a lot.\n- **Want more names?** Lower `market_cap` to $500M. That is the biggest single lever here.\n- **Want the safest payers?** Raise `interest_coverage` to 3.\n- **Note**: REIT payout ratios look alarming next to ordinary companies (80-95% is normal). The scoring rules already know this and grade REITs on their own band.\n\n**How to sort for best picks**\n- **Sort by `income_score`** - the thesis. It already applies the REIT-specific yield and payout bands.\n- **Tiebreak on `quality_score`** to separate durable landlords from the merely high-yielding.\n- **Avoid `growth_score`** - REITs are not growth vehicles, so it ranks them on the wrong axis.\n- **Worth a look**: sort by `div_coverage` to see which payouts have the most cash headroom.",
   "ai_instructions": "Find solid income REITs \u2014 real-estate trusts with a fat but sustainable payout.\nThis fills the type my other screens exclude.\n- **Goal**: income. **Kinds**: REITs only. **Dividends**: required.\n- **Yield**: roughly 4-10% (REITs are legally high payers; above ~10% smells like\n  trouble).\n- **Still growing**: revenue should not be shrinking.\n- **Debt in check**: leverage within normal REIT norms, interest comfortably paid;\n  never drop a REIT just because a debt metric has no data.\n- **Size**: $1B and bigger. **Risk**: moderate. **Results**: ~30-150 names.\n- **Sorting**: income first, tiebreak quality.",
   "blocks": [
+    {
+      "enabled": true,
+      "param": "market_cap",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 1000000000,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
     {
       "enabled": true,
       "param": "div_yield_ttm",
@@ -28,7 +40,7 @@
       "vmode": "V",
       "value": 0,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": [
         {
           "enabled": true,
@@ -39,7 +51,7 @@
           "vmode": "V",
           "value": 0,
           "vmode2": "V",
-          "value2": null,
+          "value2": "",
           "or_children": []
         }
       ]
@@ -53,7 +65,7 @@
       "vmode": "V",
       "value": 2.5,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": [
         {
           "enabled": true,
@@ -62,9 +74,9 @@
           "compare": "value",
           "op": "is null",
           "vmode": "V",
-          "value": null,
+          "value": "",
           "vmode2": "V",
-          "value2": null,
+          "value2": "",
           "or_children": []
         }
       ]
@@ -76,9 +88,9 @@
       "compare": "value",
       "op": ">=",
       "vmode": "V",
-      "value": 1.5,
+      "value": 2,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": [
         {
           "enabled": true,
@@ -87,24 +99,12 @@
           "compare": "value",
           "op": "is null",
           "vmode": "V",
-          "value": null,
+          "value": "",
           "vmode2": "V",
-          "value2": null,
+          "value2": "",
           "or_children": []
         }
       ]
-    },
-    {
-      "enabled": true,
-      "param": "market_cap",
-      "window": null,
-      "compare": "value",
-      "op": ">=",
-      "vmode": "V",
-      "value": 1000000000,
-      "vmode2": "V",
-      "value2": null,
-      "or_children": []
     },
     {
       "enabled": true,
@@ -113,9 +113,9 @@
       "compare": "value",
       "op": "<=",
       "vmode": "V",
-      "value": 5.5,
+      "value": 5.0,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
     }
   ]

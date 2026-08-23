@@ -1,181 +1,276 @@
-# Filter build report — 2026-08-13
+# Filter build report — 2026-08-23
 
-All **13** briefs in `create_filters.md` were built from scratch (the folder was
-empty, so every filter is a fresh `<name>.filt`, no versioning needed).
+All **13 filters** in `create_filters.md` were rebuilt from scratch (the `filters/`
+folder was empty, so every name was new — no versioning was needed).
 
-Every filter passed `validate_payload` with **zero errors** and was dry-run
-against the live `analysis.db` before saving. Counts below are matches at build
-time.
+Every filter was structurally validated **and** dry-run against `analysis.db`
+(38,374 symbols, 291 columns) before saving. **All 13 pass with zero errors and
+zero warnings.**
 
-**Context that shaped this build:** the valuation engine changed earlier the same
-day (growth now fades to terminal instead of holding a flat cap), so `fair_value`
-and `margin_of_safety` mean something stricter than when most briefs were
-written. Only `undervalued_quality` depends on those columns, and its brief
-already carried a dated Update telling the build to recalibrate — which it did.
+Each `.filt` carries its own writeup in the **Comment** field — what it does, how
+to tweak it, how to sort it. This report adds the reasoning behind the build.
 
 ---
 
-## Results at a glance
+## Summary
 
-| Filter | Matches | Target | Verdict |
-|---|---:|---|---|
-| quality_compounders | 73 | 20–100 | on target |
-| emerging_dominators | 135 | 100–300 | on target |
-| dividend_growers | 47 | 50–200 | just under |
-| reit_income | 31 | 30–150 | on target |
-| defensive_anchors | **15** | 20–100 | short by design |
-| undervalued_quality | **14** | 20–150 | short by design |
-| small_cap_winners | 134 | 50–200 | on target |
-| garp_movers | 210 | 30–150 | slightly over |
-| trend_leaders | 342 | ~50–300 | brief says "whatever the market gives" |
-| estimate_upgrades | 286 | 30–200 | slightly over |
-| insider_conviction | 298 | 50–300 | on target |
-| buyback_compounders | 149 | 30–150 | on target |
-| financial_compounders | 65 | 20–150 | on target |
+| Filter | Types | Blocks | Matches | You asked for |
+|---|---|---:|---:|---|
+| `quality_compounders` | standard | 11 | **76** | ~20-100 ✅ |
+| `emerging_dominators` | standard | 6 | **106** | ~100-300 ✅ |
+| `dividend_growers` | standard, bank, insurance | 8 | **53** | ~50-200 ✅ |
+| `reit_income` | reit | 6 | **30** | ~30-150 ✅ |
+| `defensive_anchors` | standard | 9 | **20** | ~20-100 ✅ |
+| `undervalued_quality` | standard | 10 | **25** | ~20-150 ✅ |
+| `small_cap_winners` | standard | 5 | **113** | ~50-200 ✅ |
+| `garp_movers` | standard, bank, insurance | 8 | **149** | ~30-150 ✅ |
+| `trend_leaders` | standard | 8 | **335** | "whatever the market gives" |
+| `estimate_upgrades` | standard, bank, insurance, reit | 9 | **165** | ~30-200 ✅ |
+| `insider_conviction` | standard, bank, insurance, reit | 3 | **311** | ~50-300 ✅ |
+| `buyback_compounders` | standard | 7 | **127** | ~30-150 ✅ |
+| `financial_compounders` | bank, insurance | 8 | **41** | ~20-150 ✅ |
 
 ---
 
-## Two bugs caught by the dry run
+## Decisions you were asked to make
 
-**1. `ps` and `pb` had no peer-comparison columns — now fixed at the source.**
-Only 11 metrics got `_vs_sector` / `_vs_industry` columns, and P/S and P/B were
-not among them. Blocks written as "P/S below its industry" returned **zero rows**
-— silently, because a missing column makes the engine return all-False.
+Only **three** briefs were ambiguous enough to need you. Everything else was
+already answered by the briefs and their 2026-07-28 / 2026-08-13 Update sections.
 
-Rather than work around it, `ps`, `pb`, `p_fcf` and `ev_revenue` were **added to
-`PEER_COMPARABLE_METRICS`** and the universe re-analysed. Both filters now use
-the real peer comparison their briefs asked for. Banks/insurers/REITs gained
-`pb_vs_industry` on 609/618, 149/155 and 268/291 rows respectively — their core
-valuation multiple, previously peer-blind.
+**garp_movers** — your blocks as written returned 227, above the ~30-150 you
+wanted. Every threshold in that brief was explicit, so one had to give. You chose
+to raise the momentum floor from **RS 60 to RS 70** → **149**. All other numbers
+stayed exactly as briefed.
 
-Fixing it surfaced a **second, larger bug**: peer comparison ignored the
-`positive_only` flag the scoring layer already declares, so **2,266 loss-making
-companies carried a `pe_vs_industry` of −180% at the median** (worst
-−68,000,000%) — reported as a deep discount when a negative P/E means the company
-is losing money, and dragging the peer medians with them. `peers.py` now reads
-that same declaration, so the two layers cannot disagree. All 2,266 now read
-NULL, as do 1,003 negative-book-value rows and 36 negative-revenue rows.
-(`ev_revenue` deliberately keeps its negatives — those are negative *enterprise
-value* on positive revenue, i.e. net cash above market cap, which is genuinely
-cheap.) 21 stored infinities were also converted to NULL.
+**estimate_upgrades** — as literally written ("raised" = any uptick) it returned
+639. You chose to define "raised" as a **meaningful 7%+ upgrade** in both the
+1-month and 3-month windows → **165**. Your "beat 3 of 4 quarters" rule was left
+untouched at 75%.
 
-**2. The knowledge doc was stale.** It predated the valuation work and was
-missing 18 filterable metrics (the whole `fair_value` family, the bear flags,
-`wacc`/`roic_vs_wacc`, `ocf_to_ni`, the `growth_trend` window) and described the
-DCF as using a flat 15% growth cap. It has been refreshed as part of this build.
+**insider_conviction** — "any net buying, RS 40" returned 730. You chose to
+strengthen **both** sides: net buying above **5%** AND **RS 60+** → **311**.
+
+---
+
+## Numbers I chose (the briefs left these open)
+
+Where a brief said "solid liquidity" or "reasonable" without a number, the choice
+was mine. These are the ones worth knowing about, because they are the dials to
+turn first:
+
+- **defensive_anchors** — `current_ratio ≥ 1.2`. At the textbook 1.5 the screen
+  returned only 14 names; at 1.2 it returns 20. Your explicit asks (10+ year
+  streak, $10B+, ATR ≤3, D/E <1, safe Altman, P/E <25) were all left as written.
+- **buyback_compounders** — `fcf_margin ≥ 8`, `roic ≥ 12` for "healthy cash flow
+  and solid returns". At 5/10 the list was 186; at 8/12 it is 127.
+- **financial_compounders** — `pb ≤ 2.0` for "reasonable", `rs_rank ≥ 50` for
+  "decent". P/B is the sensitive one: 1.5 gives 21 names, 2.0 gives 41, 2.5
+  gives 58.
+- **insider_conviction** / **garp_movers** / **estimate_upgrades** — see above,
+  you decided these.
+
+---
+
+## The N/A traps that were handled
+
+**NULL fails every test except "is null".** A missing number is not a zero — it
+silently drops the company. These fallbacks are why the counts above are honest:
+
+- **`eps_cagr` needs a forward-growth fallback.** A company crossing from loss to
+  profit has no computable EPS growth rate. Without the fallback,
+  `quality_compounders` would have quietly deleted every turnaround story.
+  Applied in `quality_compounders`.
+- **`altman_z` is blank for asset-light software** — the formula wants a
+  manufacturer's balance sheet. `is null` fallbacks added in
+  `quality_compounders` and `defensive_anchors`, so tech is judged by the other
+  health blocks rather than dropped.
+- **`debt_to_ebitda` is blank for companies with no debt** — often the healthiest
+  names. `is null` fallbacks in `quality_compounders` and
+  `buyback_compounders`.
+- **REIT debt metrics** — `reit_income` passes a REIT whose debt data is missing,
+  exactly as the brief demanded.
+- **Pre-profit names in `emerging_dominators`** — the margin test falls back to
+  operating margin, then to `is null`, so a young company is never dropped for
+  missing data.
+- **5-year growth windows** — avoided in favour of 3-year with 1-year fallbacks,
+  since 5-year history is thin for recent listings.
 
 ---
 
 ## Per-filter notes
 
-Each filter's own `comment` field carries the full **What it does / How to tweak /
-How to sort** writeup and travels with the file. Summarised here:
+### quality_compounders — 76 matches
 
-### quality_compounders — 73 matches
-Long-term quality holds. ROIC ≥ 10% is the core test; growth bars sit at 8% with
-forward-estimate OR-fallbacks so a loss-to-profit transition can't drop a name.
-Debt and Altman tests carry `is null` fallbacks so debt-free companies aren't
-punished for having no debt data.
-**Brief answers used:** no pre-profit names, 8%+ growth, $2B+, standard only,
-ATR ≤ 6, dividends ignored, "prioritise strong industries" handled by sorting.
-**Sort:** `quality_score`, tiebreak `momentum_score`. Avoid `value_score` —
-compounders rarely look cheap.
+Ten-year buy-and-hold: profitable now, compounding steadily, balance sheet sound.
+RS 70+ and above MA200 for "proven in price"; revenue AND EPS at 8%+ with forward
+fallbacks; ROIC 10%+; current ratio, debt/EBITDA and Altman for "no troubling
+financials".
 
-### emerging_dominators — 135 matches
-Explosive, still-accelerating revenue with margins ahead of industry. The margin
-block has an `is null` fallback because the brief explicitly allows pre-profit
-names.
-**Brief answers used:** $1B–$80B, 20%+ revenue growth AND accelerating, pre-profit
-fine, volatility accepted, broad list.
-**Sort:** `growth_score`, tiebreak `momentum_score`. Avoid overall/quality/value —
-all three bury early-stage names.
+The heaviest cuts were `roic ≥ 10` (397→210) and the revenue growth block
+(210→120). Deliberately **excludes banks and insurers** — mixing them in would
+strip out ROIC, margins and liquidity, which is exactly why
+`financial_compounders` exists separately.
 
-### dividend_growers — 47 matches
-Growing income with safety first. FCF-based `div_coverage` ≥ 2 is used rather than
-trusting the payout ratio alone.
-**Notable:** `div_payout_ratio` 30–60 is the tightest single block — it cut the
-set from 168 to 68 on its own. Widen to 20–70 for a fuller list.
-**Sort:** `income_score`, tiebreak `quality_score`. Never sort by raw yield — that
-puts the riskiest payers on top.
+**Sort by `quality_score`, tiebreak `momentum_score`.** The tiebreak is your
+"prioritise strong industries" step — momentum surfaces the sectors being
+rewarded now. **Avoid `value_score`** (compounders are never cheap) and
+`income_score` (you ignore dividends here).
 
-### reit_income — 31 matches
-The type the other screens exclude. Debt blocks carry `is null` fallbacks exactly
-as the brief asked. The REIT universe is only ~291 rows, so counts stay modest.
-**Sort:** `income_score`, tiebreak `quality_score`.
+### emerging_dominators — 106 matches
 
-### defensive_anchors — 15 matches (short, on purpose)
-$10B+, 10-year raise streak, Altman ≥ 3, debt below equity, lowest volatility of
-any screen. Already loosened where the brief was vague (liquidity 1.5 → 1.0, ATR
-3.0 → 3.5). What still binds is what you asked for explicitly.
-**Widening lever, in order:** debt-to-equity 1.0 → 1.5 (many quality large caps
-borrow cheaply and sit above 1.0), then market cap $10B → $5B.
-**Sort:** `quality_score`, tiebreak `income_score`.
+The early-NVDA shape. The block that carries the thesis is **`revenue_accel > 0`**
+— the latest quarter running faster than its own 3-year pace. That is what
+separates a future dominator from a merely fast grower.
 
-### undervalued_quality — 14 matches (short, on purpose)
-Built to the brief's 2026-08-13 Update: margin of safety recalibrated to **15%**
-(not 30 — the fade made the old number stricter), requires a **positive bear-case**
-margin of safety, caps `bear_flag_count` at 1, and excludes guardrail-flagged
-names. ROIC relaxed 10 → 8 (the brief says "~10%+").
-**Widening lever:** drop the "cheaper than its own industry" P/E block — it roughly
-thirds the list alone.
-**Sort:** `margin_of_safety_bear`, tiebreak `quality_score`. Avoid `momentum_score`.
+Worth knowing: **this list is naturally ~100 and barely responds to the momentum
+gate.** Loosening RS from 60 to 40 adds only ~20 names. The 20%+ accelerating
+growth requirement is what binds, so tweak growth, not RS, to resize it.
 
-### small_cap_winners — 134 matches
-O'Shaughnessy small-cap value+momentum. Cheapness is a true peer comparison:
-P/S below the industry median, which is literally what the brief asked for.
-(Was 67 while using the Score variant as a stand-in — that bar sat at the ~70th
-percentile, while "below its industry" means the ~50th, so the count roughly
-doubled when the real column arrived.)
-**Sort:** `momentum_score`, tiebreak `growth_score`.
+**Sort by `growth_score`, tiebreak `momentum_score`. Avoid `overall_score`,
+`quality_score` and `value_score`** — all three reward mature, cheap, profitable
+companies and would bury the early-stage names this screen exists to find.
 
-### garp_movers — 210 matches
-Forward PEG ≤ 1.0 (tightened from 1.2 to pull the count toward target), 10%+
-expected growth, 3+ analysts. Forward rather than trailing PEG on purpose.
-**Sort:** `momentum_score`, tiebreak `value_score` or `forward_peg` ascending.
+### dividend_growers — 53 matches
 
-### trend_leaders — 342 matches
-The full Minervini template, expressed with real column-to-column comparisons
-(`ma_50 > ma_150 > ma_200`) rather than an approximation. No fundamentals at all.
-Count swings with market conditions — the brief anticipates that.
-**Sort:** `rs_rank`, tiebreak `momentum_score`. Avoid every fundamental score.
+Yield 2-6%, 5%+ dividend growth, 5+ year raise streak, and safety checked twice:
+FCF covers the dividend 2x AND payout sits in 30-60%.
 
-### estimate_upgrades — 286 matches
-Revisions + post-earnings drift stacked. The 1-month revision bar was raised to
-2% to pull the count down; the "3 of 4 quarters" beat rate was left at 75 because
-the brief states it explicitly.
-**Sort:** `momentum_score`, tiebreak `eps_revision_1m`.
+Those two safety blocks do nearly all the cutting (201→84→55). **`div_payout_ratio`
+30-60 is the tightest single block** — widen to 20-70 if you want a fuller list.
 
-### insider_conviction — 298 matches
-Net insider buying, sized to where the research says the signal works. Tightened
-to a **10%+ net-buy stake** and RS Rank ≥ 55 — at "any buying at all" the screen
-returned 762 names, far past the brief's target.
-**Sort:** `growth_score`, tiebreak `momentum_score`.
+**Sort by `income_score`, tiebreak `quality_score`** or `div_coverage`. **Trust
+`div_coverage` over `div_payout_ratio`** — payout is accounting-based and can hide
+a trap; coverage is cash-based.
 
-### buyback_compounders — 149 matches
-Share count down 2%+ with the cash flow to fund it. Debt test has an `is null`
-fallback so debt-free companies aren't punished.
-**Sort:** `quality_score`, tiebreak `value_score`. Avoid `income_score` — a
-buyback company is deliberately not a dividend company.
+### reit_income — 30 matches
 
-### financial_compounders — 65 matches
-Banks and insurers judged by their own rules: ROE 12%+, book-value growth 7%+,
-sane P/B, leverage capped. "Reasonable OR below peers" is now a real either/or —
-P/B at or under 2.5, or below its industry median. Count unchanged at 65: the
-2.5 ceiling already admits most of this group, so the peer branch only matters
-for the expensive tail.
-**Sort:** `quality_score`, tiebreak `momentum_score`.
+Yield 4-10% (the REIT band — they are legally required to pay out most income),
+revenue not shrinking, debt within REIT norms, and **both debt tests pass when the
+data is missing**, as you insisted.
+
+**The count is small because the pond is small**: there are only ~292 REITs in the
+database and ~152 above $1B. Loosening the debt tests moves it by a handful.
+Lowering `market_cap` to $500M is the real lever.
+
+**Sort by `income_score`, tiebreak `quality_score`.**
+
+### defensive_anchors — 20 matches
+
+Graham-defensive: $10B+, 10+ year raise streak (or 95%+ consistency), ATR ≤3%,
+Altman safe zone, D/E <1, P/E <25.
+
+**This is deliberately your strictest screen and the scarcity is real** — very few
+large caps are simultaneously calm, cheap, low-debt and long-raising. Biggest
+lever is `current_ratio` (1.5→14 names, 1.2→20, 1.1→22); second is `pe` (25→20
+names, 30→34).
+
+**Sort by `quality_score`, tiebreak `income_score`. Avoid `growth_score`** — these
+are not growth names.
+
+### undervalued_quality — 25 matches
+
+Your 2026-08-13 Update asked for a recalibration of the margin-of-safety
+threshold. **The dry run's answer is that it barely matters:** 30% gives 22 names,
+15% gives 25, 0% gives 27.
+
+The reason is exactly what your Update predicted — **`margin_of_safety_bear > 0`
+is doing the value-trap work** (it cuts 405→264 on its own), not the base number.
+Settled on **15%**, the post-fade equivalent of "meaningfully cheap". What
+actually binds is `roic ≥ 10` (176→77) and the MA200 proof-of-life test (55→32).
+`bear_flag_count ≤ 1` and `valuation_guardrail_flag = 0` are both in, per the
+Update.
+
+**Sort by `margin_of_safety_bear`** (still cheap in the pessimistic case) **or
+`value_score`, tiebreak `quality_score`**, then `bear_flag_count` ascending.
+**Avoid `momentum_score`** — genuine value usually means out of favour.
+
+### small_cap_winners — 113 matches
+
+The O'Shaughnessy combo: $300M-$2B, P/S below industry, RS 70+, revenue growing,
+100k volume. Sales-based on purpose — small companies often are not profitable
+yet, and that is fine here. RS 70 does the heavy cutting (535→176).
+
+**Sort by `momentum_score`, tiebreak `growth_score`. Avoid `quality_score`** —
+small caps score badly on it by nature, so it just ranks them by maturity.
+
+### garp_movers — 149 matches
+
+Forward PEG ≤1.0 with 10%+ forward growth, 3+ analysts, profitable, above MA200,
+ATR ≤5.5. **RS raised 60→70 at your direction** to bring 227 into range.
+
+**Sort by `momentum_score`, tiebreak `value_score`.** Worth a look: sort by
+`forward_peg` ascending for the purest GARP reading.
+
+### trend_leaders — 335 matches
+
+The full Minervini template as pure price action — the MA stack written as real
+column-to-column comparisons (`price > ma_50 > ma_150 > ma_200`), within 25% of
+the 52-week high, 30%+ above the low, RS 80+.
+
+**335 is simply what the market is giving right now.** You said "whatever the
+market gives", and this count is itself a market indicator — it swells in a broad
+advance and collapses in a correction. One piece of the classic template is
+missing: it also wants the 200-day line to be **rising**, which we do not store.
+
+**Sort by `rs_rank`, tiebreak `momentum_score`. Avoid `value_score` and
+`quality_score`** — this screen deliberately ignores fundamentals.
+
+### estimate_upgrades — 165 matches
+
+EPS estimates raised 7%+ over both the last month and 3 months, more analysts
+raising than cutting, beat 3 of the last 4 quarters with a positive average
+surprise, 3+ analysts, above MA200.
+
+This stacks two documented effects: **estimate-revision momentum** and
+**post-earnings-announcement drift**. Note the 3-month window contains the
+1-month, so requiring both is a test of *sustained* upgrading rather than two
+independent signals.
+
+**Sort by `momentum_score`, tiebreak `eps_revision_1m`** (the freshest upgrade).
+Worth a look: `days_to_next_earnings` ascending is a timing risk, not a quality
+measure.
+
+### insider_conviction — 311 matches
+
+Deliberately the **shortest filter — only 3 blocks**. It is a single-signal screen;
+piling on fundamentals would dilute the very thing being tested. Net insider
+buying above 5%, $300M-$10B, RS 60+.
+
+Includes banks and REITs on purpose — the research says the insider effect is
+strongest in small caps and banks, and weakest in tech.
+
+**Sort by `growth_score`, tiebreak `momentum_score`.** Worth a look: sort by
+`insider_net_buy_pct` descending for the loudest votes of confidence.
+
+### buyback_compounders — 127 matches
+
+Share count down 2%+ (net of stock comp, so real shrinkage), funded by FCF margin
+8%+ and ROIC 12%+, debt/EBITDA under 4 with the debt-free fallback, profitable,
+$1B+.
+
+**Sort by `quality_score`, tiebreak `value_score`. Avoid `momentum_score`** —
+buyback compounding is a slow, quiet effect. Worth a look: sort by
+`share_count_chg_1y` ascending (most negative first) for the raw signal.
+
+### financial_compounders — 41 matches
+
+Banks and insurers judged by **their** rules: ROE 12%+, equity multiplier under 15
+so high ROE is earned rather than borrowed (the median financial runs ~8.9x), book
+value growing 7%+ with forward EPS as fallback, P/B ≤2.0 or below industry.
+
+Margins, ROIC, current ratio and debt/EBITDA are all meaningless here — debt is a
+bank's raw material, not a risk to minimise. That is exactly why this is a
+separate screen from `quality_compounders`.
+
+**Sort by `quality_score`, tiebreak `momentum_score`.** Worth a look:
+`book_value_cagr_3y` descending is the purest reading of financial compounding.
+**Avoid `value_score`** — it leans on sales and cash-flow multiples that are hidden
+for financials.
 
 ---
 
-## How to read the sort guidance
+## If a filter returns something surprising
 
-The **primary sort** should match the filter's thesis — sorting a growth screen by
-`value_score` buries exactly the names it was built to find. The **tiebreaker**
-adds a second dimension without overriding the thesis.
-
-`overall_score` is rarely the right sort for a themed screen: it blends five
-categories, so it dilutes whatever made the screen specific.
-
-For `undervalued_quality` specifically, `margin_of_safety_bear` is the strongest
-single sort available — it asks "is this still cheap even in the pessimistic
-case?", which is a much better value-trap test than the base number alone.
+Use the Output page's **🔍 Filter Fail** action. It shows, per symbol and per
+block, exactly what passed and failed with the actual values — the fastest way to
+find out whether a threshold is wrong or the data is simply missing.
