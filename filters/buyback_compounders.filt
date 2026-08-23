@@ -1,12 +1,24 @@
 {
   "version": 1,
-  "saved_at": "2026-08-13T22:49:57+00:00",
+  "saved_at": "2026-08-23T16:49:23+00:00",
   "selected_types": [
     "standard"
   ],
-  "comment": "**What it does**\nCompanies steadily shrinking their own share count with real cash.\n- **Your choices:** share count down 2%+ over the year (real net buybacks, not buybacks eaten by stock comp), healthy FCF margin and returns on capital, debt under control, profitable, $1B+.\n- The debt test has an `is null` fallback so debt-free companies aren't punished for having no debt data, as the brief asked.\n\n**How to tweak**\n- Widen it: drop `share_count_chg_1y` from -2 to -1 (slower shrinkers), or `fcf_margin` from 5 to 2.\n- Aggressive shrinkers only: drop it to -5.\n- Higher quality: raise `roic` from 10 to 15.\n\n**How to sort for best picks**\n- Sort by `quality_score`, tiebreak `value_score` (buybacks compound best when shares are cheap).\n- Avoid sorting by `income_score` \u2014 a company returning cash via buybacks is deliberately NOT doing it via dividends, so this sorts against the thesis.\n\n_Built 2026-08-13 \u00b7 149 matches at build time._",
+  "comment": "**What it does**\nCompanies **quietly shrinking their own share count with real cash**. Buybacks are one of the best-evidenced return signals - far better evidenced than dividends alone.\n\n- **The signal** - share count DOWN at least 2% over the last year. Net of stock-comp, so this is real shrinkage, not buybacks eaten by dilution.\n- **Funded properly** - FCF margin 8%+ and ROIC 12%+. A buyback paid for with borrowed money is not the same signal.\n- **Debt under control** - debt/EBITDA under 4, with an `is null` fallback so debt-free companies are not punished for having no debt data, exactly as you asked.\n- **Profitable only**, $1B+, daily moves under 5.5%.\n\n**The two numbers you left open**: you said 'healthy FCF margin and solid returns on capital' without picking values. I used **8% and 12%**, which lands the list at **127**. At 5% and 10% it was 186.\n\n**How to tweak**\n- **Want deeper buybacks?** Change `share_count_chg_1y` to -5 for serious shrinkers.\n- **Want a tighter quality bar?** `fcf_margin >= 10` and `roic >= 15` gives ~89.\n- **Want a wider net?** Drop back to `fcf_margin >= 5` and `roic >= 10`.\n- **Want total shareholder yield?** Add `div_yield_ttm > 0` to find companies doing both - you said dividends are welcome but not required.\n\n**How to sort for best picks**\n- **Sort by `quality_score`** - the thesis is quality funding the buyback.\n- **Tiebreak on `value_score`** - a shrinking share count matters more when you are not overpaying per share.\n- **Worth a look**: sort by `share_count_chg_1y` ascending (most negative first) to rank by the raw signal.\n- **Avoid `momentum_score`** - buyback compounding is a slow, quiet effect; ranking on recent price action misses the point.",
   "ai_instructions": "Find companies steadily shrinking their own share count with real cash \u2014 the\nnet-buyback signal (quietly one of the best-evidenced return signals; dividends\nalone predict little, buybacks do).\n- **Goal**: shareholder-yield quality. **Dividends**: nice but not required.\n- **The signal**: share count DOWN at least ~2% over the last year \u2014 real net\n  buybacks, not buybacks eaten by stock-comp dilution.\n- **Funded properly**: healthy free-cash-flow margin and solid returns on capital;\n  debt under control (don't punish debt-free companies for missing debt data).\n- **Profitable companies only.** **Size**: $1B and bigger. **Kinds**: normal\n  stocks only. **Risk**: moderate.\n- **Results**: ~30-150 names. **Sorting**: quality first, tiebreak value.",
   "blocks": [
+    {
+      "enabled": true,
+      "param": "market_cap",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 1000000000,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
     {
       "enabled": true,
       "param": "share_count_chg_1y",
@@ -16,57 +28,8 @@
       "vmode": "V",
       "value": -2,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
-    },
-    {
-      "enabled": true,
-      "param": "fcf_margin",
-      "window": null,
-      "compare": "value",
-      "op": ">=",
-      "vmode": "V",
-      "value": 5,
-      "vmode2": "V",
-      "value2": null,
-      "or_children": []
-    },
-    {
-      "enabled": true,
-      "param": "roic",
-      "window": null,
-      "compare": "value",
-      "op": ">=",
-      "vmode": "V",
-      "value": 10,
-      "vmode2": "V",
-      "value2": null,
-      "or_children": []
-    },
-    {
-      "enabled": true,
-      "param": "debt_to_ebitda",
-      "window": null,
-      "compare": "value",
-      "op": "<=",
-      "vmode": "V",
-      "value": 3,
-      "vmode2": "V",
-      "value2": null,
-      "or_children": [
-        {
-          "enabled": true,
-          "param": "debt_to_ebitda",
-          "window": null,
-          "compare": "value",
-          "op": "is null",
-          "vmode": "V",
-          "value": null,
-          "vmode2": "V",
-          "value2": null,
-          "or_children": []
-        }
-      ]
     },
     {
       "enabled": true,
@@ -77,20 +40,57 @@
       "vmode": "V",
       "value": 0,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
     },
     {
       "enabled": true,
-      "param": "market_cap",
+      "param": "fcf_margin",
       "window": null,
       "compare": "value",
       "op": ">=",
       "vmode": "V",
-      "value": 1000000000,
+      "value": 8,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "roic",
+      "window": null,
+      "compare": "value",
+      "op": ">=",
+      "vmode": "V",
+      "value": 12,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": []
+    },
+    {
+      "enabled": true,
+      "param": "debt_to_ebitda",
+      "window": null,
+      "compare": "value",
+      "op": "<=",
+      "vmode": "V",
+      "value": 4,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "debt_to_ebitda",
+          "window": null,
+          "compare": "value",
+          "op": "is null",
+          "vmode": "V",
+          "value": "",
+          "vmode2": "V",
+          "value2": "",
+          "or_children": []
+        }
+      ]
     },
     {
       "enabled": true,
@@ -101,7 +101,7 @@
       "vmode": "V",
       "value": 5.5,
       "vmode2": "V",
-      "value2": null,
+      "value2": "",
       "or_children": []
     }
   ]
