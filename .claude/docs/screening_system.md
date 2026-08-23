@@ -23,7 +23,7 @@ Source files this doc summarizes (re-read them only when detail beyond this doc 
 
 ## 1. System context (minimum needed)
 
-- `analysis.db` (table `analysis`) holds one row per symbol with ~283 columns: raw metrics,
+- `analysis.db` (table `analysis`) holds one row per symbol with ~291 columns: raw metrics,
   growth windows, peer-relative `_vs_sector`/`_vs_industry` columns, per-metric `_goodness`
   (0-100) columns, category `*_score`s, `rs_rank`, `rs_raw`, and a `screen_type` column.
 - Filters run **in pandas over that one table** (`filter_engine.run_filter`): restrict rows
@@ -213,7 +213,7 @@ column (100 = strong). A rule = **shape** + **anchor**:
   "enabled": true,
   "param":   "roe",            // base key from filter_registry.BASE_BY_KEY
   "window":  null,             // growth suffix for growth bases, e.g. "cagr_3y"
-  "compare": "value",          // "value" | "vs_sector" | "vs_industry" | "score"
+  "compare": "value",          // "value" | "vs_sector" | "vs_industry" | "vs_type" | "score"
   "op":      ">",              // see operators below
   "vmode":   "V",              // "V" literal | "P" another parameter's column
   "value":   12,               // number/text; a base-key when vmode == "P"; a LIST for is any of/none of
@@ -226,6 +226,7 @@ column (100 = strong). A rule = **shape** + **anchor**:
 `resolve_column(param, window, compare)`:
 - growth base + window → `{param}_{window}` (e.g. `revenue` + `cagr_3y` → `revenue_cagr_3y`)
 - compare `vs_sector`/`vs_industry` → append suffix (`roe_vs_sector`); offered only when the column exists in analysis.db (data-driven)
+- compare `vs_type` → `{col}_vs_type` (% above/below the symbol's own **screen_type** median). Same data-driven offer, but the analysis layer only builds it for `settings.SCORE_VS_TYPE_COLUMNS` — the five category scores plus `overall_score`. Use it to ask "strong *for a bank*" without mixing types.
 - compare `score` → `{col}_goodness`
 - P-mode (`vmode: "P"`) resolves `value` as another base key's **raw value column** — enables cross-parameter comparisons like `price > ma_200` or `ma_50 > ma_200` (golden cross), `intrinsic_value_dcf > price`.
 

@@ -32,7 +32,7 @@ from config import settings
 from services import filter_engine as FE
 from services import filter_registry as R
 
-_COMPARES = ("value", "vs_sector", "vs_industry", "score")
+_COMPARES = ("value", "vs_sector", "vs_industry", "vs_type", "score")
 _CMP_OPS = {">", "<", ">=", "<=", "=", "!=", "between"}
 
 

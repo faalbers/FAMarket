@@ -31,8 +31,11 @@ natural language.)
   `services/filter_registry.py` (per-screen_type applicability),
   `analysis_layer/scoring_rules.py` (Score variant) and `config/param_hints.py`
   (units) — and tell the user the doc needs a refresh pass.
-- Filter variants (Value / vs Sector / vs Industry / Score): use them where the
-  instructions make them sensible.
+- Filter variants (Value / vs Sector / vs Industry / vs Type / Score): use them
+  where the instructions make them sensible. **vs Type** (`compare: "vs_type"`,
+  % above/below the symbol's own screen_type median) exists only for the columns
+  in `settings.SCORE_VS_TYPE_COLUMNS` — the five category scores plus
+  `overall_score`.
 - Filters are saved in `settings.FILTERS_DIR`.
 - Web research: ONLY for stock-analysis concepts `screening_system.md` §8 does not
   already cover — don't re-research what the doc records.
@@ -133,7 +136,8 @@ Rules:
 Every `.filt` carries a top-level **`ai_instructions`** string (alongside `comment`,
 `selected_types`, `blocks`). It round-trips through
 `filter_engine.save_filterset_to` / `load_filterset_from` and shows **read-only and
-collapsed** under **Comment** on both the Filter and Output pages.
+collapsed** in its own **AI instructions** section — a sibling of the **Comment**
+section, just below it — on both the Filter and Output pages.
 
 Set it to the **verbatim plain-English `instructions:` text** for that specific filter
 from `filters/create_filters.md` — the original spec the filter was built from,
@@ -148,9 +152,9 @@ breaks (real newlines aren't valid in JSON).
 
 Every `.filt` carries a free-text **`comment`** string (a top-level key in the JSON,
 alongside `selected_types` and `blocks`). It round-trips through
-`filter_engine.save_filterset_to` / `load_filterset_from`, shows in the Filter page's
-collapsible **📝 Notes** box, and appears read-only on the **Output** page where the user
-sorts and picks. **This is the canonical, travels-with-the-filter writeup** — always
+`filter_engine.save_filterset_to` / `load_filterset_from`, shows editable in the Filter
+page's collapsible **Comment** section, and appears read-only in the same-named section
+on the **Output** page where the user sorts and picks. **This is the canonical, travels-with-the-filter writeup** — always
 populate it (the `filters/create_filters_report.md` End Report still gets written too).
 
 Write it **dyslexia-friendly** (short sentences, bullets, **bold** anchors; see how the
