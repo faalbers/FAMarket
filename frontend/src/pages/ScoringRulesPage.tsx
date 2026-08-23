@@ -7,6 +7,11 @@
  *
  * Saving also refreshes the stored goodness/score columns in analysis.db (a few
  * seconds, no fetch), so Filter and Output agree with the preview immediately.
+ *
+ * The "Why this rule" box explains why each default is shaped the way it is —
+ * composed server-side by config/rule_hints.py and returned on the preview
+ * response, so its "Current rule" line reflects UNSAVED edits (preview is
+ * re-requested whenever the draft rule changes).
  */
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -14,6 +19,7 @@ import { Lightbulb, Save } from "lucide-react";
 import { get, post, put } from "@/lib/api";
 import { EChart, ECHARTS_BASE, axisStyle } from "@/components/EChart";
 import { Button, ButtonGroup, EmptyState, Input, PageHeader, Panel, cn } from "@/components/ui";
+import { Markdown } from "@/components/Markdown";
 
 type Rule = {
   shape?: "higher_better" | "lower_better" | "sweet_spot";
@@ -39,6 +45,7 @@ type Preview = {
   unit?: string;
   sweet_spot?: [number | null, number | null] | null;
   line?: number | null;
+  hint?: string;
   message: string | null;
 };
 
@@ -293,6 +300,14 @@ export function ScoringRulesPage() {
               </label>
             </div>
           </Panel>
+
+          {preview?.hint && (
+            <Panel title="Why this rule">
+              <div className="max-h-56 overflow-auto p-3 text-[12px] leading-relaxed">
+                <Markdown>{preview.hint}</Markdown>
+              </div>
+            </Panel>
+          )}
 
           <Panel
             title={`Preview · ${preview?.bins.length ?? 0} bins over the universe`}
