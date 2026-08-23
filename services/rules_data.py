@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 
 from analysis_layer import scoring_rules as SR
-from config import param_hints
+from config import param_hints, rule_hints
 from services.scores_data import HEAT_RAMP, load_analysis, metric_name
 
 PREVIEW_BINS = 60
@@ -103,14 +103,16 @@ def preview(metric: str, rule: dict) -> dict[str, Any]:
     """
     frame = load_analysis()
     if frame.empty or metric not in frame.columns:
-        return {"bins": [], "message": "No data for this metric in analysis.db."}
+        return {"bins": [], "hint": rule_hints.rule_hint_markdown(metric, rule),
+                "message": "No data for this metric in analysis.db."}
 
     values = pd.Series(pd.to_numeric(frame[metric], errors="coerce"))
     if rule.get("positive_only"):
         values = values.where(values > 0)
     clean = cast(pd.Series, values.dropna())
     if clean.empty:
-        return {"bins": [], "message": "No data for this metric in analysis.db."}
+        return {"bins": [], "hint": rule_hints.rule_hint_markdown(metric, rule),
+                "message": "No data for this metric in analysis.db."}
 
     tiers = (
         [frame["industry"], frame["sector"]]
@@ -156,6 +158,9 @@ def preview(metric: str, rule: dict) -> dict[str, Any]:
         if rule.get("shape") == "sweet_spot" and rule.get("lo") is not None
         else None,
         "line": rule.get("value") if rule.get("anchor") == "absolute" else None,
+        # Composed server-side from the CANDIDATE rule, so the "Current rule" line
+        # tracks unsaved edits: preview is re-POSTed whenever the draft changes.
+        "hint": rule_hints.rule_hint_markdown(metric, rule),
         "message": None,
     }
 
