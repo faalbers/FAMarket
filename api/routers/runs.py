@@ -26,7 +26,8 @@ from services import output_runs
 router = APIRouter(prefix="/api")
 
 # Columns every Output table shows regardless of the chosen parameter columns.
-IDENTITY_COLUMNS = ["symbol", "name", "sector", "industry", "screen_type", "security_type"]
+IDENTITY_COLUMNS = ["symbol", "name", "sector", "industry", "country", "screen_type",
+                    "security_type"]
 
 
 def _meta_view(meta: dict) -> dict[str, Any]:

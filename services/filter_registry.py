@@ -289,6 +289,7 @@ BASES: list[Base] = [
     # -- Classification (text labels; filtered via the multi-pick value list) - #
     _b("sector", "Sector", "Classification", COMPANY),
     _b("industry", "Industry", "Classification", COMPANY),
+    _b("country", "Country", "Classification", COMPANY),
     _b("fund_family", "Fund family", "Classification", FUNDS),
 ]
 

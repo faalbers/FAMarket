@@ -1533,6 +1533,19 @@ PARAM_HINTS: dict[str, dict] = {
     # Classification — text labels the company/fund carries, not metrics.
     # Filtered by picking values from a list (is any of / is none of).
     # ------------------------------------------------------------------ #
+    "country": {
+        "name": "Country",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "The company's headquarters country from the data provider's profile. "
+                      "Operating companies only — blank for ETFs and mutual funds, which "
+                      "have no HQ country.",
+        "how_to_use": [
+            "Restrict a screen to domestic names, or exclude jurisdictions you avoid.",
+            "It is the HQ, not the listing venue — every symbol here trades in the US.",
+        ],
+        "vs_peers": "No — it is the grouping label itself, not a value to compare.",
+    },
     "fund_family": {
         "name": "Fund family",
         "category": "Classification",
