@@ -80,6 +80,7 @@ Vite proxies `/api` to the backend, so open <http://localhost:5173>.
 .\run_app.bat                                 # same as serve_ui.py, double-clickable
 python -m scripts.discover_symbols --edgar    # symbol discovery, no key needed
 python -m scripts.discover_symbols --show     # summarise symbols.db
+python -m analysis_layer.benchmark_push       # re-push indices to FAPortfolio (--force, --dry-run)
 ```
 
 ## API keys
@@ -133,11 +134,33 @@ FRED ─────────────────────────
 
 A fetch runs as its own detached OS process, so it survives closing the app;
 analysis runs automatically afterwards. Sector and industry indices are built on
-**full** analysis runs only.
+**full** analysis runs only — and, when enabled, then pushed to FAPortfolio (below).
 
 To reset everything, delete the `.db` files in `databases/` — the system detects
 empty databases as an initial load. (Close any SQLite viewer first; it holds a
 file lock on Windows.)
+
+## Indices push to FAPortfolio
+
+After a full run rebuilds `indices.db`, a trimmed copy (last ~4 years, ~2 MB
+gzipped) is force-pushed to the `benchmark-data` branch of the FAPortfolio repo,
+where its cloud GitHub Track reads it. The push only ever writes that branch,
+skips when nothing is new, and a failure never fails the analysis.
+
+**Setup on a new machine**
+
+1. Create a dedicated SSH key with no passphrase (PowerShell):
+   ```powershell
+   ssh-keygen -t ed25519 -f "$HOME\.ssh\famarket_faportfolio_deploy" -N '""' -C "FAMarket to FAPortfolio benchmark-data"
+   ```
+   (`'""'`, not `""` — Windows PowerShell drops an empty argument.)
+2. On GitHub: FAPortfolio → Settings → Deploy keys → Add deploy key. Paste the
+   whole `.pub` line and tick **Allow write access**.
+3. Switch it on in `settings.local.json`: `"BENCHMARK_PUSH_ENABLED": true`
+   (off by default).
+4. Run it once by hand to check: `python -m analysis_layer.benchmark_push`.
+
+Design and contract: ROADMAP subtopic 4.5.
 
 ## Platform notes
 
