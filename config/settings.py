@@ -221,6 +221,7 @@ BENCHMARK_SYMBOLS: dict[str, str] = {
     "^RUT": "Russell 2000 Index",
     "^VIX": "Cboe Volatility Index",
     "^TNX": "Cboe Interest Rate 10 Year T Note",
+    "^IRX": "Cboe Short-Term Interest Rate Index",
 }
 
 # OHLCV recency window for validation: a symbol whose newest OHLCV bar is older
