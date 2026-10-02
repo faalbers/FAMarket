@@ -42,7 +42,7 @@ from analysis_layer import _periods as P
 from analysis_layer import metrics, technical, intrinsic_value, valuation_scenarios, peers, scoring
 from analysis_layer import estimates as estimates_metrics
 from analysis_layer import signals as signals_metrics
-from analysis_layer import sector_index
+from analysis_layer import benchmark_push, sector_index
 from core.market_calendar import last_completed_session
 from analysis_layer.screen_type import classify as classify_screen_type
 
@@ -348,6 +348,10 @@ def run_analysis(subset: list[str] | None = None) -> dict:
                 universe["symbol"].tolist(), quotes, financials, ohlcv_by, prices_as_of)
         except Exception:
             log.exception("Sector/industry index build failed; analysis.db is unaffected")
+        # Hand the fresh indices to FAPortfolio's GitHub Track — only after a build
+        # that actually wrote rows. Off unless BENCHMARK_PUSH_ENABLED; never raises.
+        if index_summary and index_summary.get("rows"):
+            benchmark_push.push_after_analysis()
 
     ram = meminfo.peak_ram_summary()
     if ram:

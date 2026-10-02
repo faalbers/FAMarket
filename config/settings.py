@@ -329,6 +329,16 @@ INDEX_MIN_INDUSTRY_MEMBERS: int = 3       # skip 'sector | industry' groups smal
 # come from a dedicated narrow deep read, NOT the bounded ANALYSIS_OHLCV_LOOKBACK_DAYS.
 INDEX_START_MIN_REPORTERS: int = 25
 
+# Benchmark push (analysis_layer/benchmark_push.py) — after a full run rebuilds INDICES_DB,
+# push a trimmed gzipped copy to FAPortfolio's `benchmark-data` branch for GitHub
+# Track. The branch name and trim window are FAPortfolio's contract and live in the
+# module, not here. Off until the deploy key is set up; turn on via settings.local.json.
+BENCHMARK_PUSH_ENABLED: bool = False
+BENCHMARK_PUSH_REMOTE: str = "git@github.com:faalbers/FAPortfolio.git"
+BENCHMARK_PUSH_KEY: Path = Path.home() / ".ssh" / "famarket_faportfolio_deploy"
+BENCHMARK_PUSH_AUTHOR_EMAIL: str = "faalbers@users.noreply.github.com"
+BENCHMARK_PUSH_STATE_FILE: Path = STATE_DIR / "benchmark_push.json"
+
 # Compute-and-reconcile (Analysis): every fundamental ratio is computed from
 # financials.db; where yfinance (quotes.db) has the same ratio we cross-check and
 # log a summary WARNING when they diverge by more than this fraction.
