@@ -495,13 +495,35 @@ _NAME_SUFFIXES = {
     "new", "cl", "series",
 }
 
+# Legal-form tokens that START the descriptor tail: everything from the first one
+# onward is boilerplate, whatever unknown words sit in between ("Alphabet Inc.
+# Class C *Capital* Stock"). Stripping only from the END stops at the first word
+# that isn't a known suffix and leaves the core unmatchable.
+_LEGAL_FORMS = {
+    "inc", "incorporated", "corp", "corporation", "co", "company",
+    "ltd", "limited", "plc", "llc", "lp", "nv", "ag", "sa", "se",
+}
+# ... unless the legal-form token is part of the name itself, which a following
+# joining word betrays ("Aluminum Corp OF China", "Seacoast Banking Corp OF
+# Florida"). Keep scanning for a later one instead.
+_NAME_JOINERS = {"of", "de", "du", "del", "and", "for", "&", "the"}
+
 
 def _clean_name(name: str) -> str:
-    """Reduce a company name to a matchable core: drop a leading 'The' and trailing
-    corporate-form tokens (Inc/Corp/Co/Class A…). "Apple Inc." -> "Apple"."""
+    """Reduce a company name to a matchable core: drop a leading 'The', cut the
+    descriptor tail at the first legal-form token, then strip any trailing
+    corporate-form tokens that remain. "Apple Inc." -> "Apple";
+    "Alphabet Inc. Class C Capital Stock" -> "Alphabet"."""
     tokens = re.sub(r"[.,]", " ", name or "").split()
     while tokens and tokens[0].lower() == "the":
         tokens.pop(0)
+    for i, tok in enumerate(tokens):
+        if i > 0 and tok.lower().strip(".") in _LEGAL_FORMS:
+            nxt = tokens[i + 1].lower().strip(".") if i + 1 < len(tokens) else ""
+            if nxt in _NAME_JOINERS:
+                continue
+            tokens = tokens[:i]
+            break
     while tokens and tokens[-1].lower().strip(".") in _NAME_SUFFIXES:
         tokens.pop()
     return " ".join(tokens).strip()

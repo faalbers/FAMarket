@@ -59,7 +59,7 @@ _PROGRESS_EVERY = 500
 # `screen_type` is the sector/industry-derived filtering group (standard / bank /
 # insurance / reit / etf / …) — computed here so Filter/Output read one canonical value.
 _IDENTITY = ["symbol", "name", "security_type", "screen_type", "sector", "industry",
-             "fund_family", "price"]
+             "country", "fund_family", "price"]
 
 
 # Lower bound on the OHLCV window: rs_rank's 4 quarters × ~63 trading days + 1
@@ -296,6 +296,10 @@ def run_analysis(subset: list[str] | None = None) -> dict:
         # classification value on the Filter page; lives only in quotes.db, so it
         # must be copied into the analysis row to be screenable (no cross-DB joins).
         fund_family = quote.get("fund_family") if quote is not None else None
+        # Company HQ country (yfinance asset profile) -- operating companies only;
+        # NULL for ETFs/mutual funds, which carry no HQ. Copied in for the same
+        # reason as fund_family: it lives in quotes.db and there are no cross-DB joins.
+        country = quote.get("country") if quote is not None else None
         rows.append({
             "symbol": sym,
             "name": getattr(rec, "name", None),
@@ -303,6 +307,7 @@ def run_analysis(subset: list[str] | None = None) -> dict:
             "screen_type": screen_type,
             "sector": sec,
             "industry": ind,
+            "country": country,
             "fund_family": fund_family,
             "price": price,
             # raw weighted return -> universe-ranked into rs_rank in scoring; kept

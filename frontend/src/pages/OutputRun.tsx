@@ -37,6 +37,7 @@ const LEAD: { key: string; label: string; size: number }[] = [
   { key: "name", label: "Company", size: 190 },
   { key: "sector", label: "Sector", size: 150 },
   { key: "industry", label: "Industry", size: 170 },
+  { key: "country", label: "Country", size: 130 },
 ];
 
 type Row = { i: number; symbol: string };
