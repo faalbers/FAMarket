@@ -610,6 +610,31 @@ needs.
        (Industrials = 24) cycle the 12-color palette tail — accepted (legend + hover name each
        line). The chart render is factored into `_chart_options` + `_render_chart`, shared by
        both modes.
+     - ✅ THIRD CONSUMER IMPLEMENTED (2026-10-02) — **push to FAPortfolio** for its GitHub
+       Track (compares each holding with its industry index, running in the cloud, so it
+       can't read indices.db on the PC). `analysis_layer/benchmark_push.py`, called from
+       `run_analysis()` right after a successful full-run index build:
+       - CONTRACT (owned by FAPortfolio — don't change without updating it): repo
+         `faalbers/FAPortfolio`, branch `benchmark-data`, ONE file `indices.db.gz`, ONE orphan
+         commit force-pushed each time. Same two tables; `index_meta` copied unchanged (Track
+         judges staleness from its stamps); series trimmed to `prices_as_of − 1490` days
+         (Track's 1460-day window + 30 margin) — ~157k rows, 2.2 MB gzipped. ALL industries,
+         so FAMarket needs no knowledge of FAPortfolio's holdings. Branch, file and window
+         are module constants, not settings.
+       - HOW: build + verify row-for-row against the source window → orphan commit in a temp
+         repo (FAMarket's checkout never touched) → push with an explicit
+         `HEAD:refs/heads/benchmark-data` refspec → read back (our commit, 1 deep, only the
+         file, `index_meta` matches). Stdlib + git only.
+       - AUTH: a dedicated SSH **deploy key** on FAPortfolio (write access, no passphrase,
+         `~/.ssh/famarket_faportfolio_deploy`) — one repo, no expiry, revocable. Chosen over a
+         personal access token. Limit: the key itself could push any FAPortfolio branch; the
+         code can't.
+       - GUARDS: skips when the stamp was already pushed (`state/benchmark_push.json`); a
+         failure logs one WARNING and never fails the analysis (Track keeps the previous
+         file and reports its age). Off by default (`BENCHMARK_PUSH_ENABLED`), switched on
+         per machine in `settings.local.json`. Manual: `python -m analysis_layer.benchmark_push
+         [--force | --dry-run]`.
+       - Spec: the FAPortfolio handoff, `dev_docs/famarket_benchmark_push.md` (local).
      - ⏭️ STILL OPEN (brainstorm before building, topic-by-topic): other consumption —
        ranking/sorting sectors by trend, industry presentation, derived metrics, etc.
        ([[indices-usage-needs-brainstorm]]).
