@@ -29,7 +29,13 @@ formula — float-MC weights, current capping, quarterly rebalance) and writes t
 dedicated `indices.db` (long/tidy `sector_industry_index` table). Index history is **data-driven**
 (starts where `financials.db` share coverage broadens, `INDEX_START_MIN_REPORTERS`),
 read via a dedicated memory-efficient deep `adj_close` read of the liquid constituents
-only — decoupled from `ANALYSIS_OHLCV_LOOKBACK_DAYS`. Each run logs its peak RAM via
+only — decoupled from `ANALYSIS_OHLCV_LOOKBACK_DAYS`. After a successful index build,
+`analysis_layer/benchmark_push.py` force-pushes a trimmed `indices.db.gz` to the
+**FAPortfolio** repo's `benchmark-data` branch for its cloud GitHub Track (SSH
+deploy key; on via `settings.local.json`). That file's shape — the two tables,
+`index_meta` stamps, the 1490-day trim — is **FAPortfolio's contract**: changing
+`indices.db`'s schema or that module means updating FAPortfolio too (ROADMAP 4.5).
+Each run logs its peak RAM via
 `core/meminfo.py` (Win32 ctypes, no psutil).
 
 The **UI is React + FastAPI** (migrated from Streamlit 2026-07-28, which is now
