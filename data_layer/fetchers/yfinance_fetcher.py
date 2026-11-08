@@ -529,8 +529,10 @@ class YFinanceFinancials(BaseFetcher):
     write_mode = "upsert"
     upsert_key = ["symbol", "period_end", "freq"]
 
-    def stale_symbols(self, candidates: list[str]) -> set[str]:
-        return staleness.financials_stale(candidates)
+    def stale_symbols(self, candidates: list[str], status_db: Database) -> set[str]:
+        return staleness.financials_stale(
+            candidates, fetch_status.last_fetched_dates(status_db, self.name)
+        )
 
     def not_due_symbols(self, candidates: list[str]) -> set[str]:
         # Statements appear ~4x/year; defer symbols whose next filing can't

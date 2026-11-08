@@ -6,12 +6,22 @@ so it never counts as "no data" and never trips the no_data_count abandonment in
 fetch_status. These checks read the newest stored date straight from the data DB
 and skip a symbol whose latest value is older than the configured window.
 
-The test is recomputed every run from the data itself, so it is self-perpetuating:
-once a symbol is skipped its stored date never advances, so it stays skipped — until
-FETCH_ABANDONMENT_ENABLED is turned off (this is a viability gate, not the 5-day
-lock) and a refetch returns fresh data that resets the clock.
+The age is measured from the symbol's LAST ACTUAL FETCH (fetch_status.last_fetched
+for that fetcher), NOT from today (changed 2026-11-08). "Stale" means: when we last
+asked the source, what it gave back was already too old — evidence the symbol has
+stopped producing data. Measuring from today instead confused "dead" with "not
+fetched lately": after a 5-week break every symbol's newest bar was > 4 weeks old,
+38,019 of 38,524 OHLCV symbols were skipped as stale, and — since a skipped symbol's
+stored date never advances — they would have stayed skipped forever.
 
-Thresholds (config/settings.py):
+A symbol with no stamped last_fetched (never fetched, or only errors) is never
+stale — it gets fetched, and that fetch becomes the evidence. A truly dead symbol
+costs at most one extra fetch before it is caught. The gate stays self-perpetuating
+for genuinely stale symbols (their last fetch is what condemned them) until
+FETCH_ABANDONMENT_ENABLED is turned off (this is a viability gate, not the 5-day
+lock) and a refetch returns fresh data.
+
+Thresholds (config/settings.py), each counted back from last_fetched:
   * OHLCV                 — newest `date` older than OHLCV_STALE_WEEKS weeks.
   * financials quarterly  — newest quarterly `period_end` older than
                             FINANCIALS_QUARTERLY_STALE_QUARTERS quarters.
@@ -48,28 +58,30 @@ def _older_than(stored, cutoff: date) -> bool:
         return False
 
 
-def _quarters_ago(quarters: int) -> date:
-    return (pd.Timestamp.today().normalize() - pd.DateOffset(months=3 * quarters)).date()
+def _quarters_before(ref: date, quarters: int) -> date:
+    return (pd.Timestamp(ref) - pd.DateOffset(months=3 * quarters)).date()
 
 
 def stale_by_max_date(
-    db_path, table: str, column: str, max_age_days: int, candidates: list[str]
+    db_path, table: str, column: str, max_age_days: int, candidates: list[str],
+    last_fetched: dict[str, date],
 ) -> set[str]:
-    """Generic frontier-age gate: candidates whose newest `column` is too old.
+    """Generic frontier-age gate: candidates whose newest `column` was already too
+    old at their last fetch (`last_fetched`, from fetch_status.last_fetched_dates).
 
     Used by BaseFetcher.stale_symbols for the single-stream case (e.g. OHLCV by
     `date`); `table`/`column` come from trusted fetcher class attributes. The
     financials rule has two streams (freq) and uses financials_stale instead.
     """
     cand = set(candidates)
-    cutoff = date.today() - timedelta(days=max_age_days)
+    age = timedelta(days=max_age_days)
     with Database(db_path) as db:
         if not db.table_exists(table):
             return set()
         rows = db.query(f"SELECT symbol, MAX({column}) d FROM {table} GROUP BY symbol")
     return {
         s for s, d in rows.itertuples(index=False, name=None)
-        if s in cand and _older_than(d, cutoff)
+        if s in cand and s in last_fetched and _older_than(d, last_fetched[s] - age)
     }
 
 
@@ -107,15 +119,16 @@ def financials_not_due(candidates: list[str]) -> set[str]:
     return not_due
 
 
-def financials_stale(candidates: list[str]) -> set[str]:
+def financials_stale(candidates: list[str], last_fetched: dict[str, date]) -> set[str]:
     """Candidate symbols whose stored financials streams have gone stale.
 
-    Stale if the newest quarterly period_end OR the newest annual period_end that
-    exists is older than its respective window (see module docstring).
+    Stale if, at the symbol's last fetch (`last_fetched`, for the calling
+    fetcher), the newest quarterly period_end OR the newest annual period_end that
+    exists was already older than its respective window (see module docstring).
     """
     cand = set(candidates)
-    q_cut = _quarters_ago(settings.FINANCIALS_QUARTERLY_STALE_QUARTERS)
-    a_cut = _quarters_ago(settings.FINANCIALS_YEARLY_STALE_QUARTERS)
+    q_n = settings.FINANCIALS_QUARTERLY_STALE_QUARTERS
+    a_n = settings.FINANCIALS_YEARLY_STALE_QUARTERS
     with Database(settings.FINANCIALS_DB) as db:
         if not db.table_exists("financials"):
             return set()
@@ -128,8 +141,11 @@ def financials_stale(candidates: list[str]) -> set[str]:
             latest.setdefault(s, {})[freq] = d
     stale = set()
     for s, by_freq in latest.items():
-        q_old = _older_than(by_freq.get("quarterly"), q_cut)
-        a_old = _older_than(by_freq.get("annual"), a_cut)
+        ref = last_fetched.get(s)
+        if ref is None:
+            continue
+        q_old = _older_than(by_freq.get("quarterly"), _quarters_before(ref, q_n))
+        a_old = _older_than(by_freq.get("annual"), _quarters_before(ref, a_n))
         if q_old or a_old:
             stale.add(s)
     return stale

@@ -167,8 +167,10 @@ FETCH_ABANDONMENT_ENABLED: bool = True
 # recovers).
 MAX_NO_DATA_FETCHES: int = 4
 
-# Staleness probe: skip a symbol whose newest STORED value is older than the
-# window. Self-perpetuating — the stored date can't advance while skipped.
+# Staleness probe: skip a symbol whose newest STORED value was already older than
+# the window at its LAST FETCH (not today — a long break between runs must not age
+# healthy symbols out; changed 2026-11-08). Self-perpetuating for genuinely stale
+# symbols — the stored date can't advance while skipped.
 OHLCV_STALE_WEEKS: int = 4                     # newest OHLCV date older than this
 FINANCIALS_QUARTERLY_STALE_QUARTERS: int = 2   # newest quarterly period_end older than this
 FINANCIALS_YEARLY_STALE_QUARTERS: int = 6      # newest annual period_end older than this
