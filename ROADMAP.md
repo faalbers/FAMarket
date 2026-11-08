@@ -1049,6 +1049,26 @@ needs.
      - Wrap Group 2 API fetchers in multiprocessing (Group 1 stays sequential)
      - Write queue pattern for concurrent DB writes
      - Auth for E*Trade runs in main process before workers start, token passed to workers
+     - **Analysis + sector/industry index speed-up** (added 2026-11-08, OPEN — not designed yet).
+       **Why:** a full run spends about 1.5 hours after the fetch, on ONE CPU core out of 32,
+       and the index step logs nothing for about 40 minutes, so it looks hung.
+       - **Measured on the 2026-11-08 run** (38,485 symbols, one run, from log timestamps):
+         - Load OHLCV + inputs: **~4.5 min**
+         - Per-symbol metrics loop: **~48 min**
+         - Peers + scoring + write `analysis.db`: **~0.5 min**
+         - Sector/industry index build (`sector_index.build_and_write`): **~40 min**
+           (39–42 min on each of the four earlier full runs, 2026-09-12 → 2026-10-03)
+       - **Next step: profile before choosing a fix.** Find what dominates inside the per-symbol
+         loop and inside `sector_index._to_long`, then research how others solve the same
+         shape before designing anything.
+       - **Candidate directions (unproven):**
+         - **Index build:** likely a per-date/per-group Python loop. Vectorising it may beat
+           parallelising it.
+         - **Per-symbol loop:** each symbol is independent, so it could split across worker
+           processes. Watch RAM: each worker would hold its own slice of the ~6.6 GB OHLCV
+           frame. This conflicts with the Cloud VM idea's low-RAM batching (Future Ideas), so
+           design them together.
+       - **Also:** log progress inside the index build so a long step never looks hung.
 
    - FETCH CONTROL PANEL (Streamlit UI):
      - Group 1 — Symbol Discovery (always runs first, sequential):
@@ -1149,6 +1169,22 @@ needs.
          off. The split lives in `fetch_status.classify_skips` + `BaseFetcher.select_due`
          (one source of truth for both a real run and the Report Fetch dry run), and
          the report now shows a separate Locked vs Abandoned column.
+     - ✅ 2026-11-08: **staleness is measured from each symbol's last fetch, not from
+       today** (replaces "newest stored value older than the window, counted from
+       today"). The old rule could not tell "dead" from "not fetched lately".
+       - **What broke:** after a 5-week break between runs (last OHLCV fetch
+         2026-10-03), every symbol's newest bar was > `OHLCV_STALE_WEEKS` (4) old.
+         38,019 of 38,524 OHLCV symbols were skipped as stale. Since a skipped
+         symbol's date never advances, they would have stayed skipped forever.
+       - **New rule:** stale = at its last actual fetch by THAT fetcher
+         (`fetch_status.last_fetched`, stamped on data or no-data, never on an
+         error), the newest stored value was already older than the window. Applies
+         to OHLCV and both financials streams (yfinance + EDGAR).
+       - **No stamped last fetch = never stale** — the next fetch becomes the
+         evidence. A truly dead symbol costs at most one extra fetch.
+       - **Dry run after the change:** OHLCV stale 38,097 → 3,108 — the same dead
+         set skipped before the break (all last fetched in Aug 2026, newest bar a
+         median ~11 months older; 91% mutual funds). Financials stale 1,859 → 730.
      - fetch_status table columns: symbol, fetcher_name, last_fetched, fetch_errors
        - Composite primary key: (symbol, fetcher_name)
        - fetcher_name stored as plain string e.g. "yfinance_quotes", "etrade_quotes"

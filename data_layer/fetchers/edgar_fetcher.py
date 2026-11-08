@@ -46,7 +46,7 @@ import pandas as pd
 from ratelimit import limits, sleep_and_retry
 
 from config import secrets, settings
-from data_layer import staleness
+from data_layer import fetch_status, staleness
 from data_layer.fetchers.base import BaseFetcher
 
 if TYPE_CHECKING:
@@ -440,8 +440,10 @@ class EDGARFinancials(BaseFetcher):
         super().__init__(batch_size)
         self._cik: dict[str, int] | None = None  # symbol -> CIK, lazy-loaded
 
-    def stale_symbols(self, candidates: list[str]) -> set[str]:
-        return staleness.financials_stale(candidates)
+    def stale_symbols(self, candidates: list[str], status_db: "Database") -> set[str]:
+        return staleness.financials_stale(
+            candidates, fetch_status.last_fetched_dates(status_db, self.name)
+        )
 
     def run(self, symbols_df: pd.DataFrame, status_db: "Database", respect_lock: bool = True) -> dict:
         """Resolve CIKs for the due symbols up front (bulk ticker map + name-

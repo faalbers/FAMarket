@@ -44,7 +44,7 @@ connection (important when iterating tens of thousands of symbols).
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from config import settings
 from core.database import Database
@@ -177,6 +177,28 @@ def classify_skips(
         else:
             due.append(s)
     return due, locked, abandoned
+
+
+def last_fetched_dates(db: Database, fetcher_name: str) -> dict[str, date]:
+    """{symbol: date of its last actual fetch} for one fetcher, in a single query.
+
+    Only symbols with a stamped last_fetched (a fetch that returned data or no
+    data — errors never stamp it). The staleness gate measures stored data
+    against THIS date, not today, so a long pause between runs can't age
+    healthy symbols out (see data_layer/staleness.py).
+    """
+    rows = db.conn.execute(
+        f"SELECT symbol, last_fetched FROM {TABLE} "
+        "WHERE fetcher_name=? AND last_fetched IS NOT NULL",
+        (fetcher_name,),
+    ).fetchall()
+    out: dict[str, date] = {}
+    for s, lf in rows:
+        try:
+            out[s] = datetime.fromisoformat(lf).date()
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 def due_symbols(

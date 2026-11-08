@@ -98,13 +98,15 @@ class BaseFetcher(ABC):
         mask = symbols_df["security_type"].isin(self.applies_to)
         return symbols_df.loc[mask, "symbol"].tolist()
 
-    def stale_symbols(self, candidates: list[str]) -> set[str]:
+    def stale_symbols(self, candidates: list[str], status_db: Database) -> set[str]:
         """Symbols whose stored data is too stale to keep fetching (skipped forever).
 
         Default reads the declarative `stale_after_days`/`stale_date_column`
         attributes (the single-stream case, e.g. OHLCV); financials overrides for
-        its per-freq rule. Recomputed from the data each run, so once skipped a
-        symbol's stored date never advances and it stays skipped — turn off
+        its per-freq rule. Age is measured from each symbol's last actual fetch by
+        THIS fetcher (fetch_status.last_fetched), not from today — so a long pause
+        between runs never ages healthy symbols out. Once skipped a symbol's stored
+        date never advances and it stays skipped — turn off
         settings.FETCH_ABANDONMENT_ENABLED to retry it (the 5-day lock does NOT
         control this gate). See data_layer/staleness.py.
         """
@@ -113,6 +115,7 @@ class BaseFetcher(ABC):
         return staleness.stale_by_max_date(
             getattr(settings, self.target_db), self.table,
             self.stale_date_column, self.stale_after_days, candidates,
+            fetch_status.last_fetched_dates(status_db, self.name),
         )
 
     def not_due_symbols(self, candidates: list[str]) -> set[str]:
@@ -169,7 +172,7 @@ class BaseFetcher(ABC):
         # Staleness + filing-cycle due-date: viability gates, on/off with the
         # abandonment master switch — never with the lock.
         if settings.FETCH_ABANDONMENT_ENABLED:
-            stale = self.stale_symbols(candidates)
+            stale = self.stale_symbols(candidates, status_db)
             not_due = self.not_due_symbols(candidates)
         else:
             stale = not_due = set()
