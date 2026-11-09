@@ -1049,7 +1049,8 @@ needs.
      - Wrap Group 2 API fetchers in multiprocessing (Group 1 stays sequential)
      - Write queue pattern for concurrent DB writes
      - Auth for E*Trade runs in main process before workers start, token passed to workers
-     - **Analysis + sector/industry index speed-up** (added 2026-11-08, OPEN — not designed yet).
+     - ✅ **Analysis + sector/industry index speed-up** (added 2026-11-08, DONE the same day —
+       a full analysis-only run went from **69 min to 12.6 min**; see the two ✅ items below).
        **Why:** a full run spends about 1.5 hours after the fetch, on ONE CPU core out of 32,
        and the index step logs nothing for about 40 minutes, so it looks hung.
        - **Measured on the 2026-11-08 run** (38,485 symbols, one run, from log timestamps):
@@ -1069,6 +1070,42 @@ needs.
            frame. This conflicts with the Cloud VM idea's low-RAM batching (Future Ideas), so
            design them together.
        - **Also:** log progress inside the index build so a long step never looks hung.
+       - ✅ **2026-11-08 — index build done.** Profiling
+         showed the ~43 min was pandas overhead, not maths: a label lookup per trading day
+         (~3 ms × ~4,900 days × 154 groups). `compute_index` now runs on NumPy arrays and does
+         each quarter between rebalances in one step. Same method, weights, capping and dates.
+         - **Measured read-only on real data:** 154 series in **59 s** (was ~43 min). All
+           647,165 stored rows reproduced, max relative difference 1.5e-14.
+         - **In a real run** (after the throttling fix below) the whole index step takes
+           **~1.2 min**: price read 26 s, share panel 8 s, 154 series 24 s.
+         - ~~Progress lines added to the log~~ — removed again once the step became ~1 min.
+         - **Decided:** don't run the analysis and the index build in parallel. The saving
+           would now be minutes, for extra RAM and complexity.
+         - **Found, not yet investigated:** the Healthcare index ends at 0.63 and Industrials at
+           19.8 (both base 100 in 2007). Same in the old code, so it's a data problem, not this
+           change. Likely a bad price or share count in a constituent.
+       - ✅ **2026-11-08 — the real cause of the slow loop was Windows power throttling.**
+         - **Symptom:** the per-symbol loop ran ~120 ms/symbol in a real run, but the same code
+           and full data ran ~18 ms/symbol from a terminal. The slowdown was even across every
+           stage, and loading took 10 min against 3.5.
+         - **Cause:** the app is started from a desktop shortcut, so neither the UI server nor
+           the detached run it launches has a window. Windows 11 treats that as background
+           work and throttles it (EcoQoS / efficiency cores). Runs started inside VS Code were
+           never throttled, which is why tests could not reproduce it.
+         - **Ruled out on the way:** garbage collection, hidden-window/job launch flags,
+           logging, the shutdown guard, orchestrator imports, data size, symbol order.
+         - **Fix:** `core/power.py` `disable_power_throttling()` — Microsoft's documented
+           `SetProcessInformation(ProcessPowerThrottling)` HighQoS opt-out — called at the start
+           of `scripts/run_fetch.main`, so it covers fetch and analysis-only runs. The run log
+           ends with `Power throttling opt-out active`. Trade-off: full power while a run is
+           going (fine — the machine stays on the charger).
+         - **Measured, analysis-only run from the app:** load 3.2 min, loop 8.1 min (stocks
+           15–20 ms/symbol, funds 8 ms), indices 1.2 min — **12.6 min total, was 69**. Same
+           outputs (38,564 symbols, 292 columns, 647,165 index rows). Peak RAM 7.9 GB.
+         - **Fetch runs** launch the same way, so their CPU-bound parts (sanitize, DB writes,
+           backups, reassessment) should speed up too; network/rate-limit waits won't.
+         - **Decided:** no multiprocessing for the analysis loop — not needed at ~8 min.
+         - **Lesson:** measure the slow process itself, as launched, before optimising code.
 
    - FETCH CONTROL PANEL (Streamlit UI):
      - Group 1 — Symbol Discovery (always runs first, sequential):

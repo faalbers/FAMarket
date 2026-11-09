@@ -24,6 +24,7 @@ import argparse
 from analysis_layer.pipeline import run_analysis
 from config import settings
 from core.logging_config import get_logger, roll_log
+from core.power import disable_power_throttling
 from core.shutdown_guard import ShutdownGuard
 from data_layer import run_state
 from data_layer.orchestrator import run_full_fetch
@@ -80,7 +81,14 @@ def main() -> None:
     )
     guard.start()
     try:
+        # Windows treats this windowless run as background work and can throttle it
+        # to the efficiency cores (measured ~6-7x slower, ROADMAP 8.5). Opt out.
+        # Logged after _run: the run rolls the log at its start, so a line written
+        # now would land in the PREVIOUS run's archived log.
+        throttling_off = disable_power_throttling()
         summary = _run(args)
+        get_logger("run_fetch").info(
+            "Power throttling opt-out %s", "active" if throttling_off else "NOT applied")
     except Exception as exc:
         get_logger("run_fetch").exception(
             "Run failed — %s: %s", type(exc).__name__, exc
