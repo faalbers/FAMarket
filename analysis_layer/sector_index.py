@@ -28,6 +28,10 @@ MARKET CAP ON ONE SPLIT BASIS (2026-11-08, ROADMAP 4.5)
   count is multiplied by the splits after its date (`_split_adjust_shares`, which
   also spots counts a later filing already restated). Weights use `close` (split-
   only) x those shares, so dividends don't shrink old caps; returns use adj_close.
+  Then units: a count in other units than the ticker's price (Class A counts on
+  BRK-B, home-market shares on an ADR) is rescaled so today's cap matches Yahoo's
+  marketCap (`_calibrate_share_units`), and a float share below 5% — mixed units —
+  is recomputed from another share count (`_iwf`).
 
 UNIVERSE / DISTORTION GUARD
   The raw universe includes illiquid/penny names that can dominate (and warp) a
@@ -492,15 +496,69 @@ def _shares_panel(symbols, shares_pts: pd.DataFrame, date_index: pd.DatetimeInde
     return out
 
 
-def _iwf(quotes: pd.DataFrame, symbols) -> pd.Series:
-    """Investable weight factor = floatShares / sharesOutstanding, clipped to (0, 1]."""
+# A float share below this is almost always mixed units, not a real float (BRK-B:
+# Yahoo's floatShares is in Class A units, sharesOutstanding in Class B -> 0.09%).
+_IWF_SANITY_FLOOR = 0.05
+
+
+def _iwf(quotes: pd.DataFrame, symbols, reported_shares: pd.Series | None = None) -> pd.Series:
+    """Investable weight factor = floatShares / sharesOutstanding, clipped to (0, 1].
+
+    When that ratio is below `_IWF_SANITY_FLOOR` the two counts are probably in
+    different units, so the other share counts we have — Yahoo's
+    impliedSharesOutstanding, then the latest reported count (`reported_shares`) — are
+    tried as the denominator, and the first giving a sane ratio wins. Berkshire's
+    float comes out at 86% that way instead of 0.09%.
+    """
+    symbols = list(symbols)
     if quotes.empty:
-        return pd.Series(1.0, index=list(symbols))
-    so = pd.to_numeric(quotes.get("sharesOutstanding"), errors="coerce")
-    fl = pd.to_numeric(quotes.get("floatShares"), errors="coerce")
-    iwf = fl / so
-    iwf = iwf.where((so > 0) & (fl > 0), 1.0)
+        return pd.Series(1.0, index=symbols)
+
+    def col(name: str) -> pd.Series:
+        s = quotes[name] if name in quotes.columns else pd.Series(np.nan, index=quotes.index)
+        return pd.to_numeric(s, errors="coerce").reindex(symbols)
+
+    fl = col("floatShares")
+    denominators = [col("sharesOutstanding"), col("impliedSharesOutstanding")]
+    if reported_shares is not None:
+        denominators.append(pd.to_numeric(reported_shares, errors="coerce").reindex(symbols))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratios = [(fl / d).where((d > 0) & (fl > 0)) for d in denominators]
+    iwf = ratios[0]
+    for alt in ratios[1:]:
+        bad = ~(iwf >= _IWF_SANITY_FLOOR)
+        iwf = iwf.where(~bad | ~(alt >= _IWF_SANITY_FLOOR), alt)
     return iwf.clip(lower=0.0, upper=1.0).fillna(1.0)
+
+
+def _calibrate_share_units(shares: pd.DataFrame, cap_prices: pd.DataFrame,
+                           quotes: pd.DataFrame) -> pd.DataFrame:
+    """Rescale a constituent's whole share history when its units are wrong.
+
+    Compares today's market cap from our data (latest close x latest share count)
+    with Yahoo's quoted `marketCap`, which covers every share class. Off by more than
+    `settings.INDEX_SHARE_UNIT_TOLERANCE` either way means the count is in other units
+    than the price — Class A shares on a Class B ticker (BRK-B, ~1,500x too small) or
+    home-market shares on an ADR (far too big) — so the column is multiplied by the
+    measured factor. That fixes the units and keeps the history's shape.
+    """
+    tol = settings.INDEX_SHARE_UNIT_TOLERANCE
+    if tol <= 0 or quotes.empty or "marketCap" not in quotes.columns or shares.empty:
+        return shares
+    ours = cap_prices.ffill().iloc[-1] * shares.ffill().iloc[-1]
+    theirs = pd.to_numeric(quotes["marketCap"], errors="coerce").reindex(shares.columns)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        factor = theirs / ours
+    fix = factor[(factor > tol) | (factor < 1.0 / tol)].dropna()
+    fix = fix[np.isfinite(fix) & (fix > 0)]
+    if fix.empty:
+        return shares
+    out = shares.copy()
+    out[fix.index] = out[fix.index] * fix
+    log.info("Sector index — rescaled share units for %d constituents (our market cap "
+             "today off Yahoo's by >%gx; e.g. %s)", len(fix), tol,
+             ", ".join(f"{s} x{fix[s]:.3g}" for s in fix.abs().sort_values().index[-5:]))
+    return out
 
 
 def _liquid_symbols(symbols, ohlcv_by: dict) -> list[str]:
@@ -645,7 +703,9 @@ def build_and_write(universe_symbols, quotes: pd.DataFrame, financials: pd.DataF
     adj_pts = _split_adjust_shares(shares_pts[shares_pts["symbol"].isin(set(members))],
                                    _split_events(members))
     shares = _shares_panel(members, adj_pts, prices.index)
-    iwf = _iwf(quotes, members)
+    shares = _calibrate_share_units(shares, cap_prices, quotes)
+    reported = shares_pts.sort_values("period_end").groupby("symbol")["shares"].last()
+    iwf = _iwf(quotes, members, reported_shares=reported)
     eligible = _point_in_time_eligible(dollar_volume, cap_prices, shares, iwf)
     del dollar_volume
 

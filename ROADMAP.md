@@ -605,12 +605,25 @@ needs.
            7.65×), daily correlation 0.85 → 0.96; Industrials 6.6× (XLI 6.2×), 0.97;
            correlation improves or holds in every sector (0.89–0.98). A few more >15%
            industry days (362 → 371), all crash/rally days in small industries.
+       - **6. Share-unit calibration** (`_calibrate_share_units`, `INDEX_SHARE_UNIT_TOLERANCE`
+         = 2, added 2026-11-08): Berkshire was ~1,500× too small — its counts are in
+         Class A units against BRK-B's price — and its float came out at 0.09% (Yahoo's
+         floatShares in A units, sharesOutstanding in B). A wider check found 446 of ~4,100
+         constituents whose cap today (latest close × our count) is off Yahoo's quoted
+         `marketCap` by >2× (89% agree within 2×, median 1.00): share classes, ADRs counted
+         in home-market shares, junk counts. Their whole share history is rescaled by the
+         measured factor (452 in the real data). `_iwf` now retries the float ratio with
+         impliedSharesOutstanding, then the latest reported count, when it is below 5%.
+         Trade-off: trusts Yahoo's current marketCap (it covers all share classes).
+         - **Result (read-only):** BRK-B cap today $1,222B (Yahoo $1,222B), float 86%.
+           Consumer Cyclical correlation with XLY 0.91 → 0.95, growth 6.4× → 7.0×;
+           Communication 0.91 → 0.92; others within ±0.4× and same or better correlation.
        - **Remaining known gaps:**
-         - **Financials 7.8× vs XLF 3.7×:** Yahoo keeps V/MA in Financials for all
-           history, and **BRK-B is ~1,500× too small** — its share count is in Class A
-           units (1 A = 1,500 B), so Berkshire has almost no weight (XLF holds ~13%).
-           A share-class problem, not fixed yet.
-         - **Consumer Cyclical 6.4× vs XLY 9.2×:** not investigated.
+         - **Financials 7.7× vs XLF 3.7×:** Berkshire only enters in 2022 (our share data
+           starts there — Berkshire tags its A and B counts separately, which the EDGAR
+           backfill doesn't read). Since mid-2022 it is close (2.18× vs 2.00×), so the gap
+           is earlier history, likely V/MA, which Yahoo keeps in Financials throughout.
+         - **Consumer Cyclical 7.0× vs XLY 9.2×:** not investigated.
        - **FAPortfolio:** same file shape, but every stored level changes on the next full
          run's push (ROADMAP 4.5 contract unchanged).
        - MEASURED (2026-06-14, stdlib ctypes probe, 32GB machine): the index build's own

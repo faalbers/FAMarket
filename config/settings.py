@@ -339,6 +339,12 @@ INDEX_PRICE_BREAK_RATIO: float = 10.0
 # at $8.5T with a ratio of 0.002) and barely-traded US listings of foreign companies.
 # Real large caps sit far above it (lowest seen: AAPL 0.66, LLY 0.61). Set 0 to disable.
 INDEX_MIN_LIQUIDITY_RATIO: float = 0.1
+# Share-unit calibration: if a constituent's market cap today (latest close x our share
+# count) differs from Yahoo's quoted marketCap by more than this factor either way, the
+# share count is in the wrong units (Class A counts on a Class B ticker — BRK-B ~1,500x
+# — or home-market shares on an ADR), so its whole share history is rescaled by the
+# measured factor. 89% of constituents agree within 2x (median 1.00). Set 0 to disable.
+INDEX_SHARE_UNIT_TOLERANCE: float = 2.0
 # Index history is read back to the earliest date by which this many constituents
 # have a share report in financials.db (data-driven start; a breadth guard so one
 # deep-history outlier can't drag the price read back decades). Prices for the index
