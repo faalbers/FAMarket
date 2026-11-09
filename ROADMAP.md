@@ -618,12 +618,34 @@ needs.
          - **Result (read-only):** BRK-B cap today $1,222B (Yahoo $1,222B), float 86%.
            Consumer Cyclical correlation with XLY 0.91 → 0.95, growth 6.4× → 7.0×;
            Communication 0.91 → 0.92; others within ±0.4× and same or better correlation.
+       - ~~**Remaining known gaps:** Financials 7.7× vs XLF 3.7× (likely V/MA); Consumer
+         Cyclical 7.0× vs XLY 9.2×.~~ Both turned out to be the THIN START, not
+         composition: from mid-2009 every sector matched its ETF (Cyclical 12.2× vs 12.6×,
+         Financials 7.7× vs 8.0×, Materials 5.8× vs 5.8×); all the gap was Feb 2008 →
+         mid-2009, when a sector held a handful of names (Consumer Cyclical: Macy's, LVS,
+         eBay, DHI, SBH at ~26% each) because most share data starts with end-2008 filings.
+       - **7. Breadth before a series starts** (`INDEX_MIN_ACTIVE_SECTOR` = 20,
+         `INDEX_MIN_ACTIVE_INDUSTRY` = 2, added 2026-11-08): a series begins on the first
+         day that many names can be weighted, or at the group's most-ever count if it never
+         gets there (no series disappears). Sectors now start 2008-12-31 (7), mid/end 2009
+         (3), 2010-12-31 (1). Industries kept at 2 — a 2–5 sweep cut >15% days 364 → 183
+         (mostly real crash days) but cost real history: at 5, 26 industries (e.g. Home
+         Improvement Retail = HD + LOW since 2009) would start inside FAPortfolio's 4-year
+         window instead of 5. Industry output is unchanged.
+         - **Result (read-only) vs SPDR ETFs, same start:** Financials 7.8× vs 7.7×,
+           Consumer Cyclical 14.0× vs 13.6×, Materials 5.8× vs 5.8×, Industrials 10.3× vs
+           9.7×, Utilities 5.7× vs 5.5×, Energy 5.0× vs 4.5×, Healthcare 8.5× vs 9.5×,
+           Technology 31.9× vs 27.0× (more growth names than XLK). **Daily correlation
+           0.94–0.99 in every sector** (was 0.85–0.98).
        - **Remaining known gaps:**
-         - **Financials 7.7× vs XLF 3.7×:** Berkshire only enters in 2022 (our share data
-           starts there — Berkshire tags its A and B counts separately, which the EDGAR
-           backfill doesn't read). Since mid-2022 it is close (2.18× vs 2.00×), so the gap
-           is earlier history, likely V/MA, which Yahoo keeps in Financials throughout.
-         - **Consumer Cyclical 7.0× vs XLY 9.2×:** not investigated.
+         - **Dual-class companies lack share history before ~2022-23:** Berkshire (data
+           from 2022) and Nike (from 2023) report Class A and B counts under separate XBRL
+           tags, which the EDGAR backfill (`CommonStockSharesOutstanding`) doesn't read, so
+           they only enter the indices late. A fetcher gap (EDGAR tag coverage), not an
+           index one — fix in `edgar_fetcher.py` by summing per-class counts (e.g.
+           `dei:EntityCommonStockSharesOutstanding` per class). Not done yet.
+         - **Technology 31.9× vs XLK 27.0×, Healthcare 8.5× vs 9.5×:** within the spread
+           expected from Yahoo's broader sectors; not investigated.
        - **FAPortfolio:** same file shape, but every stored level changes on the next full
          run's push (ROADMAP 4.5 contract unchanged).
        - MEASURED (2026-06-14, stdlib ctypes probe, 32GB machine): the index build's own

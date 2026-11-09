@@ -345,6 +345,18 @@ INDEX_MIN_LIQUIDITY_RATIO: float = 0.1
 # — or home-market shares on an ADR), so its whole share history is rescaled by the
 # measured factor. 89% of constituents agree within 2x (median 1.00). Set 0 to disable.
 INDEX_SHARE_UNIT_TOLERANCE: float = 2.0
+# Breadth before a series starts: an index begins on the first day at least this many
+# of its constituents can be weighted (or the group's own most-ever, if it never gets
+# there, so no series disappears). With the old minimum of 2, sectors began Feb 2008
+# on a handful of names (Consumer Cyclical: Macy's, LVS, eBay, DHI, SBH) because most
+# share data starts with the end-2008 filings, and that thin start caused most of the
+# remaining gaps to the SPDR ETFs (Financials 7.7x vs XLF 3.7x -> 7.8x vs 7.7x).
+# Industries stay at 2: they are small by nature (Home Improvement Retail is HD + LOW),
+# and the other guards already drop junk names. Swept 2-5 on 2026-11-08: each step up
+# cut >15% days (364 -> 183, mostly real crash days) but cost real history — at 5, 26
+# industries started inside FAPortfolio's 4-year window instead of 5.
+INDEX_MIN_ACTIVE_SECTOR: int = 20
+INDEX_MIN_ACTIVE_INDUSTRY: int = 2
 # Index history is read back to the earliest date by which this many constituents
 # have a share report in financials.db (data-driven start; a breadth guard so one
 # deep-history outlier can't drag the price read back decades). Prices for the index

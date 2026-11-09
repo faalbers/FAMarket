@@ -42,8 +42,9 @@ UNIVERSE / DISTORTION GUARD
   S&P re-checks liquidity each quarter — and only if a year of that trading is at
   least `settings.INDEX_MIN_LIQUIDITY_RATIO` of its float cap (S&P's float-adjusted
   liquidity ratio), which drops phantom caps from bad share counts (REGN 2012 came
-  out at $8.5T). Plus a `min_active` breadth guard so no
-  single early name defines the base. And a price-break guard: a one-day move beyond
+  out at $8.5T). Plus a breadth guard: a series only starts once
+  `INDEX_MIN_ACTIVE_SECTOR` (20) / `INDEX_MIN_ACTIVE_INDUSTRY` (2) names can be
+  weighted (or the group's most-ever), so a handful of early names can't set the base. And a price-break guard: a one-day move beyond
   `settings.INDEX_PRICE_BREAK_RATIO` (10x either way — an unadjusted reverse split,
   a bankruptcy re-listing) counts as 0% for that name, as a divisor adjustment would.
 
@@ -225,9 +226,12 @@ def compute_index(
         # Float-adjusted market cap, used purely to set the weights at each rebalance.
         fmc = cap_prc * shr_a * w_iwf.to_numpy(dtype=float)
 
-    # Effective start = first day with at least `min_active` active constituents.
+    # Effective start = first day with at least `min_active` active constituents — or,
+    # for a group that never gets that broad, the most it ever has, so it still exists.
     n_active = active.sum(axis=1)
-    started = np.flatnonzero(n_active >= min(min_active, max(1, len(cols))))
+    if n_active.size == 0 or int(n_active.max()) == 0:
+        return pd.Series(dtype=float)
+    started = np.flatnonzero(n_active >= min(min_active, int(n_active.max())))
     if started.size == 0:
         return pd.Series(dtype=float)
     s0 = int(started[0])
@@ -650,11 +654,11 @@ def _groups(quotes: pd.DataFrame, symbols) -> tuple[dict, dict]:
 
 
 def _to_long(kind: str, groups: dict, prices, shares, iwf, cap_prices=None,
-             eligible=None) -> pd.DataFrame:
+             eligible=None, min_active: int = 2) -> pd.DataFrame:
     """Compute each group's series and stack into tidy (kind, label, date, level) rows."""
     frames = []
     for label, names in groups.items():
-        lvl = compute_index(names, prices, shares, iwf, cap=True,
+        lvl = compute_index(names, prices, shares, iwf, cap=True, min_active=min_active,
                             cap_prices=cap_prices, eligible=eligible)
         if len(lvl):
             frames.append(pd.DataFrame({
@@ -715,8 +719,10 @@ def build_and_write(universe_symbols, quotes: pd.DataFrame, financials: pd.DataF
              settings.INDEX_MIN_AVG_DOLLAR_VOLUME / 1e6,
              start.date() if start is not None else "n/a", settings.INDEX_START_MIN_REPORTERS)
 
-    sec_long = _to_long("sector", sector_groups, prices, shares, iwf, cap_prices, eligible)
-    ind_long = _to_long("industry", industry_groups, prices, shares, iwf, cap_prices, eligible)
+    sec_long = _to_long("sector", sector_groups, prices, shares, iwf, cap_prices, eligible,
+                        min_active=settings.INDEX_MIN_ACTIVE_SECTOR)
+    ind_long = _to_long("industry", industry_groups, prices, shares, iwf, cap_prices, eligible,
+                        min_active=settings.INDEX_MIN_ACTIVE_INDUSTRY)
     long_df = pd.concat([sec_long, ind_long], ignore_index=True)
 
     n_sectors = sec_long["label"].nunique() if not sec_long.empty else 0
