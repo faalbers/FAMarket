@@ -588,10 +588,29 @@ needs.
          SPDR ETF since 2008: Technology 18.9× vs XLK 19.0×, Industrials 5.8× vs 6.2×,
          Real Estate, Communication, Utilities, Consumer Defensive within ~10%; daily
          correlation 0.85–0.97. Build time unchanged (~1 min).
-       - **Known gap:** Healthcare 3.3× vs XLV 7.7×, Financials 8.0× vs XLF 3.7×, Consumer
-         Cyclical 5.9× vs XLY 9.2×. Likely composition, not a bug — Yahoo sectors include
-         thousands of small caps (biotech) and keep V/MA in Financials for all history.
-         Not investigated further.
+       - ~~**Known gap:** Healthcare 3.3× vs XLV 7.7× … likely composition, not a bug.~~
+         Checked the same day and that guess was WRONG: Healthcare without Biotechnology
+         already matched XLV (7.70× vs 7.65×), and even a top-60-by-cap version stayed at
+         2.75× — so it was phantom BIG caps, not small biotechs. REGN 2012 came out at
+         $8.5T (a bad share count; it never split), plus reverse-split names whose counts
+         stayed wrong (BDRX, PALI, QNRX).
+       - **5. Liquidity-ratio guard** (`INDEX_MIN_LIQUIDITY_RATIO` = 0.1, added
+         2026-11-08): at a rebalance a name is only weighted if a year of its dollar volume
+         is ≥ 10% of its float cap — S&P's float-adjusted liquidity ratio. REGN's phantom
+         cap scores 0.002; the lowest real large caps seen are AAPL 0.66, LLY 0.61. Also
+         drops barely-traded US listings of foreign companies (ABBNY, AMX, BBVA), which
+         the SPDR ETFs don't hold either. Tested cut-offs 0.05 / 0.1 / 0.25 — similar
+         results, 0.1 picked as the middle.
+         - **Result (read-only, vs SPDR ETFs since 2008):** Healthcare 3.3× → **7.2×** (XLV
+           7.65×), daily correlation 0.85 → 0.96; Industrials 6.6× (XLI 6.2×), 0.97;
+           correlation improves or holds in every sector (0.89–0.98). A few more >15%
+           industry days (362 → 371), all crash/rally days in small industries.
+       - **Remaining known gaps:**
+         - **Financials 7.8× vs XLF 3.7×:** Yahoo keeps V/MA in Financials for all
+           history, and **BRK-B is ~1,500× too small** — its share count is in Class A
+           units (1 A = 1,500 B), so Berkshire has almost no weight (XLF holds ~13%).
+           A share-class problem, not fixed yet.
+         - **Consumer Cyclical 6.4× vs XLY 9.2×:** not investigated.
        - **FAPortfolio:** same file shape, but every stored level changes on the next full
          run's push (ROADMAP 4.5 contract unchanged).
        - MEASURED (2026-06-14, stdlib ctypes probe, 32GB machine): the index build's own

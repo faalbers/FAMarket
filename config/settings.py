@@ -333,6 +333,12 @@ INDEX_MIN_INDUSTRY_MEMBERS: int = 3       # skip 'sector | industry' groups smal
 # index carries on from its new price. Real liquid stocks practically never move 10x
 # in a day (TRON's real +534% on 2025-06-16 stays in). Set 0 to disable.
 INDEX_PRICE_BREAK_RATIO: float = 10.0
+# Liquidity-ratio guard (S&P's float-adjusted liquidity ratio idea): at a rebalance a
+# name is only weighted if its annualised dollar volume is at least this fraction of
+# its float market cap. Catches phantom caps from bad share counts (REGN 2012 came out
+# at $8.5T with a ratio of 0.002) and barely-traded US listings of foreign companies.
+# Real large caps sit far above it (lowest seen: AAPL 0.66, LLY 0.61). Set 0 to disable.
+INDEX_MIN_LIQUIDITY_RATIO: float = 0.1
 # Index history is read back to the earliest date by which this many constituents
 # have a share report in financials.db (data-driven start; a breadth guard so one
 # deep-history outlier can't drag the price read back decades). Prices for the index

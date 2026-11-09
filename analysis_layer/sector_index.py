@@ -35,7 +35,10 @@ UNIVERSE / DISTORTION GUARD
   liquidity floor TODAY (avg daily dollar volume, `settings.INDEX_MIN_AVG_DOLLAR_VOLUME`),
   and at every rebalance a name is only weighted if it cleared the same floor
   THEN (trailing close x volume, split-invariant) — point-in-time eligibility, as
-  S&P re-checks liquidity each quarter. Plus a `min_active` breadth guard so no
+  S&P re-checks liquidity each quarter — and only if a year of that trading is at
+  least `settings.INDEX_MIN_LIQUIDITY_RATIO` of its float cap (S&P's float-adjusted
+  liquidity ratio), which drops phantom caps from bad share counts (REGN 2012 came
+  out at $8.5T). Plus a `min_active` breadth guard so no
   single early name defines the base. And a price-break guard: a one-day move beyond
   `settings.INDEX_PRICE_BREAK_RATIO` (10x either way — an unadjusted reverse split,
   a bankruptcy re-listing) counts as 0% for that name, as a divisor adjustment would.
@@ -377,19 +380,30 @@ def _deep_panels(symbols, start, field: str) -> tuple[pd.DataFrame, pd.DataFrame
     return ret, pd.DataFrame(cap_cols).reindex(ret.index), pd.DataFrame(dv_cols).reindex(ret.index)
 
 
-def _point_in_time_liquid(dollar_volume: pd.DataFrame) -> pd.DataFrame:
-    """Bool panel: on each day, did the name's trailing avg dollar volume clear the floor?
+def _point_in_time_eligible(dollar_volume: pd.DataFrame, cap_prices: pd.DataFrame,
+                            shares: pd.DataFrame, iwf: pd.Series) -> pd.DataFrame:
+    """Bool panel: on each day, may the name be weighted? Two checks on that day's data.
 
-    Same floor and window as the today-only `_liquid_symbols` filter, evaluated on
-    every day, so a rebalance only weights names that were actually traded THEN.
+    1. Trailing avg dollar volume clears `INDEX_MIN_AVG_DOLLAR_VOLUME` — the same floor
+       and window as the today-only `_liquid_symbols` filter, so a rebalance only
+       weights names that were actually traded THEN.
+    2. Annualised dollar volume / float market cap >= `INDEX_MIN_LIQUIDITY_RATIO`
+       (S&P's float-adjusted liquidity ratio). A market cap no real trading supports
+       is a bad share count, and dropping it keeps a phantom giant out of the weights.
     Needs at least half a window of bars, so a brand-new listing waits a little.
     """
-    floor = settings.INDEX_MIN_AVG_DOLLAR_VOLUME
-    if floor <= 0:
-        return pd.DataFrame(True, index=dollar_volume.index, columns=dollar_volume.columns)
+    ok = pd.DataFrame(True, index=dollar_volume.index, columns=dollar_volume.columns)
     win = settings.INDEX_LIQUIDITY_WINDOW_DAYS
     avg = dollar_volume.rolling(win, min_periods=max(1, win // 2)).mean()
-    return avg >= floor
+    if settings.INDEX_MIN_AVG_DOLLAR_VOLUME > 0:
+        ok &= avg >= settings.INDEX_MIN_AVG_DOLLAR_VOLUME
+    if settings.INDEX_MIN_LIQUIDITY_RATIO > 0:
+        fmc = (cap_prices.ffill() * shares.reindex(columns=cap_prices.columns)
+               * iwf.reindex(cap_prices.columns).fillna(1.0))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ratio = avg * 252 / fmc
+        ok &= ratio >= settings.INDEX_MIN_LIQUIDITY_RATIO
+    return ok
 
 
 def _split_events(symbols) -> dict[str, list[tuple[pd.Timestamp, float]]]:
@@ -628,12 +642,12 @@ def build_and_write(universe_symbols, quotes: pd.DataFrame, financials: pd.DataF
     if prices.empty:
         log.warning("Sector index — empty price panel; skipping")
         return {"sectors": 0, "industries": 0, "constituents": 0}
-    eligible = _point_in_time_liquid(dollar_volume)
-    del dollar_volume
     adj_pts = _split_adjust_shares(shares_pts[shares_pts["symbol"].isin(set(members))],
                                    _split_events(members))
     shares = _shares_panel(members, adj_pts, prices.index)
     iwf = _iwf(quotes, members)
+    eligible = _point_in_time_eligible(dollar_volume, cap_prices, shares, iwf)
+    del dollar_volume
 
     log.info("Sector index — %d constituents, %d sectors, %d industries (%s, $-vol floor "
              "%.0fM, history from %s @ %d+ reporters)",
