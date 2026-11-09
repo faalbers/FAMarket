@@ -10,19 +10,35 @@ loaded, so this stage adds no extra large DB reads.
 
 THE FORMULA (unchanged from the prototype)
     Index_t = ( sum_i  P_{i,t} * Shares_{i,t} * IWF_i * AWF_i ) / Divisor
-  P            adj_close (total return)
-  Shares       shares outstanding interpolated daily from financials reports
+  P            adj_close (total return) drives the daily moves
+  Shares       shares outstanding interpolated daily from financials reports,
+               put on the SAME split basis as the price (see below)
   IWF          floatShares / sharesOutstanding (snapshot, from quotes)
   AWF          capping factor set each quarterly rebalance (1.0 if uncapped)
 Weights are float-MC each quarter (third-Friday effective date), capped with
 `cap_weights_new`, then held fixed between rebalances. Each series is rebased to
 100 at its own effective start, so levels are *growth since start*, not absolute.
 
+MARKET CAP ON ONE SPLIT BASIS (2026-11-08, ROADMAP 4.5)
+  Yahoo's `close`/`adj_close` are adjusted for every LATER split, but report share
+  counts are as filed. Multiplying the two mis-sized every company that split after
+  a date: NVDA pre-2021 ~40x too small, while reverse-split penny stocks got absurd
+  caps (PPCB 2013: $4.7e13/share) and the 23% max weight, wrecking whole indices.
+  Fixed the way Compustat (CSHOQ x AJEXQ) and CRSP (cfacshr) do it: each share
+  count is multiplied by the splits after its date (`_split_adjust_shares`, which
+  also spots counts a later filing already restated). Weights use `close` (split-
+  only) x those shares, so dividends don't shrink old caps; returns use adj_close.
+
 UNIVERSE / DISTORTION GUARD
   The raw universe includes illiquid/penny names that can dominate (and warp) a
   group's index. We feed in only active+validated symbols that also clear a
-  liquidity floor (avg daily dollar volume, `settings.INDEX_MIN_AVG_DOLLAR_VOLUME`)
-  plus a `min_active` breadth guard so no single early name defines the base.
+  liquidity floor TODAY (avg daily dollar volume, `settings.INDEX_MIN_AVG_DOLLAR_VOLUME`),
+  and at every rebalance a name is only weighted if it cleared the same floor
+  THEN (trailing close x volume, split-invariant) — point-in-time eligibility, as
+  S&P re-checks liquidity each quarter. Plus a `min_active` breadth guard so no
+  single early name defines the base. And a price-break guard: a one-day move beyond
+  `settings.INDEX_PRICE_BREAK_RATIO` (10x either way — an unadjusted reverse split,
+  a bankruptcy re-listing) counts as 0% for that name, as a divisor adjustment would.
 
 DATE RANGE (decoupled from the analysis OHLCV window — 2026-06-14)
   The index history is NOT tied to `ANALYSIS_OHLCV_LOOKBACK_DAYS` (that ~2yr bound
@@ -31,7 +47,7 @@ DATE RANGE (decoupled from the analysis OHLCV window — 2026-06-14)
   `settings.INDEX_START_MIN_REPORTERS` constituents have a share report in
   financials.db (a breadth guard so one deep-history outlier can't drag the read
   back decades). Prices are then read with a dedicated, memory-efficient reader
-  (`_deep_price_panel`): only `adj_close`, only the liquid constituents (~4-5k, not
+  (`_deep_panels`): only adj_close/close/volume, only the liquid constituents (~4-5k, not
   the 38k universe), in symbol-chunks so the peak footprint is ~one chunk — far
   below the full-table read that forced the analysis window in the first place.
 """
@@ -158,35 +174,56 @@ def compute_index(
     start=None,
     end=None,
     min_active: int = 2,
+    cap_prices: pd.DataFrame | None = None,
+    eligible: pd.DataFrame | None = None,
+    break_ratio: float | None = None,
 ) -> pd.Series:
-    """Float-adjusted, capped, quarterly-rebalanced base-100 level series for one group."""
+    """Float-adjusted, capped, quarterly-rebalanced base-100 level series for one group.
+
+    `prices` drive the daily moves. `cap_prices` (default: `prices`) size the market
+    caps that set the weights; `shares` must be on the same split basis. `eligible`
+    (bool, default all True) says which names may be weighted on each day — a name
+    that fails it at a rebalance is left out until a later rebalance. `break_ratio`
+    (default `settings.INDEX_PRICE_BREAK_RATIO`, 0 = off) neutralises one-day price
+    jumps beyond that factor as data breaks.
+    """
+    if break_ratio is None:
+        break_ratio = settings.INDEX_PRICE_BREAK_RATIO
     cols = [c for c in constituents if c in prices.columns]
     if not cols:
         return pd.Series(dtype=float)
 
-    px = prices[cols]
-    shr = shares[cols]
+    def window(df: pd.DataFrame) -> pd.DataFrame:
+        if start is not None:
+            df = df[df.index >= pd.Timestamp(start)]
+        if end is not None:
+            df = df[df.index <= pd.Timestamp(end)]
+        return df
+
+    px = window(prices[cols])
+    shr = window(shares[cols]).reindex(px.index)
+    cpx = window(cap_prices[cols]).reindex(px.index) if cap_prices is not None else px
+    ok_liq = (window(eligible[cols]).reindex(px.index).fillna(False).to_numpy(dtype=bool)
+              if eligible is not None else np.ones(px.shape, dtype=bool))
     w_iwf = iwf.reindex(cols).fillna(1.0)
-    if start is not None:
-        px, shr = px[px.index >= pd.Timestamp(start)], shr[shr.index >= pd.Timestamp(start)]
-    if end is not None:
-        px, shr = px[px.index <= pd.Timestamp(end)], shr[shr.index <= pd.Timestamp(end)]
 
     # Forward-fill the odd missing price so a single NaN day doesn't drop a constituent.
     px_ff = px.ffill()
     prc = px_ff.to_numpy(dtype=float)
+    cap_prc = cpx.ffill().to_numpy(dtype=float)
     shr_a = shr.to_numpy(dtype=float)
     with np.errstate(invalid="ignore"):
-        active = ~np.isnan(prc) & ~np.isnan(shr_a) & (prc > 0)
+        active = (~np.isnan(prc) & ~np.isnan(shr_a) & (prc > 0)
+                  & ~np.isnan(cap_prc) & (cap_prc > 0) & ok_liq)
         # Float-adjusted market cap, used purely to set the weights at each rebalance.
-        fmc = prc * shr_a * w_iwf.to_numpy(dtype=float)
+        fmc = cap_prc * shr_a * w_iwf.to_numpy(dtype=float)
 
     # Effective start = first day with at least `min_active` active constituents.
     n_active = active.sum(axis=1)
-    eligible = np.flatnonzero(n_active >= min(min_active, max(1, len(cols))))
-    if eligible.size == 0:
+    started = np.flatnonzero(n_active >= min(min_active, max(1, len(cols))))
+    if started.size == 0:
         return pd.Series(dtype=float)
-    s0 = int(eligible[0])
+    s0 = int(started[0])
     dates = px_ff.index[s0:]
     prc, fmc, active = prc[s0:], fmc[s0:], active[s0:]
     n = len(dates)
@@ -229,7 +266,20 @@ def compute_index(
         # the market move on the OLD holdings, then rebalances (level stays continuous).
         ahead = np.flatnonzero(is_reb[t:])
         r = t + int(ahead[0]) if ahead.size else n - 1
-        values = np.nansum(prc[t:r + 1][:, pos] * hold, axis=1)
+        seg = prc[t:r + 1][:, pos]
+        if break_ratio > 0:
+            # Price-break guard: a one-day jump beyond break_ratio either way is a data
+            # break, not a move. Scale that holding by old/new price from that day on,
+            # so its value (and the level) carries on unchanged — a divisor-style
+            # corporate-action adjustment.
+            with np.errstate(invalid="ignore", divide="ignore"):
+                day = seg / np.vstack((prc[t - 1, pos], seg[:-1]))
+                brk = (day > break_ratio) | (day < 1.0 / break_ratio)
+            scale = np.cumprod(np.where(brk, 1.0 / day, 1.0), axis=0)
+            values = np.nansum(seg * hold * scale, axis=1)
+            hold = hold * scale[-1]   # carries on if no rebalance happens at r
+        else:
+            values = np.nansum(seg * hold, axis=1)
         ratios = values / np.concatenate(([prev_value], values[:-1]))
         # Multiply in the loop's order: ((cur * r1) * r2) * ...
         chain = np.cumprod(np.concatenate(([cur_level], ratios)))[1:]
@@ -283,37 +333,124 @@ def _start_date(members, shares_pts: pd.DataFrame):
     return first.iloc[k - 1]
 
 
-def _deep_price_panel(symbols, start, field: str) -> pd.DataFrame:
-    """Memory-efficient wide price panel from ohlcv.db, read back to `start`.
+def _deep_panels(symbols, start, field: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Memory-efficient wide panels from ohlcv.db, read back to `start`.
 
-    Reads only `field` for the given (liquid) symbols, in IN(...) chunks, assembling
-    one column per symbol directly — so the peak footprint is ~one chunk's frame plus
-    the (narrow) growing panel, never the full OHLCV table.
+    Returns (return prices = `field`, split-only `close` for market caps, daily dollar
+    volume = close x volume). Yahoo adjusts close down and volume up by the same split
+    factor, so their product is the real money traded that day, split-invariant.
+    Reads only those columns for the given (liquid) symbols, in IN(...) chunks,
+    assembling one column per symbol directly — so the peak footprint is ~one chunk's
+    frame plus the (narrow) growing panels, never the full OHLCV table.
     """
     if field not in ("adj_close", "close"):  # guard: only known price columns
         field = "adj_close"
     start_s = pd.Timestamp(start).strftime("%Y-%m-%d") if start is not None else "0001-01-01"
-    cols: dict = {}
+    ret_cols: dict = {}
+    cap_cols: dict = {}
+    dv_cols: dict = {}
     with Database(settings.OHLCV_DB) as db:
         for chunk in _chunked(symbols):
             ph = ",".join("?" * len(chunk))
             df = db.query(
-                f"SELECT symbol, date, {field} AS px FROM ohlcv "
+                f"SELECT symbol, date, {field} AS px, close, volume FROM ohlcv "
                 f"WHERE date >= ? AND symbol IN ({ph})",
                 [start_s, *chunk],
             )
             if df.empty:
                 continue
             df["date"] = pd.to_datetime(df["date"], errors="coerce")
-            df["px"] = pd.to_numeric(df["px"], errors="coerce")
+            for c in ("px", "close", "volume"):
+                df[c] = pd.to_numeric(df[c], errors="coerce")
             df = df.dropna(subset=["date"])
             for sym, g in df.groupby("symbol", sort=False):
-                s = pd.Series(g["px"].to_numpy(), index=pd.DatetimeIndex(g["date"]))
-                cols[sym] = s[~s.index.duplicated(keep="last")].sort_index()
+                g = g.drop_duplicates("date", keep="last").sort_values("date")
+                idx = pd.DatetimeIndex(g["date"])
+                close = g["close"].to_numpy()
+                ret_cols[sym] = pd.Series(g["px"].to_numpy(), index=idx)
+                cap_cols[sym] = pd.Series(close, index=idx)
+                dv_cols[sym] = pd.Series(close * g["volume"].to_numpy(), index=idx)
             del df
-    if not cols:
-        return pd.DataFrame()
-    return pd.DataFrame(cols).sort_index()
+    if not ret_cols:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    ret = pd.DataFrame(ret_cols).sort_index()
+    return ret, pd.DataFrame(cap_cols).reindex(ret.index), pd.DataFrame(dv_cols).reindex(ret.index)
+
+
+def _point_in_time_liquid(dollar_volume: pd.DataFrame) -> pd.DataFrame:
+    """Bool panel: on each day, did the name's trailing avg dollar volume clear the floor?
+
+    Same floor and window as the today-only `_liquid_symbols` filter, evaluated on
+    every day, so a rebalance only weights names that were actually traded THEN.
+    Needs at least half a window of bars, so a brand-new listing waits a little.
+    """
+    floor = settings.INDEX_MIN_AVG_DOLLAR_VOLUME
+    if floor <= 0:
+        return pd.DataFrame(True, index=dollar_volume.index, columns=dollar_volume.columns)
+    win = settings.INDEX_LIQUIDITY_WINDOW_DAYS
+    avg = dollar_volume.rolling(win, min_periods=max(1, win // 2)).mean()
+    return avg >= floor
+
+
+def _split_events(symbols) -> dict[str, list[tuple[pd.Timestamp, float]]]:
+    """{symbol: [(ex-date, ratio), ...] ascending} from ohlcv.db's sparse `splits` column.
+
+    ratio = new shares per old share (2.0 for a 2:1 split, 0.1 for a 1-for-10
+    reverse split). Read over the FULL history: a share report from 2008 needs every
+    split after it, however recent.
+    """
+    out: dict[str, list[tuple[pd.Timestamp, float]]] = {}
+    with Database(settings.OHLCV_DB) as db:
+        for chunk in _chunked(symbols):
+            ph = ",".join("?" * len(chunk))
+            df = db.query(
+                f"SELECT symbol, date, splits FROM ohlcv WHERE symbol IN ({ph}) "
+                f"AND splits IS NOT NULL AND splits > 0 AND splits != 1",
+                list(chunk),
+            )
+            for sym, g in df.groupby("symbol", sort=False):
+                ev = sorted((pd.Timestamp(d), float(r)) for d, r in zip(g["date"], g["splits"]))
+                out[sym] = ev
+    return out
+
+
+def _split_adjust_shares(shares_pts: pd.DataFrame, splits: dict) -> pd.DataFrame:
+    """Put every share report on today's split basis (the basis Yahoo's prices use).
+
+    A count reported for period P is multiplied by every split with an ex-date after
+    P — Compustat's CSHOQ x AJEXQ. The catch: a filing made AFTER a split restates
+    earlier periods (ASC 260), so some stored counts already include some of those
+    splits, and adjusting them again would double-count. For each report the
+    candidates are "already includes the first k later splits" (k = 0..m); walking
+    from the newest report back, the candidate closest (log distance) to the next
+    newer, already-resolved count wins, with ties going to k = 0. Real share counts
+    rarely jump by a split-sized factor between two reports; splits always do.
+    """
+    if shares_pts.empty or not splits:
+        return shares_pts
+    parts = []
+    for sym, grp in shares_pts.groupby("symbol", sort=False):
+        ev = splits.get(sym)
+        if not ev:
+            parts.append(grp)
+            continue
+        grp = grp.sort_values("period_end", ascending=False)
+        adjusted = []
+        ref: float | None = None
+        for pe, sh in zip(grp["period_end"], grp["shares"]):
+            later = [r for d, r in ev if d > pe]
+            # cands[k] = count if the report already includes the first k later splits
+            cands = [sh * float(np.prod(later[k:])) for k in range(len(later) + 1)]
+            if ref is None or not later:
+                best = cands[0]
+            else:
+                best = min(cands, key=lambda c: abs(np.log(c / ref)))
+            adjusted.append(best)
+            ref = best
+        g2 = grp.copy()
+        g2["shares"] = adjusted
+        parts.append(g2)
+    return pd.concat(parts, ignore_index=True)
 
 
 def _shares_panel(symbols, shares_pts: pd.DataFrame, date_index: pd.DatetimeIndex) -> pd.DataFrame:
@@ -440,11 +577,13 @@ def _groups(quotes: pd.DataFrame, symbols) -> tuple[dict, dict]:
     return sector_groups, industry_groups
 
 
-def _to_long(kind: str, groups: dict, prices, shares, iwf) -> pd.DataFrame:
+def _to_long(kind: str, groups: dict, prices, shares, iwf, cap_prices=None,
+             eligible=None) -> pd.DataFrame:
     """Compute each group's series and stack into tidy (kind, label, date, level) rows."""
     frames = []
     for label, names in groups.items():
-        lvl = compute_index(names, prices, shares, iwf, cap=True)
+        lvl = compute_index(names, prices, shares, iwf, cap=True,
+                            cap_prices=cap_prices, eligible=eligible)
         if len(lvl):
             frames.append(pd.DataFrame({
                 "kind": kind,
@@ -485,11 +624,15 @@ def build_and_write(universe_symbols, quotes: pd.DataFrame, financials: pd.DataF
 
     # Data-driven start (from share coverage) + dedicated memory-efficient deep read.
     start = _start_date(members, shares_pts)
-    prices = _deep_price_panel(members, start, field)
+    prices, cap_prices, dollar_volume = _deep_panels(members, start, field)
     if prices.empty:
         log.warning("Sector index — empty price panel; skipping")
         return {"sectors": 0, "industries": 0, "constituents": 0}
-    shares =_shares_panel(members, shares_pts, prices.index)
+    eligible = _point_in_time_liquid(dollar_volume)
+    del dollar_volume
+    adj_pts = _split_adjust_shares(shares_pts[shares_pts["symbol"].isin(set(members))],
+                                   _split_events(members))
+    shares = _shares_panel(members, adj_pts, prices.index)
     iwf = _iwf(quotes, members)
 
     log.info("Sector index — %d constituents, %d sectors, %d industries (%s, $-vol floor "
@@ -498,8 +641,8 @@ def build_and_write(universe_symbols, quotes: pd.DataFrame, financials: pd.DataF
              settings.INDEX_MIN_AVG_DOLLAR_VOLUME / 1e6,
              start.date() if start is not None else "n/a", settings.INDEX_START_MIN_REPORTERS)
 
-    sec_long = _to_long("sector", sector_groups, prices, shares, iwf)
-    ind_long = _to_long("industry", industry_groups, prices, shares, iwf)
+    sec_long = _to_long("sector", sector_groups, prices, shares, iwf, cap_prices, eligible)
+    ind_long = _to_long("industry", industry_groups, prices, shares, iwf, cap_prices, eligible)
     long_df = pd.concat([sec_long, ind_long], ignore_index=True)
 
     n_sectors = sec_long["label"].nunique() if not sec_long.empty else 0

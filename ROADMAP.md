@@ -563,6 +563,37 @@ needs.
        constituents (not the 38k universe), read in 500-symbol IN(...) chunks assembled
        into one column per symbol. Quotes + full financials + the recent liquidity window
        are still reused from what the pipeline already holds.
+     - ✅ **WEIGHTING FIX (2026-11-08)** — replaces "price × shares" with one split basis,
+       adds point-in-time eligibility and a price-break guard. Found because Healthcare
+       ended at 0.63 and Industrials at 19.8 (base 100, 2007).
+       - **Cause:** Yahoo's prices are adjusted for every LATER split, report share counts
+         are as filed. Mixed, reverse-split penny stocks got absurd caps (PPCB 2013:
+         $4.7e13/share) and the 23% max weight; NVDA pre-2021 came out ~40× too small.
+         126 of 154 series had >15% days; on 793 of them one stock caused most of it.
+       - **1. Shares on the price's split basis** (`_split_adjust_shares`): each count ×
+         the splits after its date — Compustat CSHOQ × AJEXQ / CRSP cfacshr. Counts a later
+         filing already restated (ASC 260) are detected: candidate "already includes the
+         first k splits", closest to the next newer count wins. Splits come from ohlcv.db.
+       - **2. Weights use `close`** (split-only) × those shares; `adj_close` still drives
+         the returns, so dividends no longer shrink old caps.
+       - **3. Point-in-time liquidity** (`_point_in_time_liquid`): a name is only weighted
+         at a rebalance if its trailing close × volume cleared `INDEX_MIN_AVG_DOLLAR_VOLUME`
+         THEN, as S&P re-checks liquidity each quarter. The today-only membership filter
+         stays. Sector series now start ~Feb 2008 (need half a window of bars).
+       - **4. Price-break guard** (`INDEX_PRICE_BREAK_RATIO` = 10): a >10× one-day move
+         either way (unadjusted reverse split, bankruptcy re-listing — DKI, NFE, CHRD) counts
+         as 0% for that name, like a divisor adjustment.
+       - **Verified read-only on real data:** >15% days 98 → 13 (sectors, all real crash
+         days) and 938 → 362 (industries, 201 of them Mar–Apr 2020 / 2008–09). Sector vs
+         SPDR ETF since 2008: Technology 18.9× vs XLK 19.0×, Industrials 5.8× vs 6.2×,
+         Real Estate, Communication, Utilities, Consumer Defensive within ~10%; daily
+         correlation 0.85–0.97. Build time unchanged (~1 min).
+       - **Known gap:** Healthcare 3.3× vs XLV 7.7×, Financials 8.0× vs XLF 3.7×, Consumer
+         Cyclical 5.9× vs XLY 9.2×. Likely composition, not a bug — Yahoo sectors include
+         thousands of small caps (biotech) and keep V/MA in Financials for all history.
+         Not investigated further.
+       - **FAPortfolio:** same file shape, but every stored level changes on the next full
+         run's push (ROADMAP 4.5 contract unchanged).
        - MEASURED (2026-06-14, stdlib ctypes probe, 32GB machine): the index build's own
          footprint is tiny — price panel ~38 MB, shares panel ~38 MB, ~8.5 MB per extra
          YEAR of history, so deepening history is essentially free on RAM. Data-driven

@@ -322,9 +322,17 @@ INDEX_FIELD: str = "adj_close"            # 'adj_close' total return | 'close' p
 # Liquidity floor: drop names whose average daily dollar volume (adj_close*volume)
 # over the trailing window is below this, so illiquid/penny names can't distort a
 # group's index (mutual-fund flat-NAV series are removed for free). Set 0 to disable.
+# Checked twice: on today's data for membership, and at every quarterly rebalance on
+# the data of that time (close*volume, split-invariant) for weighting.
 INDEX_MIN_AVG_DOLLAR_VOLUME: float = 1_000_000.0
 INDEX_LIQUIDITY_WINDOW_DAYS: int = 63     # trailing bars for the dollar-volume average
 INDEX_MIN_INDUSTRY_MEMBERS: int = 3       # skip 'sector | industry' groups smaller than this
+# Price-break guard: a constituent whose price changes more than this factor in one
+# day (up or down) is treated as a data break / corporate action (unadjusted reverse
+# split, bankruptcy re-listing), not a move — that day counts as 0% for it and the
+# index carries on from its new price. Real liquid stocks practically never move 10x
+# in a day (TRON's real +534% on 2025-06-16 stays in). Set 0 to disable.
+INDEX_PRICE_BREAK_RATIO: float = 10.0
 # Index history is read back to the earliest date by which this many constituents
 # have a share report in financials.db (data-driven start; a breadth guard so one
 # deep-history outlier can't drag the price read back decades). Prices for the index
