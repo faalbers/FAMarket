@@ -1062,6 +1062,15 @@ needs.
      **EDGAR changed from one-time (lock 36500 days) to refresh-on-new-filing**
      (`staleness.edgar_not_due`, `EDGAR_REFRESH_LOCK_DAYS` 30 / `EDGAR_REFRESH_WINDOW_DAYS` 120) and
      each fetch replaces the company's own EDGAR rows, guarded against losing stored years.
+   - ✅ Group C — price history (2026-11-12): yfinance `repair=True` only when a symbol's
+     `adj_close` comes back broken (kept only if better, same dividend dates, no fewer bars — on
+     healthy symbols repair deleted real dividends); its extra requests metered inside the rate
+     limit (`BaseFetcher._tick`, `_RequestMeter`). New `ohlcv.price_flags` table
+     (`data_layer/price_checks.py`: bad_adj, bad_print, level_shift, stale, gap, double_event),
+     rewritten per fetch. Analysis drops bad-print and stale bars and uses `close` for broken
+     `adj_close` before any price metric (`analysis_layer/price_quality.py`); `level_shift` flagged
+     only (can be a real collapse). New screenable column `price_issues`. One-time
+     `scripts/fix_stored_prices.py`. scikit-learn added (needed by repair).
    - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
      `core/backup.fix_backup`).
 

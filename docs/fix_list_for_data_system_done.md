@@ -169,9 +169,47 @@ Response to `docs/fix_list_for_data_system.md`, item by item, using its section 
 
 - **Gross profit ≠ revenue − cost of revenue** and **~250 unit jumps** were listed as observations without a fix. Not acted on; candidates for a later data-quality-flags item.
 
+## Round 3 — Group C: price history (2026-11-12)
+
+**How it works, for both items in this round:**
+- **Repair only when broken** — `YFinanceOHLCV` (`data_layer/fetchers/yfinance_fetcher.py`) re-fetches a symbol with yfinance's own `history(repair=True)` only when its `adj_close` comes back impossible.
+- **Flags** — `data_layer/price_checks.py` checks every fetched series and writes a new `price_flags` table in `ohlcv.db` (symbol, check, start_date, end_date, detail) — the review's "separate `price_flags` table" option. Rewritten per symbol on each fetch.
+- **Analysis** — `analysis_layer/price_quality.py` applies the flags to each symbol's 2-year price window before any price-based number (valuation price, technicals, RS), and a new screenable column `analysis.price_issues` lists the checks that touched the window.
+- **Stored data** — one-time `scripts/fix_stored_prices.py`: flagged every stored symbol and re-fetched the broken ones (their old rows exported to a small backup first).
+
+### §3 Price history defects — Fixed (flag + work around), one case left open
+
+- **Check (the review's SQL), full history:**
+  - `adj_close` ≤ 0 or > close: **152 → 79 symbols**. In the 2-year analysis window, analysis universe: **81 → 22**, and those 22 use the plain close in the analysis.
+  - Dividend and split on one day: **390 rows** — kept as real (see below); **9 double-booked → 4** after repair, all flagged `double_event`.
+  - One-day moves ≥ 10x: flagged as `bad_print` (413 symbols) or `level_shift` (780 symbols).
+- **Named cases:** TDS 2005-05-16 → `double_event` (adjustment factor jumps 40.8x); CHRD 2020-11-20 → `level_shift` (x258); QH 2026-04-27 → `level_shift` (x25); PLTYF, PSBAF broken `adj_close` → PSBAF repaired, PLTYF flagged `bad_adj` (repair moved its dividend dates and was rejected).
+- **Rule per check, as built:**
+  - **`bad_adj`** — repair first; if it can't be fixed, the analysis uses `close` instead of `adj_close` for that symbol (a price return, but a real one).
+  - **`bad_print`** — a ≥ 10x move whose price comes back within 2x inside 5 bars: dropped from the analysis window.
+  - **`level_shift`** — a ≥ 10x move that stays: **flagged only** (see below).
+  - **`double_event`** — flagged only; it lies outside the 2-year window in every case found.
+- **Result after the analysis run:** no zero or negative `price`; 109 symbols with a `bad_print` and 22 with `bad_adj` in their window now get technicals and RS on corrected data (PTPIF: no RS rank before, 48 now).
+- **Where we differ from the review / found more:**
+  - **Cause of most broken `adj_close`:** a foreign-currency dividend (yen) applied to a USD price on OTC lines of Japanese companies (JPSTF, SMTOF, DQJCF, OBIIF…) — the adjustment overshoots below zero. 8 of the 9 "double-booked" events are the same issue.
+  - **Dividend + split on one day is usually real** — spin-offs (Danaher 2016, Expedia 2011). Measured by the jump in the adjustment factor that day, only 9 of 390 were double-booked. So the review's check "no ex-date carries both" would flag ~380 real events; we flag only factor jumps > 2x.
+  - **yfinance's repair must not run on healthy symbols.** Run on everything, it **deleted real dividends** (CRH's $0.98 March 2022 final, QQQ's $0.089 June 2010, DNP's monthly $0.065) and spent extra requests on funds and preferreds for no change. So it runs only when `adj_close` is broken, and its result is kept only if it has fewer broken rows (none in the analysis window), dividends on the same dates (amounts may be corrected: a 100x unit mix-up on BKZHF, a dividend on a 3:1 split day on SGIPF) and no fewer bars. Of 141 broken symbols, 76 were repaired; rejections: dividend dates changed 35 (mostly mutual funds), still broken 29, fewer bars 1.
+  - **A lasting 10x move is not always a data break.** On penny stocks it is as often a real collapse (ABOS $2.29 → $0.21) as an unrecorded reverse split (QH). Cutting the history at the shift would hide a real crash from momentum and 52-week numbers, so `level_shift` is flagged only; screens exclude it with `price_issues` "is null".
+  - **Multi-day bad prints.** Many 10x spikes last several days before snapping back (FDCT Dec 2024), so the reversal is looked for within 5 bars, not 1.
+  - **Rate limit:** repair makes 1-4 extra Yahoo requests per broken symbol. Every request after the first inside a fetch is metered and waits for a unit of the same rate budget (`BaseFetcher._tick`, `_RequestMeter`); verified at a test limit of 20/min (the limiter paused exactly at 20 per minute).
+- **Open:** CHRD-style old + new company stitching is flagged but not split into two histories; a reverse split Yahoo never recorded (QH) is flagged but not corrected.
+
+### §20 Gaps and stale runs — Fixed
+
+- **`stale`** — 10 or more bars in a row with an unchanged close and zero volume (nothing traded). Series with zero volume on ≥ 95% of bars are skipped: those are mutual funds' NAV series (~22,700 symbols), where a flat price is real.
+  - **Count:** 2,681 symbols over the full history; 1,059 analysis symbols with a stale run in their window.
+  - **Analysis:** stale bars are dropped from the window, so volatility, RSI and RS see only real trading days (AAGH: 150 carried days dropped, RS rank 91 → 24). Trade-off: for such a stock the 252-bar "52-week" window then spans more than a calendar year.
+  - **Where we differ:** the review counted runs of 30+; we flag from 10 (setting `OHLCV_STALE_RUN_DAYS`) — at 30 only 440 window symbols are caught, at 10 996.
+- **`gap`** — more than 31 days between two bars: **1,006 symbols** (mostly mutual funds), flagged only. 336 analysis symbols have one in their window.
+
 ## Not yet reviewed
 
-§2, §3, §6, §8-§11, §15-§19, §21, and the open parts of §7, §14 (steps 2-4), §20, §22 (delisted history), §25. Grouped as above.
+§2, §6, §8-§11, §15-§19, §21, and the open parts of §7, §14 (steps 2-4), §20 (signals, currency, targets, EV), §22 (delisted history), §25. Grouped as above.
 
 ## Known gaps / limitations
 

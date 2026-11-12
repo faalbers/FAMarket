@@ -4,8 +4,8 @@ Internal tracker for working through `docs/fix_list_for_data_system.md` on branc
 
 ## Waiting for your input
 
-- **Commit Group B** — all of it is uncommitted. Your call.
-- **Next group:** C — price-history validation. Start the discussion.
+- **Next group:** D — symbol state & identity. Start the discussion.
+- **Possible follow-ups from C** (not started, your call): split CHRD-style stitched histories (old + new company); correct reverse splits Yahoo never recorded (QH) instead of only flagging them; show `price_flags` on the price chart.
 - **SEC refresh waves** (decided 2026-11-11, open to change): ~45 days after each calendar quarter-end the weekly run gets ~1 hour longer. Can be spread over several weeks if it bothers you.
 - **Possible follow-ups from B** (not started, your call): fallback tags for 104 banks with no `NoninterestExpense`; `SalesRevenueGoodsNet` / bank revenue tags for older KO, JNJ, WFC years; a derived fiscal-Q4 quarter (Agilent and others have no 3-month Q4 in SEC data).
 - **EBITDA definition** (§20, parked for F/G): keep reported EBITDA or switch `debt_to_ebitda` / `ev_ebitda` to Yahoo's `normalized_ebitda`.
@@ -16,7 +16,7 @@ Internal tracker for working through `docs/fix_list_for_data_system.md` on branc
 |---|---|---|---|
 | A | Import cleaning rules | §5, §7 (ranges), §24, §25.5 | ✅ done 2026-11-11 · §20 EBITDA moved to F/G |
 | B | EDGAR backfill rework | §1, §4, §12, §13, §14, §22 filed date, §23 | ✅ done 2026-11-11 · re-fetched + analysis run · §14 steps 2-4 → F |
-| C | Price-history validation | §3, §20 (stale runs, gaps) | open |
+| C | Price-history validation | §3, §20 (stale runs, gaps) | ✅ done 2026-11-12 · repair-when-broken + `price_flags` + analysis window cleanup + `price_issues` |
 | D | Symbol state & identity | §15, §6, §25, §22 delisted history · + preferred tickers carrying old EDGAR rows (found in B) | open |
 | E | Signals consistency | §11, §7 (dates, TTM lag, currency), §20 (surprise, currency, insiders, targets) | open |
 | F | Analysis foundations | §2, §10, §16, §20 (EV, EBITDA definition), §14 steps 2-4 (split basis via `filed_date`, Talen) | open |
