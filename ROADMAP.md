@@ -1071,6 +1071,16 @@ needs.
      `adj_close` before any price metric (`analysis_layer/price_quality.py`); `level_shift` flagged
      only (can be a real collapse). New screenable column `price_issues`. One-time
      `scripts/fix_stored_prices.py`. scikit-learn added (needed by repair).
+   - ✅ Group D — symbol state & identity (2026-11-12): `symbols.mark_delisted` after every fetch
+     (`is_delisted` / `delisted_date`: last bar older than max(5, 3 × own mean gap) sessions before
+     its own last fetch; analysis universe skips it; burst warning). **Permanent give-ups replaced by a
+     monthly re-check** (`OHLCV_RECHECK_DAYS` 30 / `RECHECK_WINDOW_DAYS` 183; `YFinanceOHLCV.select_due`,
+     `symbols.rearm_inactive` + `deactivated_date`) — Yahoo outages drop weeks of bars for many
+     symbols at once. Type corrections after every quote fetch (SEC-list "funds" → adr/stock,
+     preferred-named stocks → preferred) + purge of financials outside stock / reit / adr. Integer
+     `cik` + `company_id` from the SEC ticker map; sector index collapses by `company_id`.
+     `config/industry_overrides.py` (crypto miners, Sun Life). One-time `scripts/fix_symbol_state.py`
+     and `scripts/recover_stuck_symbols.py` (342 live symbols recovered). §22 delisted history deferred.
    - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
      `core/backup.fix_backup`).
 

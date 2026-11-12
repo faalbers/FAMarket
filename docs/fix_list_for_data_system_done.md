@@ -207,9 +207,52 @@ Response to `docs/fix_list_for_data_system.md`, item by item, using its section 
   - **Where we differ:** the review counted runs of 30+; we flag from 10 (setting `OHLCV_STALE_RUN_DAYS`) — at 30 only 440 window symbols are caught, at 10 996.
 - **`gap`** — more than 31 days between two bars: **1,006 symbols** (mostly mutual funds), flagged only. 336 analysis symbols have one in their window.
 
+## Round 4 — Group D: symbol state and identity (2026-11-12)
+
+**How it works:** all rules live in `data_layer/symbols.py` and run on every fetch; one-time scripts brought the stored data in line (`scripts/fix_symbol_state.py`, `scripts/recover_stuck_symbols.py`), each after a one-off backup of the databases it changes. Results below are after the 2026-11-12 analysis run.
+
+### §15 Dead securities stay active — Fixed, differently from proposed
+
+- **Rule (`mark_delisted`, after every fetch):** a price-history symbol is `is_delisted = 1` (with `delisted_date` = its last bar) when that bar is more than **max(5, 3 × its own mean gap between bars over the last year)** trading sessions older than the session **it was last fetched in**. Clears itself when bars return. `is_active` is not touched. The analysis universe skips `is_delisted = 1`.
+- **Check:** the review's SQL counted 3,090 funds, 633 warrants, 338 units, 161 SPACs, 116 stocks, 68 ETFs, 14 preferreds, 3 ADRs, 2 CEFs. After the fix: **3,125** price-history symbols left the analysis (2,928 funds, 106 stocks, 67 ETFs, 17 preferreds, 5 ADRs, 2 CEFs); `analysis.db` 38,564 → 35,587 rows, with 0 delisted symbols in it.
+- **Where we differ / found more:**
+  - **Root cause:** `reassess_state` only judged symbols fetched that run, and the price-staleness gate stops fetching a symbol whose prices stopped — so it was never judged again.
+  - **Judged against each symbol's own fetch date, not the benchmark's latest day.** Otherwise a partial run marks every un-fetched symbol dead.
+  - **Per-symbol threshold:** ~157 live symbols (mostly funds) price weekly or monthly; a flat 5 days would mark them dead between prints.
+  - **Warrants, units and SPACs are not judged.** The fetcher never takes their price history, so the review's test counts all of them as dead (632 / 338 / 130). Yahoo's quote time is no substitute: it is stamped with the latest close even when nothing traded (PAL: last bar 2026-10-02, quote time 2026-11-06).
+  - **Yahoo data outages.** Yahoo drops weeks of bars for many symbols at once — 150 symbols missing 2026-10-02..11-06, 47 in June, 42 in January. About 0.9% of live symbols had such a hole in the past year (mostly funds, typically 5-6 weeks). Real deaths cluster too (193 funds closed on 2025-09-23), so an outage cannot be told apart and the 5-session rule was kept; instead:
+    - a run-log warning when 25+ symbols newly stop on the same date;
+    - **a monthly re-check** replacing the permanent give-up: a symbol skipped as stale or no-data is fetched once every 30 days while its newest bar is under 6 months old, and a switched-off symbol is switched back on for one try on the same cadence for 6 months after `deactivated_date`.
+  - **One-time recovery:** the old permanent give-ups had lost live symbols (a 5-week pause between runs before the 2026-11-08 staleness fix; Yahoo outages). Re-fetching all 5,871 given-up symbols brought **342** back with newer prices (319 traded in the last week): new listings Yahoo did not know at first, and stocks stuck behind the July 17 outage (Allurion, Mobile Global Esports). The 1,906 still without any data stay off, with no retries.
+
+### §6 Mistyped securities — Fixed (one rule rejected)
+
+- **Rules (`resolve_types_from_quotes`, after every quote fetch — Polygon discovery re-writes its own type each run):**
+  - `mutual_fund` that Yahoo calls EQUITY → `adr` if the name says ADR, else `stock`.
+  - `stock` with no Yahoo market cap whose name reads as a preferred or note (Preferred, Depositary Shares, Notes due, Senior / Subordinated Notes, Debentures, Pfd) → `preferred`.
+- **Check:** ACGLN, AGNCL, ADAMG → `preferred`; ASBHY, SBCLY, TKMSF → `adr`. 157 retyped in total (122 → preferred, 22 → stock, 13 → adr). Preferred Bank (PFBC), the only name hit with a market cap, stays a stock.
+- **Where we differ:** the review's second rule — "no market cap and the same `longName` as a stock that has one" — was **rejected**: it hits real stocks (Liberty Broadband Class C, ADRs with a foreign OTC twin, units).
+- **Found more — company financials on non-company tickers.** 31,326 `financials` rows sat on preferreds, SPACs and others (fetched while mistyped as `stock`). The analysis computed company ratios from the issuer's statements and the **preferred's** price — 332 of 430 preferreds had P/E / ROE / P/B (U.S. Bancorp's USB-PA P/E 149). Rows of any symbol outside stock / reit / adr are now deleted after every type correction: **0 of 525 preferreds** carry those ratios after the run.
+
+### §25 Company identity and industry tags — Fixed (SIC step skipped)
+
+- **CIK for every listed company:** integer `cik` and `company_id` (= CIK) from the SEC ticker list on every EDGAR run. **Check:** live stocks / ADRs with a CIK **2,003 → 7,458 of 7,538**, now INTEGER.
+- **`company_id` groups ADR + foreign OTC twins too** — DTEGY / DTEGF, AKZOY / AKZOF share one CIK in the SEC list, so no name matching is needed (the review expected it would be). 422 companies have 2+ listed lines. The sector index now collapses a company's listings by `company_id` first: 122 → 219 duplicate lines collapsed; sector series unchanged against the SPDR ETFs (Financials 7.8x vs XLF 7.7x, daily correlation 0.92-0.99).
+- **SEC SIC as a second opinion — skipped (measured weak).** For the review's own examples the SIC code agrees with Yahoo or cannot separate them: RIOT / MARA / WULF are SIC 6199 "Finance Services"; PSA / CUBE / EXR **and Prologis** are all 6798 "REITs". Only Sun Life differs (6311 Life Insurance). ~7,000 extra SEC requests for that.
+- **Industry override table** (`config/industry_overrides.py`, applied before `screen_type`, peers and the sector index):
+  - **19 bitcoin / crypto miners → "Crypto Mining".** Found more: Yahoo's "Capital Markets" tag made `screen_type` route them to **bank** — bank metrics on miners. All 17 in the analysis are now `standard`. Galaxy Digital and Bit Digital left out (broader crypto finance / ether treasury).
+  - **Sun Life → "Insurance - Life"**, beside Manulife.
+  - **Self-storage REITs left in "REIT - Industrial"** — the data provider files them there on purpose, and a separate group would hold ~5 names, too few for peer statistics.
+- §25.5 (names): done in round 1.
+
+### §22 History of delisted companies — Deferred
+
+- **Check:** 0 stocks with a last price before 2016, as the review says.
+- **Why deferred:** it needs a new collection effort (Polygon's inactive tickers, old SEC filers), and Yahoo usually drops a delisted ticker's price history, so most added symbols would arrive without prices. Since round 4, every company that dies is kept with its full history (`is_delisted`, `delisted_date`), so the survivorship gap stops growing. Merger / bankruptcy terms are not collected.
+
 ## Not yet reviewed
 
-§2, §6, §8-§11, §15-§19, §21, and the open parts of §7, §14 (steps 2-4), §20 (signals, currency, targets, EV), §22 (delisted history), §25. Grouped as above.
+§2, §8-§11, §16-§19, §21, and the open parts of §7, §14 (steps 2-4), §20 (signals, currency, targets, EV). Grouped as above.
 
 ## Known gaps / limitations
 
