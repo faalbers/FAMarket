@@ -292,6 +292,7 @@ BASES: list[Base] = [
     _b("industry", "Industry", "Classification", COMPANY),
     _b("country", "Country", "Classification", COMPANY),
     _b("fund_family", "Fund family", "Classification", FUNDS),
+    _b("price_issues", "Price issues", "Classification", ALL_TRADED),
 ]
 
 BASE_BY_KEY: dict[str, Base] = {b.key: b for b in BASES}

@@ -72,11 +72,19 @@ class BaseFetcher(ABC):
             reraise=True,
         )(self.fetch_one)
 
+        # One unit of this fetcher's rate budget. Each fetch_one spends one; a
+        # fetcher whose fetch_one makes MORE real requests than one (yfinance's
+        # price repair) spends the extras via self._tick, from the same budget.
         @sleep_and_retry
         @limits(calls=calls, period=period)
+        def _tick() -> None:
+            return None
+
         def _throttled(symbol: str):
+            _tick()
             return retrying(symbol)
 
+        self._tick = _tick
         self._call = _throttled
 
     # -- subclass hook ------------------------------------------------------ #

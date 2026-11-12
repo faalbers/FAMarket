@@ -1565,6 +1565,25 @@ PARAM_HINTS: dict[str, dict] = {
         "how_to_use": ["Pick one or more providers to include, or exclude families you don't want."],
         "vs_peers": "No — it is the grouping label itself, not a value to compare.",
     },
+    "price_issues": {
+        "name": "Price issues",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "Problems found in this symbol's last ~2 years of Yahoo price history, "
+                      "which the analysis worked around. Blank when the prices are clean. "
+                      "Values: stale (no trades, price carried — those days dropped), "
+                      "bad_print (a 10x spike that snapped back within 5 days — dropped), "
+                      "level_shift (a lasting 10x jump — an unrecorded reverse split or a "
+                      "real collapse; prices kept as they are, so check before trusting), "
+                      "bad_adj (broken dividend-adjusted prices — plain closes used instead), "
+                      "gap (a month or more without prices), double_event.",
+        "how_to_use": [
+            "Use 'is null' to keep only symbols with clean price history.",
+            "Technical metrics, RS rank and momentum are least reliable with 'level_shift' "
+            "(not corrected) — mostly OTC penny stocks and thinly traded foreign lines.",
+        ],
+        "vs_peers": "No — it is a data-quality label, not a value to compare.",
+    },
     "industry": {
         "name": "Industry",
         "category": "Classification",

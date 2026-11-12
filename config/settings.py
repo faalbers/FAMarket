@@ -199,6 +199,25 @@ EDGAR_REFRESH_WINDOW_DAYS: int = 120
 # difference, since rows outside the window are deleted rather than kept stale.
 OHLCV_HISTORY_YEARS: int = 30
 
+# yfinance price repair, ONLY for a symbol whose adj_close comes back broken
+# (<= 0 or above the close) — 2026-11-12, fix list §3. Foreign-currency dividends
+# drove adj_close negative on ~80 OTC lines; repair rebuilds them. Not run on
+# healthy symbols: there it deleted real dividends (CRH, QQQ, DNP). The repaired
+# series is kept only if clean, with dividends on the same dates (amounts may be
+# corrected: 100x unit mix-ups) and no fewer bars. Needs
+# scikit-learn; its requests are paced inside the yfinance rate limit.
+OHLCV_REPAIR_ENABLED: bool = True
+
+# Price checks after each OHLCV fetch (data_layer/price_checks.py -> ohlcv.db
+# `price_flags`, 2026-11-12, fix list §3/§20). A one-day move of this ratio or
+# more either way is a bad print (it reverses next day) or a level shift (it stays:
+# unrecorded reverse split, old + new company, or a real collapse — flagged only).
+# A run of this many bars with an
+# unchanged close and zero volume is "stale" — carried, not traded. The analysis
+# drops / works around flagged bars (analysis_layer/price_quality.py).
+OHLCV_PRICE_BREAK_RATIO: float = 10.0
+OHLCV_STALE_RUN_DAYS: int = 10
+
 # Market indices that DO get price history (2026-08-15). Indices are otherwise
 # excluded from fetching entirely — orchestrator.load_fetch_universe() drops
 # security_type == "index" — because they carry no fetchable fundamentals. Price

@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import math
 import re
+import warnings
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
@@ -60,7 +61,7 @@ import pandas as pd
 from config import settings, type_map
 from core.database import Database
 from core.market_calendar import last_completed_session
-from data_layer import fetch_status, staleness
+from data_layer import fetch_status, price_checks, staleness
 from data_layer.cleaning_rules import (
     clean_estimates,
     clean_financials,
@@ -183,6 +184,96 @@ def _fund_overview(ticker) -> dict:
 # --------------------------------------------------------------------------- #
 # OHLCV (+ dividends)
 # --------------------------------------------------------------------------- #
+class _RequestMeter:
+    """Counts and paces the real Yahoo HTTP requests made inside ONE fetch_one.
+
+    The base rate limiter charges one unit per fetch_one (one per symbol). With
+    `history(repair=True)` yfinance can make extra requests inside that call while
+    it rebuilds a broken series — measured 2026-11-12: none on clean symbols, 1-3
+    on broken OTC lines. Every request after the first waits for a unit of the
+    SAME budget (`tick` = BaseFetcher._tick), so repair can never push a run past
+    settings.RATE_LIMITS["yfinance"].
+
+    Hooks yfinance's private `YfData._make_request` (every data GET/POST goes
+    through it; only the one-time cookie/crumb setup bypasses it). If that hook
+    point is missing in a future yfinance, `install()` returns False and the
+    caller turns repair off rather than run it unpaced.
+    """
+
+    _active: "_RequestMeter | None" = None
+    _installed: bool = False
+
+    def __init__(self, tick) -> None:
+        self.tick = tick
+        self.requests = 0
+
+    @classmethod
+    def install(cls) -> bool:
+        if cls._installed:
+            return True
+        try:
+            from yfinance import data as yfdata
+
+            original = yfdata.YfData._make_request
+        except (ImportError, AttributeError):
+            return False
+
+        def metered(self_, *args, **kwargs):
+            meter = cls._active
+            if meter is not None:
+                meter.requests += 1
+                if meter.requests > 1:  # the first is already paid by the per-symbol limit
+                    meter.tick()
+            return original(self_, *args, **kwargs)
+
+        yfdata.YfData._make_request = metered
+        cls._installed = True
+        return True
+
+    def __enter__(self) -> "_RequestMeter":
+        _RequestMeter._active = self
+        return self
+
+    def __exit__(self, *exc) -> None:
+        _RequestMeter._active = None
+
+
+def _repair_available(log) -> bool:
+    """yfinance's price repair needs scikit-learn and the request meter."""
+    if not settings.OHLCV_REPAIR_ENABLED:
+        return False
+    import importlib.util
+
+    if importlib.util.find_spec("sklearn") is None:
+        log.warning("OHLCV — price repair off: scikit-learn is not installed")
+        return False
+    if not _RequestMeter.install():
+        log.warning("OHLCV — price repair off: cannot meter yfinance requests (yfinance changed?)")
+        return False
+    return True
+
+
+def _broken_adj_rows(rows: pd.DataFrame) -> int:
+    """Rows whose adj_close is impossible: <= 0, or above the close (a dividend
+    adjustment can only lower it). Fix list §3."""
+    if rows.empty or "adj_close" not in rows.columns:
+        return 0
+    adj, close = rows["adj_close"], rows["close"]
+    return int(((adj <= 0) | (adj > close * 1.001)).sum())
+
+
+def _same_dividend_dates(a: pd.DataFrame, b: pd.DataFrame) -> bool:
+    """True when both series pay dividends on exactly the same dates.
+
+    Amounts may differ: on a broken series repair legitimately corrects them (BKZHF
+    May 2025 a 100x unit mix-up, SGIPF Feb 2024 a dividend on a 3:1 split day).
+    What it must not do is drop or invent one — on healthy symbols it deleted real
+    dividends (CRH, QQQ, DNP)."""
+    da = a.loc[a["dividends"] > 0, "date"].reset_index(drop=True)
+    db = b.loc[b["dividends"] > 0, "date"].reset_index(drop=True)
+    return bool(da.equals(db))
+
+
 def sanitize_ohlcv(symbol: str, hist: pd.DataFrame) -> pd.DataFrame:
     """Reshape a yfinance history() frame into clean OHLCV rows."""
     if hist is None or hist.empty:
@@ -273,19 +364,74 @@ class YFinanceOHLCV(BaseFetcher):
         # period vocabulary ("1d".."10y", "ytd", "max"), so a settings-driven
         # "{N}y" silently stops being valid the moment N leaves that list.
         ticker = yf.Ticker(symbol)
-        hist = ticker.history(
-            start=self._history_start().strftime("%Y-%m-%d"),
-            auto_adjust=False,   # keep both Close and Adj Close
-            actions=True,        # include Dividends + Stock Splits
-        )
-        rows = sanitize_ohlcv(symbol, hist)
+        start = self._history_start().strftime("%Y-%m-%d")
+        # Every real request inside this call is metered: the first is paid by the
+        # per-symbol limit, any more (a repair re-fetch, repair's own reconstruction
+        # requests) each wait for a unit of the same budget.
+        with _RequestMeter(self._tick) as meter:
+            hist = ticker.history(
+                start=start,
+                auto_adjust=False,   # keep both Close and Adj Close
+                actions=True,        # include Dividends + Stock Splits
+            )
+            # history_metadata is filled from the SAME chart response history()
+            # just parsed — reading it costs no extra Yahoo request.
+            first_trade = _first_trade_date(ticker.history_metadata)
+            rows = sanitize_ohlcv(symbol, hist)
+            if getattr(self, "_repair", False) and _broken_adj_rows(rows):
+                rows = self._try_repair(symbol, ticker, start, rows)
+        self._repair_stats["extra_requests"] += max(meter.requests - 1, 0)
         if rows.empty:
             return None
-        # history_metadata is filled from the SAME chart response history() just
-        # parsed — reading it costs no extra Yahoo request.
-        self._check_coverage(
-            symbol, rows, self._val_db, _first_trade_date(ticker.history_metadata)
-        )
+        self._check_coverage(symbol, rows, self._val_db, first_trade)
+        return rows
+
+    def _try_repair(self, symbol: str, ticker, start: str, rows: pd.DataFrame) -> pd.DataFrame:
+        """Re-fetch a symbol whose adj_close is broken with yfinance's repair, and
+        keep the repaired series only if it is clean and kept every dividend.
+
+        Repair only when broken (fix list §3, 2026-11-12). Run on healthy symbols,
+        yfinance's repair deleted REAL dividends — CRH's $0.98 March 2022 final,
+        QQQ's $0.089 June 2010, DNP's monthly $0.065 — and spent extra requests on
+        funds and preferreds for no change. On broken OTC lines (foreign-currency
+        dividends driving adj_close negative: JPSTF, SMTOF, DQJCF…) it rebuilt a
+        consistent series. Accepted only when the repaired rows have fewer broken
+        adj_close rows than before and none inside the analysis window, dividends on
+        the same dates (amounts may be corrected), and no fewer bars; otherwise
+        Yahoo's series is kept as returned. Rejections are counted by reason in the
+        run summary.
+        """
+        st = self._repair_stats
+        st["tried"] += 1
+        try:
+            # yfinance's repair math divides by zero on sparse series and floods the
+            # console with numpy RuntimeWarnings; the result is checked below anyway.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                fixed = sanitize_ohlcv(symbol, ticker.history(
+                    start=start, auto_adjust=False, actions=True, repair=True,
+                ))
+        except Exception as exc:  # repair is best-effort: never lose the plain fetch
+            self.log.debug("‖ %s price repair failed: %s", symbol, exc)
+            reason = "error"
+        else:
+            # Partial repairs count when they help where it matters: fewer broken
+            # rows than before and none in the analysis window (PBATF: 401 broken
+            # rows in the window -> 0, a few old ones left). LTGHF got WORSE under
+            # repair (365 -> 3,567) and is rejected.
+            window_start = (pd.Timestamp(rows["date"].max())
+                            - pd.Timedelta(days=settings.ANALYSIS_OHLCV_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+            if len(fixed) < len(rows):
+                reason = "fewer bars"
+            elif (_broken_adj_rows(fixed) >= _broken_adj_rows(rows)
+                  or _broken_adj_rows(fixed[fixed["date"] >= window_start])):
+                reason = "still broken"
+            elif not _same_dividend_dates(rows, fixed):
+                reason = "dividend dates changed"
+            else:
+                st["accepted"] += 1
+                return fixed
+        st["rejected"][reason] = st["rejected"].get(reason, 0) + 1
         return rows
 
     @staticmethod
@@ -309,16 +455,35 @@ class YFinanceOHLCV(BaseFetcher):
         deleting its rows first would trade real history for a short one. Those
         fall back to upsert: the good rows survive, the fetch still lands, and the
         run-summary WARNING still names them. Everything else is fully replaced.
+
+        Price flags (`data_layer/price_checks.py`) are rewritten alongside for the
+        fully-replaced symbols. A truncated symbol keeps its old flags — its stored
+        series is a merge, not the response.
         """
         if rows.empty:
             return
         flagged = {f["symbol"] for f in getattr(self, "_flagged", [])}
+        suspect = rows["symbol"].isin(flagged)
         if not flagged:
             super()._write(db, rows)
+        else:
+            super()._write(db, rows[~suspect])                       # write_mode: replace_by
+            db.upsert(self.table, rows[suspect], key=self.upsert_key)
+        self._write_price_flags(db, rows[~suspect])
+
+    def _write_price_flags(self, db: Database, rows: pd.DataFrame) -> None:
+        """Replace these symbols' rows in `price_flags` (fix list §3, §20)."""
+        syms = rows["symbol"].unique().tolist()
+        if not syms:
             return
-        suspect = rows["symbol"].isin(flagged)
-        super()._write(db, rows[~suspect])                       # write_mode: replace_by
-        db.upsert(self.table, rows[suspect], key=self.upsert_key)
+        flags = price_checks.flags_for(rows)
+        if db.table_exists(price_checks.TABLE):
+            db.execute(
+                f'DELETE FROM "{price_checks.TABLE}" WHERE symbol IN ({", ".join("?" for _ in syms)})',
+                syms,
+            )
+        db.append(price_checks.TABLE, flags)
+        self._price_flag_count += len(flags)
 
     def _check_coverage(
         self,
@@ -412,6 +577,9 @@ class YFinanceOHLCV(BaseFetcher):
         self, symbols_df: pd.DataFrame, status_db: Database, respect_lock: bool = True
     ) -> dict:
         self._flagged: list[dict] = []
+        self._repair = _repair_available(self.log)
+        self._repair_stats = {"tried": 0, "accepted": 0, "extra_requests": 0, "rejected": {}}
+        self._price_flag_count = 0
         self._val_db = Database(settings.OHLCV_DB)
         try:
             result = super().run(symbols_df, status_db, respect_lock)
@@ -435,6 +603,20 @@ class YFinanceOHLCV(BaseFetcher):
                 len(self._flagged), counts,
                 f": {sample}{', ...' if len(retryable) > 20 else ''}" if sample else ".",
             )
+        st = self._repair_stats
+        if self._repair and st["tried"]:
+            self.log.info(
+                "OHLCV — broken adj_close on %d symbol(s): repaired %d, kept Yahoo's "
+                "series for %d (%s); %d extra Yahoo request(s), paced within the rate limit",
+                st["tried"], st["accepted"], st["tried"] - st["accepted"],
+                ", ".join(f"{k} {v}" for k, v in sorted(st["rejected"].items())) or "-",
+                st["extra_requests"],
+            )
+        result["repaired_symbols"] = st["accepted"]
+        result["price_flags"] = self._price_flag_count
+        if self._price_flag_count:
+            self.log.info("OHLCV — %d price flag(s) written (bad prints, level shifts, "
+                          "stale runs, gaps; see ohlcv.db price_flags)", self._price_flag_count)
         return result
 
 

@@ -226,7 +226,12 @@ Three intentionally decoupled layers plus shared infrastructure:
   properties you read by their shared `quoteSummary` request (one cached request =
   one real Yahoo hit; `@limits` counts `fetch_one` not requests, so a multi-request
   fetcher needs a lower rate) — the full property→request map is in
-  `dev_docs/yfinance_request_groups.md`.
+  `dev_docs/yfinance_request_groups.md`. When a `fetch_one` can make a VARIABLE
+  number of requests (OHLCV re-fetches with yfinance's price repair when
+  `adj_close` is broken), wrap it in `_RequestMeter(self._tick)`
+  (`yfinance_fetcher.py`): every request after the first spends a unit of the same
+  budget via `BaseFetcher._tick`. Ad-hoc scripts that call Yahoo must pace
+  themselves too — stay well under `RATE_LIMITS["yfinance"]`.
 - **Resumability**: `fetch_status` (composite PK `symbol, fetcher_name`) tracks
   the last successful fetch and an error counter; a 5-day per-fetcher lock skips
   recently-fetched pairs. Financials additionally defer symbols whose next

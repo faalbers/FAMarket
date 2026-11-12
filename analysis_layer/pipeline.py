@@ -42,7 +42,8 @@ from analysis_layer import _periods as P
 from analysis_layer import metrics, technical, intrinsic_value, valuation_scenarios, peers, scoring
 from analysis_layer import estimates as estimates_metrics
 from analysis_layer import signals as signals_metrics
-from analysis_layer import benchmark_push, sector_index
+from analysis_layer import benchmark_push, price_quality, sector_index
+from data_layer import price_checks
 from core.market_calendar import last_completed_session
 from analysis_layer.screen_type import classify as classify_screen_type
 
@@ -125,7 +126,7 @@ def _load_ohlcv(subset: list[str] | None = None) -> dict[str, pd.DataFrame]:
     `date` is parsed to datetime64 once here, not per symbol in the loop.
     """
     empty = {"ohlcv": pd.DataFrame(), "dividends": pd.DataFrame(), "splits": pd.DataFrame(),
-             "ohlcv_first_date": pd.DataFrame()}
+             "ohlcv_first_date": pd.DataFrame(), "price_flags": pd.DataFrame()}
     with Database(settings.OHLCV_DB) as db:
         if db.is_empty("ohlcv"):
             return empty
@@ -157,8 +158,18 @@ def _load_ohlcv(subset: list[str] | None = None) -> dict[str, pd.DataFrame]:
         out["ohlcv_first_date"] = db.query(
             f"SELECT symbol, MIN(date) AS first_date FROM ohlcv{first_where} "
             "GROUP BY symbol", sub_params)
+        # Price flags overlapping the window (data_layer/price_checks.py) — a small
+        # table, applied per symbol by price_quality.clean_window.
+        out["price_flags"] = (db.query(
+            f"SELECT symbol, \"check\", start_date, end_date FROM {price_checks.TABLE} "
+            f"WHERE end_date >= ?{sub_sql}", [cutoff, *sub_params])
+            if db.table_exists(price_checks.TABLE) else pd.DataFrame())
     for key, df in out.items():
         if df.empty:
+            continue
+        if key == "price_flags":
+            df["start_date"] = pd.to_datetime(df["start_date"])
+            df["end_date"] = pd.to_datetime(df["end_date"])
             continue
         date_col = "first_date" if key == "ohlcv_first_date" else "date"
         df[date_col] = pd.to_datetime(df[date_col])
@@ -237,6 +248,8 @@ def run_analysis(subset: list[str] | None = None) -> dict:
     split_by = _events_by_symbol(data.pop("splits"), "splits")
     fd = data.pop("ohlcv_first_date")
     first_date_by = (dict(zip(fd["symbol"], fd["first_date"])) if not fd.empty else {})
+    pf = data.pop("price_flags")
+    flags_by = ({s: g for s, g in pf.groupby("symbol", sort=False)} if not pf.empty else {})
     # Prepare each symbol's period frames ONCE (freq split + date index + sort);
     # the ~50 _periods calls per symbol then reduce to column lookups. Doing it
     # here moves ~2/3 of the old loop cost into one upfront pass.
@@ -265,7 +278,9 @@ def run_analysis(subset: list[str] | None = None) -> dict:
     for i, rec in enumerate(universe.itertuples(index=False), start=1):
         sym = rec.symbol
         fsym = fin_by.get(sym, empty_fin)
-        osym = ohlcv_by.get(sym, empty_ohlcv)
+        # Flagged bad bars out BEFORE any price-based number (fix list §3, §20).
+        osym, price_issues = price_quality.clean_window(ohlcv_by.get(sym, empty_ohlcv),
+                                                        flags_by.get(sym))
         price = float(osym["adj_close"].iloc[-1]) if len(osym) else float("nan")
         quote = quotes.loc[sym] if sym in quotes.index else None
         # Computed up front (not after metrics.compute) so metrics.py can gate
@@ -310,6 +325,7 @@ def run_analysis(subset: list[str] | None = None) -> dict:
             "country": country,
             "fund_family": fund_family,
             "price": price,
+            "price_issues": price_issues,
             # raw weighted return -> universe-ranked into rs_rank in scoring; kept
             # in the table so subset runs can re-rank the un-recomputed rows too
             "rs_raw": technical.relative_strength_raw(osym),

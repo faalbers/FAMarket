@@ -17,6 +17,7 @@ tenacity            # automatic retry on transient failures
 pandas              # interchange format across all layers
 numpy
 scipy               # signal.find_peaks for trend detection; polyfit residuals
+scikit-learn        # needed by yfinance's price repair (history(repair=True))
 pandas-market-calendars  # last completed trading session
 
 # --- UI: React frontend + FastAPI backend (python scripts/serve_ui.py) ---

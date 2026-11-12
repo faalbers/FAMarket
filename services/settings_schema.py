@@ -39,6 +39,9 @@ HELP: dict[str, str] = {
     "GROWTH_TREND_YEARS": "Recent annual points used for the growth trend-quality stats (R², residual volatility, CV).",
     "FETCH_LOCK_DAYS": "After a successful fetch, skip that symbol+fetcher for this many days.",
     "DEFAULT_BATCH_SIZE": "Rows fetched/committed per batch for batched APIs (some APIs override this in code).",
+    "OHLCV_REPAIR_ENABLED": "When a symbol's adjusted prices come back broken (negative, or above the close), re-fetch it with yfinance's price repair and keep the result only if it is clean and keeps every dividend. Extra requests stay within the rate limit.",
+    "OHLCV_PRICE_BREAK_RATIO": "A one-day price move of this ratio or more (either way) is flagged: a bad print if it reverses within 5 days, a level shift if it stays. The analysis drops bad prints; level shifts are only flagged (price issues).",
+    "OHLCV_STALE_RUN_DAYS": "This many days in a row with an unchanged close and zero volume is flagged as stale (nothing traded). The analysis leaves those days out. Funds are skipped.",
     "OHLCV_HISTORY_YEARS": (
         "Years of price history pulled on EVERY OHLCV fetch. Each fetch fully "
         "replaces the symbol's stored rows over this window, so this is the whole "
@@ -200,6 +203,9 @@ def sections() -> list[dict[str, Any]]:
                 _field("FETCH_LOCK_DAYS", "Re-fetch lock (days)", "int", lo=0, hi=60, group="Scheduling & batching"),
                 _field("DEFAULT_BATCH_SIZE", "Batch size", "int", lo=1, hi=2000, group="Scheduling & batching"),
                 _field("OHLCV_HISTORY_YEARS", "OHLCV history window (years)", "int", lo=1, hi=50, group="Scheduling & batching"),
+                _field("OHLCV_REPAIR_ENABLED", "Repair Yahoo price history", "bool", group="Scheduling & batching"),
+                _field("OHLCV_PRICE_BREAK_RATIO", "Price check: break ratio (x)", "float", lo=2.0, hi=100.0, step=1.0, group="Scheduling & batching"),
+                _field("OHLCV_STALE_RUN_DAYS", "Price check: stale run (days)", "int", lo=2, hi=250, group="Scheduling & batching"),
                 _field("FETCH_ABANDONMENT_ENABLED", "Policy enabled (master switch)", "bool", group="Abandonment"),
                 _field("MAX_NO_DATA_FETCHES", "Max no-data fetches", "int", lo=1, hi=20, group="Abandonment"),
                 _field("OHLCV_STALE_WEEKS", "OHLCV stale (weeks)", "int", lo=1, hi=104, group="Staleness"),

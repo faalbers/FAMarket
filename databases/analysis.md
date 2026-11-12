@@ -16,6 +16,7 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
 ## Global conventions
 
 - **Price** = `adj_close` of the last completed trading session (`ohlcv.db`). Never an intraday price.
+- **Price window cleanup** (since 2026-11-12): before `price`, the technical columns and `rs_raw` are computed, each symbol's ~2-year price window gets its `ohlcv.price_flags` applied — `bad_print` and `stale` bars are dropped, and a `bad_adj` symbol uses `close` for `adj_close` (price return, not total return). `level_shift` is flagged only. See `price_issues`.
 - **TTM** = sum of the last 4 **consecutive** quarters (no gap over ~120 days), else NULL. Balance-sheet items = latest reported value (quarterly, falling back to annual).
 - **Percent metrics are stored as percent numbers** (12.5 = 12.5%). Multiples (P/E, ratios marked "x") are plain numbers.
 - **Market cap** = price × shares, where shares = Yahoo `sharesOutstanding`, else the latest reported `ordinary_shares_number`, else `share_issued`.
@@ -34,6 +35,7 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
 - **`sector`**, **`industry`**, **`country`** — Yahoo tags from `quotes.db`. **`fund_family`** — fund sponsor (funds only).
 - **`price`** — the canonical price (above).
 - **`rs_raw`** — weighted trailing return, the input to `rs_rank` (see 9).
+- **`price_issues`** — the `ohlcv.price_flags` checks that touched the price window, comma-joined (e.g. `bad_print, stale`); NULL = clean prices. Screenable ("is null" keeps clean symbols). `level_shift` is not corrected — a lasting 10x move can be an unrecorded reverse split or a real collapse.
 
 ## 2. Valuation (TTM)
 
