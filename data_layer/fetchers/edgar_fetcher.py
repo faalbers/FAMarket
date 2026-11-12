@@ -665,6 +665,10 @@ class EDGARFinancials(BaseFetcher):
         missing = [s for s in due if s.upper() not in cik_map]
         if missing:
             self._resolve_missing_ciks(missing)
+        # The same map gives every symbol its integer CIK / company_id (fix list §25).
+        from data_layer import symbols as symbols_mod
+
+        symbols_mod.refresh_company_ids(status_db, self._cik_map())
         return super().run(symbols_df, status_db, respect_lock)
 
     # -- CIK resolution ----------------------------------------------------- #

@@ -172,6 +172,18 @@ MAX_NO_DATA_FETCHES: int = 4
 # healthy symbols out; changed 2026-11-08). Self-perpetuating for genuinely stale
 # symbols — the stored date can't advance while skipped.
 OHLCV_STALE_WEEKS: int = 4                     # newest OHLCV date older than this
+# Re-check instead of giving up for good (2026-11-12, fix list §15): a symbol the
+# abandonment gates skip (prices stale, or repeated no-data answers) is still
+# price-fetched once every OHLCV_RECHECK_DAYS while its newest stored bar is within
+# RECHECK_WINDOW_DAYS; a switched-off symbol (is_active = 0) is switched back on for
+# one attempt on the same cadence while it was deactivated within that window.
+# Yahoo drops weeks of bars for many symbols at once (150 symbols missing
+# 2026-10-02..11-06), so a permanent give-up after 4 weeks lost live symbols.
+OHLCV_RECHECK_DAYS: int = 30
+RECHECK_WINDOW_DAYS: int = 183
+# Warn in the run log when this many symbols are newly marked delisted with the
+# same last bar date — the fingerprint of a Yahoo outage (or a fund-family closure).
+DELISTED_BURST_WARN: int = 25
 FINANCIALS_QUARTERLY_STALE_QUARTERS: int = 2   # newest quarterly period_end older than this
 FINANCIALS_YEARLY_STALE_QUARTERS: int = 6      # newest annual period_end older than this
 

@@ -11,7 +11,7 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
 
 ## Table `analysis` — one row per symbol
 
-**Who is in it**: symbols with `is_active = 1` and `is_validated = 1` in `symbols.db`, excluding indices. That includes funds, ETFs, warrants etc. — most fundamental columns are simply NULL for them. Around 60% of rows are mutual funds.
+**Who is in it**: symbols with `is_active = 1` and `is_validated = 1` in `symbols.db`, excluding indices and symbols whose price history has stopped (`is_delisted = 1`, since 2026-11-12). That includes funds, ETFs, warrants etc. — most fundamental columns are simply NULL for them. Around 60% of rows are mutual funds.
 
 ## Global conventions
 
@@ -33,6 +33,7 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
   - stock/adr split by Yahoo sector/industry: `reit` (sector Real Estate or industry contains "REIT"), `bank` (industry contains "bank", "mortgage finance" or "capital markets"), `insurance` (industry contains "insurance"), else `standard`.
   - `etf`, `mutual_fund`, `closed_end_fund`, `preferred` map directly; `spac`/`warrant`/`unit` → `minimal`.
 - **`sector`**, **`industry`**, **`country`** — Yahoo tags from `quotes.db`. **`fund_family`** — fund sponsor (funds only).
+  - **Industry overrides** (`config/industry_overrides.py`, since 2026-11-12) replace Yahoo's industry for a short list before `screen_type`, peers and the sector index: 19 bitcoin / crypto miners → "Crypto Mining" (Yahoo's "Capital Markets" routed them to `bank`), Sun Life → "Insurance - Life".
 - **`price`** — the canonical price (above).
 - **`rs_raw`** — weighted trailing return, the input to `rs_rank` (see 9).
 - **`price_issues`** — the `ohlcv.price_flags` checks that touched the price window, comma-joined (e.g. `bad_print, stale`); NULL = clean prices. Screenable ("is null" keeps clean symbols). `level_shift` is not corrected — a lasting 10x move can be an unrecorded reverse split or a real collapse.

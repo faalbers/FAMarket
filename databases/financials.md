@@ -14,7 +14,7 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
 - **`is_complete`** — 1 when both `total_revenue` and `net_income` are present.
 - Every other column is one statement line item, named after Yahoo's line-item label in lower case with underscores (e.g. "Total Revenue" → `total_revenue`). Most columns are sparse.
 
-Only `stock`, `adr` and REIT-type stocks have rows. No funds, ETFs or preferreds.
+Only `stock`, `adr` and REIT-type stocks have rows. No funds, ETFs or preferreds — rows of a symbol typed anything else are deleted after every type correction (since 2026-11-12; ~340 preferreds and SPACs had carried their issuer's statements).
 
 ## Source 1 — Yahoo Finance (recent window)
 

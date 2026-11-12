@@ -590,7 +590,7 @@ def _liquid_symbols(symbols, ohlcv_by: dict) -> list[str]:
 
 
 def _dedupe_share_classes(symbols, shares_pts: pd.DataFrame, quotes: pd.DataFrame,
-                           ohlcv_by: dict) -> list[str]:
+                           ohlcv_by: dict, company_ids: dict | None = None) -> list[str]:
     """Collapse multiple listed classes of the same company to one constituent.
 
     Both yfinance and EDGAR report a single consolidated share count per company
@@ -601,16 +601,13 @@ def _dedupe_share_classes(symbols, shares_pts: pd.DataFrame, quotes: pd.DataFram
     detects the fingerprint (two symbols in the same sector reporting an
     identical latest share count) and keeps only the most liquid ticker of each
     such group, so the company enters the index's weighting exactly once.
+
+    First pass (2026-11-12, fix list §25): symbols sharing a `company_id` (the SEC
+    CIK) are one company too. That also catches an ADR and its foreign OTC twin
+    (DTEGY / DTEGF), whose share counts differ (ADR units vs home-market shares)
+    so the share-count fingerprint misses them.
     """
     symbols = list(symbols)
-    if shares_pts.empty:
-        return symbols
-    latest = (shares_pts[shares_pts["symbol"].isin(set(symbols))]
-              .sort_values("period_end")
-              .groupby("symbol")["shares"].last())
-    if latest.empty:
-        return symbols
-    sec_col = quotes["sector"] if "sector" in quotes.columns else pd.Series(dtype=object)
     win = settings.INDEX_LIQUIDITY_WINDOW_DAYS
 
     def dollar_volume(sym: str) -> float:
@@ -623,6 +620,25 @@ def _dedupe_share_classes(symbols, shares_pts: pd.DataFrame, quotes: pd.DataFram
         return float(dv.mean(skipna=True)) if dv.notna().any() else 0.0
 
     drop: set[str] = set()
+    if company_ids:
+        families: dict = {}
+        for s in symbols:
+            cid = company_ids.get(s)
+            if cid is not None and not pd.isna(cid):
+                families.setdefault(int(cid), []).append(s)
+        for family in families.values():
+            if len(family) > 1:
+                best = max(family, key=dollar_volume)
+                drop.update(s for s in family if s != best)
+        symbols = [s for s in symbols if s not in drop]
+    if shares_pts.empty:
+        return symbols
+    latest = (shares_pts[shares_pts["symbol"].isin(set(symbols))]
+              .sort_values("period_end")
+              .groupby("symbol")["shares"].last())
+    if latest.empty:
+        return symbols
+    sec_col = quotes["sector"] if "sector" in quotes.columns else pd.Series(dtype=object)
     for _, grp in latest.groupby([sec_col.reindex(latest.index), latest]):
         if len(grp) < 2:
             continue
@@ -676,7 +692,8 @@ def _to_long(kind: str, groups: dict, prices, shares, iwf, cap_prices=None,
 # ==================================================================================
 
 def build_and_write(universe_symbols, quotes: pd.DataFrame, financials: pd.DataFrame,
-                    ohlcv_by: dict, prices_as_of: str | None) -> dict:
+                    ohlcv_by: dict, prices_as_of: str | None,
+                    company_ids: dict | None = None) -> dict:
     """Build sector + sub-industry indices over the (filtered) universe and write indices.db.
 
     `quotes` is indexed by symbol; `financials` is the full analysis frame; `ohlcv_by`
@@ -691,7 +708,7 @@ def build_and_write(universe_symbols, quotes: pd.DataFrame, financials: pd.DataF
     # then collapse multi-class companies (BRK-A/BRK-B, GOOG/GOOGL, ...) to one constituent
     # each — see _dedupe_share_classes for why that guard is needed.
     liquid = _liquid_symbols(universe_symbols, ohlcv_by)
-    liquid = _dedupe_share_classes(liquid, shares_pts, quotes, ohlcv_by)
+    liquid = _dedupe_share_classes(liquid, shares_pts, quotes, ohlcv_by, company_ids)
     sector_groups, industry_groups = _groups(quotes, liquid)
     members = sorted({s for v in sector_groups.values() for s in v})
     if not members:

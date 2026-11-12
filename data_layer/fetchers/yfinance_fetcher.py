@@ -352,6 +352,52 @@ class YFinanceOHLCV(BaseFetcher):
     upsert_key = ["symbol", "date"]
     stale_after_days = settings.OHLCV_STALE_WEEKS * 7  # base.stale_symbols by `date`
 
+    def select_due(
+        self, symbols_df: pd.DataFrame, status_db: Database, respect_lock: bool = True
+    ) -> tuple[list[str], dict]:
+        """The base gates, plus a monthly re-check of symbols they give up on.
+
+        The abandonment gates (stale prices, repeated no-data answers) skip a symbol
+        for good. Yahoo drops weeks of bars for many symbols at once (150 symbols
+        missing 2026-10-02..11-06), so a live symbol caught in such a hole was lost
+        forever after 4 weeks. Re-check (fix list §15, 2026-11-12): a skipped symbol
+        is due again when its last fetch is OHLCV_RECHECK_DAYS old and its newest
+        stored bar is within RECHECK_WINDOW_DAYS. If bars come back, staleness clears
+        (newest bar vs last fetch), the no-data counter resets, and
+        `symbols.mark_delisted` lifts the delisted mark.
+        """
+        due, stats = super().select_due(symbols_df, status_db, respect_lock)
+        if not settings.FETCH_ABANDONMENT_ENABLED:
+            return due, stats
+        candidates = self.select_symbols(symbols_df)
+        due_set = set(due)
+        _, _, abandoned = fetch_status.classify_skips(
+            status_db, candidates, self.name, self.lock_days, respect_lock)
+        stale = self.stale_symbols(candidates, status_db) - set(abandoned)
+        skipped = (set(abandoned) | stale) - due_set
+        if not skipped:
+            return due, stats
+        last_fetched = fetch_status.last_fetched_dates(status_db, self.name)
+        today = datetime.now(timezone.utc).date()
+        with Database(settings.OHLCV_DB) as db:
+            newest = dict(db.query("SELECT symbol, MAX(date) AS d FROM ohlcv GROUP BY symbol")
+                          .itertuples(index=False, name=None))
+        window = (today - pd.Timedelta(days=settings.RECHECK_WINDOW_DAYS)).isoformat()
+        recheck = sorted(
+            s for s in skipped
+            if (lf := last_fetched.get(s)) is not None
+            and (today - lf).days >= settings.OHLCV_RECHECK_DAYS
+            and str(newest.get(s) or "")[:10] >= window
+        )
+        if recheck:
+            n_ab = sum(1 for s in recheck if s in abandoned)
+            stats["abandoned"] -= n_ab
+            stats["stale"] -= len(recheck) - n_ab
+            stats["due"] += len(recheck)
+            stats["recheck"] = len(recheck)
+            due = due + recheck
+        return due, stats
+
     def fetch_one(self, symbol: str) -> pd.DataFrame | None:
         import yfinance as yf
 

@@ -43,6 +43,7 @@ from analysis_layer import metrics, technical, intrinsic_value, valuation_scenar
 from analysis_layer import estimates as estimates_metrics
 from analysis_layer import signals as signals_metrics
 from analysis_layer import benchmark_push, price_quality, sector_index
+from config.industry_overrides import INDUSTRY_OVERRIDES
 from data_layer import price_checks
 from core.market_calendar import last_completed_session
 from analysis_layer.screen_type import classify as classify_screen_type
@@ -195,16 +196,39 @@ def _universe(symbols: pd.DataFrame, subset: list[str] | None) -> pd.DataFrame:
     analysis.db by 2026-08-15. Benchmark indices now carry OHLCV as well (see
     settings.BENCHMARK_SYMBOLS), which makes this gate load-bearing rather than
     just corrective — price history for charting must not become a screening row.
+
+    Delisted symbols (`is_delisted = 1`) are excluded too.
     """
     df = symbols
     for flag in ("is_active", "is_validated"):
         if flag in df.columns:
             df = df[df[flag] == 1]
+    # Price history stopped (symbols.mark_delisted, fix list §15): kept in
+    # symbols.db with its history, but out of every ranking, peer group and screen.
+    if "is_delisted" in df.columns:
+        df = df[df["is_delisted"].fillna(0) != 1]
     if "security_type" in df.columns:
         df = df[df["security_type"] != "index"]
     if subset is not None:
         df = df[df["symbol"].isin(subset)]
     return df.reset_index(drop=True)
+
+
+def _apply_industry_overrides(quotes: pd.DataFrame) -> pd.DataFrame:
+    """Replace Yahoo's industry tag for the symbols in config/industry_overrides.py.
+
+    Done once, on the quotes frame every industry consumer reads — the screen_type
+    routing, peer groups and the sector index (fix list §25). quotes.db is untouched.
+    """
+    if quotes.empty or "industry" not in quotes.columns:
+        return quotes
+    hits = [s for s in INDUSTRY_OVERRIDES if s in quotes.index]
+    if not hits:
+        return quotes
+    quotes = quotes.copy()
+    quotes.loc[hits, "industry"] = [INDUSTRY_OVERRIDES[s] for s in hits]
+    log.info("Analysis — industry overrides applied to %d symbols", len(hits))
+    return quotes
 
 
 def _risk_free(macro: pd.DataFrame) -> float:
@@ -231,6 +255,7 @@ def run_analysis(subset: list[str] | None = None) -> dict:
         return {"symbols": 0}
 
     quotes = data["quotes"].set_index("symbol") if not data["quotes"].empty else pd.DataFrame()
+    quotes = _apply_industry_overrides(quotes)
     financials, ohlcv = data["financials"], data.pop("ohlcv")
     risk_free = _risk_free(data["macro"])
     prices_as_of = ohlcv["date"].max().strftime("%Y-%m-%d") if not ohlcv.empty else None
@@ -360,8 +385,11 @@ def run_analysis(subset: list[str] | None = None) -> dict:
     if subset is None:
         try:
             log.info("Analysis — building sector/industry indices…")
+            company_ids = (dict(zip(universe["symbol"], universe["company_id"]))
+                           if "company_id" in universe.columns else {})
             index_summary = sector_index.build_and_write(
-                universe["symbol"].tolist(), quotes, financials, ohlcv_by, prices_as_of)
+                universe["symbol"].tolist(), quotes, financials, ohlcv_by, prices_as_of,
+                company_ids=company_ids)
         except Exception:
             log.exception("Sector/industry index build failed; analysis.db is unaffected")
         # Hand the fresh indices to FAPortfolio's GitHub Track — only after a build
