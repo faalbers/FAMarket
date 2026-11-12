@@ -62,6 +62,7 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
 - **`current_ratio`**, **`quick_ratio`** (cash + short-term investments + receivables, or current assets − inventory, over current liabilities), **`cash_ratio`**.
 - **`altman_z`** — Altman Z-score, manufacturing form: 1.2·WC/TA + 1.4·RE/TA + 3.3·EBIT/TA + 0.6·MarketCap/Liabilities + 1.0·Sales/TA. Above ~3 safe, below ~1.8 distressed. NULL for large profitable firms whose retained earnings are deeply negative from buybacks.
 - **`beneish_m_score`** — Beneish M-score from 8 year-over-year ratios of the last two fiscal years. Above −1.78 = possible earnings manipulation. NULL when |score| > 10.
+- **`efficiency_ratio`** (banks only, %) — non-interest expense / revenue. TTM, else the newest fiscal year with both figures. Lower = better (~55-65% typical).
 - **`quick_health_score`** (standard only, 0-7) — count of passed checks, last fiscal year vs the one before: revenue up; cost of revenue not outgrowing revenue; gross profit up; assets > liabilities; liabilities not outgrowing assets; cash ratio ≥ 0.2; operating cash flow up.
 
 ## 5. Growth

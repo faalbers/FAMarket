@@ -483,6 +483,17 @@ PARAM_HINTS: dict[str, dict] = {
         ],
         "vs_peers": "Somewhat — the absolute danger zone (<2) matters more than the median.",
     },
+    "efficiency_ratio": {
+        "name": "Efficiency",
+        "category": "Balance Sheet",
+        "unit": "%",
+        "what_it_is": "Banks only: non-interest expense (staff, buildings, technology…) as a percent of revenue — what it costs the bank to earn each dollar.",
+        "how_to_use": [
+            "Lower is better; ~55-65% is typical, under ~50% is lean.",
+            "A rising ratio means costs are growing faster than income.",
+        ],
+        "vs_peers": "Yes — compare with banks of similar size and business mix.",
+    },
     "quick_health_score": {
         "name": "Quick health",
         "category": "Balance Sheet",

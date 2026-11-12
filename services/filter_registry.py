@@ -202,6 +202,7 @@ BASES: list[Base] = [
     _b("altman_z", "Altman Z", "Balance Sheet", frozenset({STANDARD})),
     _b("beneish_m_score", "Beneish M", "Balance Sheet", frozenset({STANDARD})),
     _b("quick_health_score", "Quick health", "Balance Sheet", frozenset({STANDARD})),
+    _b("efficiency_ratio", "Efficiency ratio", "Balance Sheet", frozenset({BANK})),
     # -- Growth (base + window) --------------------------------------------- #
     _b("revenue", "Revenue growth", "Growth", frozenset({STANDARD, BANK, INSURANCE, REIT}), growth=True),
     _b("eps", "EPS growth", "Growth", frozenset({STANDARD, BANK, INSURANCE}), growth=True),

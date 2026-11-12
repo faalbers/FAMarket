@@ -45,7 +45,7 @@ TTM_QUARTERS = 4
 # larger than this between any two of the four means a quarter is missing and the
 # sum would silently span more than a year. ~120d tolerates 13/14-week fiscal
 # quarters and slightly irregular filing dates without admitting a real gap.
-_MAX_QUARTER_GAP_DAYS = 120
+MAX_QUARTER_GAP_DAYS = 120
 
 
 def by_symbol(fin: pd.DataFrame, symbol: str) -> pd.DataFrame:
@@ -147,7 +147,7 @@ def ttm(df: "pd.DataFrame | SymbolPeriods", field: str) -> float:
         return float("nan")
     last4 = s.iloc[-TTM_QUARTERS:]
     gaps = last4.index.to_series().diff().dropna().dt.days
-    if (gaps > _MAX_QUARTER_GAP_DAYS).any():
+    if (gaps > MAX_QUARTER_GAP_DAYS).any():
         return float("nan")
     return float(last4.sum())
 

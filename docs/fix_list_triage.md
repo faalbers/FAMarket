@@ -4,8 +4,10 @@ Internal tracker for working through `docs/fix_list_for_data_system.md` on branc
 
 ## Waiting for your input
 
-- **Next group:** B — EDGAR backfill rework. Start the discussion.
-- **Analysis run:** after Group A's cleanup, a full analysis run fills `roe` / `pb` / `debt_to_equity` for partnerships (BEP, WES, …). Your call when.
+- **Commit Group B** — all of it is uncommitted. Your call.
+- **Next group:** C — price-history validation. Start the discussion.
+- **SEC refresh waves** (decided 2026-11-11, open to change): ~45 days after each calendar quarter-end the weekly run gets ~1 hour longer. Can be spread over several weeks if it bothers you.
+- **Possible follow-ups from B** (not started, your call): fallback tags for 104 banks with no `NoninterestExpense`; `SalesRevenueGoodsNet` / bank revenue tags for older KO, JNJ, WFC years; a derived fiscal-Q4 quarter (Agilent and others have no 3-month Q4 in SEC data).
 - **EBITDA definition** (§20, parked for F/G): keep reported EBITDA or switch `debt_to_ebitda` / `ev_ebitda` to Yahoo's `normalized_ebitda`.
 
 ## Groups
@@ -13,11 +15,11 @@ Internal tracker for working through `docs/fix_list_for_data_system.md` on branc
 | # | Group | Items | Status |
 |---|---|---|---|
 | A | Import cleaning rules | §5, §7 (ranges), §24, §25.5 | ✅ done 2026-11-11 · §20 EBITDA moved to F/G |
-| B | EDGAR backfill rework | §1, §4, §12, §13, §14, §22 filed date, §23 | next — needs one EDGAR re-fetch |
+| B | EDGAR backfill rework | §1, §4, §12, §13, §14, §22 filed date, §23 | ✅ done 2026-11-11 · re-fetched + analysis run · §14 steps 2-4 → F |
 | C | Price-history validation | §3, §20 (stale runs, gaps) | open |
-| D | Symbol state & identity | §15, §6, §25, §22 delisted history | open |
+| D | Symbol state & identity | §15, §6, §25, §22 delisted history · + preferred tickers carrying old EDGAR rows (found in B) | open |
 | E | Signals consistency | §11, §7 (dates, TTM lag, currency), §20 (surprise, currency, insiders, targets) | open |
-| F | Analysis foundations | §2, §10, §16, §20 (EV, EBITDA definition) | open |
+| F | Analysis foundations | §2, §10, §16, §20 (EV, EBITDA definition), §14 steps 2-4 (split basis via `filed_date`, Talen) | open |
 | G | Analysis built on F | §9, §17, §19, §18 | open |
 | H | New calculations | §21 | open |
 | I | Indices | §8 — touches FAPortfolio's `indices.db` contract | open |
@@ -26,5 +28,6 @@ Internal tracker for working through `docs/fix_list_for_data_system.md` on branc
 
 ## Notes carried forward
 
-- **§4 / §12:** the review proposes classifying EDGAR rows by `fp` / `form`. `data_layer/fetchers/edgar_fetcher.py` (module notes) records these as unreliable for balance-sheet dates, checked on AAPL. Research before adopting.
-- **One EDGAR re-fetch** for all of Group B — agree every B item first, then re-fetch once.
+- **§4 / §12 resolved:** `form` is used for flows only (never quarterly reports); balance-sheet dates follow the accepted year-ends. See the done file.
+- **Group B lessons:** the SEC can re-point a ticker at a new company record (history guard added); preferred-share tickers sit outside the EDGAR scope but carry old EDGAR rows (→ D).
+- **Backups for this project:** `backups/data_system_fixes/` — `2026-11-11_18-09-23_refetch_edgar` (before the full re-fetch), `2026-11-11_20-34-23_refetch_edgar` (before the repair pass).

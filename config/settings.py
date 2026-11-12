@@ -182,6 +182,16 @@ FINANCIALS_YEARLY_STALE_QUARTERS: int = 6      # newest annual period_end older 
 # own. A viability gate — governed by FETCH_ABANDONMENT_ENABLED, not the 5-day lock.
 FINANCIALS_REPORT_LAG_DAYS: int = 45
 
+# EDGAR refresh (2026-11-11). EDGAR was a one-time backfill; it now also supplies
+# columns Yahoo never has (filed_date, non_interest_expense), so it re-fetches a
+# company to pick up each NEW filing: when its newest stored period has no
+# filed_date yet and is at least FINANCIALS_REPORT_LAG_DAYS old. Tries at most
+# every EDGAR_REFRESH_LOCK_DAYS, and stops trying EDGAR_REFRESH_WINDOW_DAYS after
+# the period ended (a 10-K can take 90 days; a foreign filer's quarters never
+# reach XBRL). Viability gate — governed by FETCH_ABANDONMENT_ENABLED.
+EDGAR_REFRESH_LOCK_DAYS: int = 30
+EDGAR_REFRESH_WINDOW_DAYS: int = 120
+
 # Price history window pulled on EVERY OHLCV fetch, not just the first (renamed
 # from OHLCV_INITIAL_YEARS 2026-08-15). Each fetch fully replaces the symbol's
 # stored rows over this window, so it defines the entire depth of ohlcv.db.

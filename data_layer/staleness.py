@@ -35,7 +35,8 @@ is never "stale" (nothing to age out); the no-data counter governs that case.
 
 This module also hosts the financials DUE-DATE gate (financials_not_due) — the
 opposite-direction check that defers fetching while the next statement cannot
-exist yet (reporting cycle + FINANCIALS_REPORT_LAG_DAYS filing window).
+exist yet (reporting cycle + FINANCIALS_REPORT_LAG_DAYS filing window), and the
+EDGAR refresh gate (edgar_not_due): re-fetch SEC data only for a new filing.
 """
 
 from __future__ import annotations
@@ -116,6 +117,59 @@ def financials_not_due(candidates: list[str]) -> set[str]:
         a_due = a is not None and _older_than(a, a_cut)
         if not q_due and not a_due:
             not_due.add(s)
+    return not_due
+
+
+def edgar_not_due(candidates: list[str], last_fetched: dict[str, date]) -> set[str]:
+    """Candidates EDGAR has nothing new to fetch for (the EDGAR refresh gate).
+
+    EDGAR re-fetches a company only to pick up a NEW filing (its filed_date and
+    the EDGAR-only columns, e.g. a bank's non_interest_expense). A company that
+    EDGAR already fetched is due only when ALL of these hold:
+
+      * it has SEC data at all (some stored row carries a `filed_date`) —
+        otherwise it is not an XBRL filer and stays deferred;
+      * its newest stored period (any source) has no `filed_date` yet;
+      * that period ended at least FINANCIALS_REPORT_LAG_DAYS ago, so a filing
+        can exist;
+      * it is still inside EDGAR_REFRESH_WINDOW_DAYS of that period's end, or
+        has not been tried since the filing could exist.
+
+    Attempts are spaced by EDGARFinancials.lock_days (EDGAR_REFRESH_LOCK_DAYS).
+    Never-fetched companies are always due. Companies whose rows were restored
+    from backup (no filed_date anywhere) are never refreshed.
+    """
+    fetched = [s for s in candidates if s in last_fetched]
+    if not fetched:
+        return set()
+    with Database(settings.FINANCIALS_DB) as db:
+        if not db.table_exists("financials") or "filed_date" not in db.columns("financials"):
+            return set()
+        rows = db.query(
+            "SELECT symbol, MAX(period_end) AS newest, "
+            "MAX(CASE WHEN filed_date IS NOT NULL THEN period_end END) AS newest_filed "
+            "FROM financials GROUP BY symbol"
+        )
+    info = {s: (n, f) for s, n, f in rows.itertuples(index=False, name=None)}
+    today = date.today()
+    lag = timedelta(days=settings.FINANCIALS_REPORT_LAG_DAYS)
+    window = timedelta(days=settings.EDGAR_REFRESH_WINDOW_DAYS)
+    not_due: set[str] = set()
+    for s in fetched:
+        newest, newest_filed = info.get(s, (None, None))
+        if not newest or not newest_filed or newest == newest_filed:
+            not_due.add(s)  # no SEC data, or the newest period already has its filing
+            continue
+        try:
+            period = pd.to_datetime(newest).date()
+        except (ValueError, TypeError):
+            not_due.add(s)
+            continue
+        filing_possible = period + lag
+        if today < filing_possible:
+            not_due.add(s)  # too early: no filing can exist yet
+        elif today > period + window and last_fetched[s] >= filing_possible:
+            not_due.add(s)  # tried after the filing could exist; window has closed
     return not_due
 
 

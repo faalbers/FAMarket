@@ -61,7 +61,12 @@ from config import settings, type_map
 from core.database import Database
 from core.market_calendar import last_completed_session
 from data_layer import fetch_status, staleness
-from data_layer.cleaning_rules import clean_estimates, clean_financials, clean_quotes
+from data_layer.cleaning_rules import (
+    clean_estimates,
+    clean_financials,
+    clean_quotes,
+    drop_empty_periods,
+)
 from data_layer.fetchers.base import BaseFetcher
 
 if TYPE_CHECKING:
@@ -508,6 +513,9 @@ def sanitize_financials(
         out[col] = out[col].where(out[col].notna(), None)
 
     out = out.copy()  # defragment after per-column edits (silences PerformanceWarning)
+    out = drop_empty_periods(out)[0]  # leftover periods would block the EDGAR backfill
+    if out.empty:
+        return out
     present = [c for c in _COMPLETENESS_FIELDS if c in out.columns]
     if present:
         out["is_complete"] = out[present].notna().all(axis=1).astype(int)

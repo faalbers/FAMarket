@@ -34,7 +34,7 @@ import pandas as pd
 
 from config import settings
 from analysis_layer import _periods as P
-from analysis_layer.screen_type import STANDARD
+from analysis_layer.screen_type import BANK, STANDARD
 
 # ---- field kinds for _periods.current() ---------------------------------- #
 # Flows (income statement / cash flow) get a TTM sum; stocks (balance sheet) take
@@ -145,6 +145,52 @@ def interest_coverage(ebit: float, interest_expense: float) -> float:
     return _div(ebit, abs(interest_expense) if pd.notna(interest_expense) else float("nan"))
 
 
+def efficiency_ratio(non_interest_expense: float, total_revenue: float) -> float:
+    """Bank efficiency ratio (%): non-interest expense / revenue. Lower = better.
+
+    A non-positive revenue gives NaN (the ratio has no meaning there).
+    """
+    if pd.isna(total_revenue) or total_revenue <= 0:
+        return float("nan")
+    return _pct(_div(non_interest_expense, total_revenue))
+
+
+# A bank's efficiency ratio older than this (vs its newest reported period) is
+# left blank rather than shown as current.
+_EFFICIENCY_MAX_AGE_DAYS = 456  # ~15 months
+
+
+def _bank_efficiency(fin) -> float:
+    """Efficiency ratio from the newest SAME-PERIOD pair of inputs.
+
+    `non_interest_expense` comes only from EDGAR (fix list §23), so it can lag the
+    Yahoo revenue by a filing. Both inputs are therefore matched period by period:
+    the TTM over the last four consecutive quarters that carry both, or the latest
+    fiscal year that does, whichever ends later. Banks rarely tag a Q4 three-month
+    figure, so the fiscal year is often the one used. NaN when that pair ends more
+    than `_EFFICIENCY_MAX_AGE_DAYS` before the newest reported period.
+    """
+    def _pairs(series_of) -> pd.DataFrame:
+        return pd.concat([series_of(fin, "non_interest_expense"), series_of(fin, "total_revenue")],
+                         axis=1, keys=["nie", "rev"], sort=True).dropna()
+
+    best: tuple[pd.Timestamp, float, float] | None = None
+    q = _pairs(P.quarterly)
+    if len(q) >= P.TTM_QUARTERS:
+        last4 = q.iloc[-P.TTM_QUARTERS:]
+        if not (last4.index.to_series().diff().dropna().dt.days > P.MAX_QUARTER_GAP_DAYS).any():
+            best = (last4.index[-1], float(last4["nie"].sum()), float(last4["rev"].sum()))
+    a = _pairs(P.annual)
+    if len(a) and (best is None or a.index[-1] > best[0]):
+        best = (a.index[-1], float(a["nie"].iloc[-1]), float(a["rev"].iloc[-1]))
+    if best is None:
+        return float("nan")
+    newest = P.latest_period_end(fin)
+    if newest is not None and (newest - best[0]).days > _EFFICIENCY_MAX_AGE_DAYS:
+        return float("nan")
+    return efficiency_ratio(best[1], best[2])
+
+
 def _wacc(mktcap: float, total_debt: float, interest_expense: float, tax_rate: float,
           beta: float, risk_free: float | None) -> float:
     """CAPM WACC (stored as a percent). NaN unless every input is a real, priced,
@@ -202,6 +248,7 @@ RATIO_PERIOD_METRICS: dict[str, tuple] = {
     "debt_to_ebitda": (debt_to_ebitda, ("total_debt", "ebitda"), "x"),
     "current_ratio": (current_ratio, ("current_assets", "current_liabilities"), "x"),
     "interest_coverage": (interest_coverage, ("operating_income", "interest_expense"), "x"),
+    "efficiency_ratio": (efficiency_ratio, ("non_interest_expense", "total_revenue"), "%"),
 }
 
 # Raw statement line items the chart can plot directly (no formula) -> display label.
@@ -614,6 +661,7 @@ def compute(
     m["cash_ratio"] = _div(cash, cur_liab)
     m["interest_coverage"] = interest_coverage(ebit, P.ttm(fin, "interest_expense"))
     m["debt_to_ebitda"] = debt_to_ebitda(total_debt, ebitda)
+    m["efficiency_ratio"] = _bank_efficiency(fin) if screen_type == BANK else float("nan")
     m["altman_z"] = (_altman_z(fin, ebit, rev, mktcap, total_assets, total_liab,
                                 m["net_margin"], m["operating_margin"])
                       if currency_ok else float("nan"))

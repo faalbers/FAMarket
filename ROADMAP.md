@@ -1053,6 +1053,15 @@ needs.
      beta / payoutRatio / grossMargins → NULL, `stockholders_equity` = 0 → common equity or NULL,
      empty `longName` ← `shortName`. EBITDA rule dropped (Yahoo's EBITDA is consistent; reported vs
      normalized is an analysis choice for Groups F/G).
+   - ✅ Group B — EDGAR backfill rework (2026-11-11): fiscal years never from 10-Qs (two tiers: annual
+     report in the fiscal-year-end month; other non-quarterly filings / year-end changes only ≥300 days
+     from accepted years), `Revenues` before contract revenue + seam test, first-filed share counts,
+     new columns `diluted/basic_average_shares`, `non_interest_expense`, `filed_date`,
+     `quarter_sum_flag`; capex always negative; no post-filing dates; Yahoo leftover periods skipped.
+     Full re-fetch (`scripts/refetch_edgar.py`) + repair pass. New bank metric `efficiency_ratio`.
+     **EDGAR changed from one-time (lock 36500 days) to refresh-on-new-filing**
+     (`staleness.edgar_not_due`, `EDGAR_REFRESH_LOCK_DAYS` 30 / `EDGAR_REFRESH_WINDOW_DAYS` 120) and
+     each fetch replaces the company's own EDGAR rows, guarded against losing stored years.
    - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
      `core/backup.fix_backup`).
 

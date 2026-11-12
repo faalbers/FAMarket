@@ -103,6 +103,26 @@ def clean_estimates(df: pd.DataFrame) -> tuple[pd.DataFrame, Counts]:
     return df, counts
 
 
+# A Yahoo statement period with none of these is a leftover, not data (fix list §1).
+CORE_FIELDS = ("total_revenue", "net_income", "total_assets")
+
+
+def drop_empty_periods(df: pd.DataFrame) -> tuple[pd.DataFrame, Counts]:
+    """Drop Yahoo periods with no revenue, net income AND total assets (fix list §1).
+
+    Yahoo lists its oldest year (and some odd quarters) with only a few minor lines.
+    Stored, such a row "owns" the period, so the EDGAR backfill never fills it — and
+    if EDGAR did, the next Yahoo fetch would upsert the empty version back over it.
+    Yahoo-only: an EDGAR row is never dropped by this rule.
+    """
+    present = [c for c in CORE_FIELDS if c in df.columns]
+    if present:
+        empty = df[present].isna().all(axis=1)
+    else:
+        empty = pd.Series(True, index=df.index)
+    return df[~empty].copy(), {"empty_periods_dropped": int(empty.sum())}
+
+
 def clean_financials(df: pd.DataFrame) -> tuple[pd.DataFrame, Counts]:
     """Statement rules (fix list §24).
 
