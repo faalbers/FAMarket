@@ -27,6 +27,7 @@ Analyst consensus, from Yahoo's earnings estimate, revenue estimate, growth esti
 - **EPS trend** — how the consensus EPS for that horizon has drifted: `eps_trend_current`, `eps_trend_7d`, `eps_trend_30d`, `eps_trend_60d`, `eps_trend_90d` (the consensus value 7/30/60/90 days ago).
 - **EPS revisions** — number of analysts who raised / cut their estimate: `eps_rev_up_7d`, `eps_rev_up_30d`, `eps_rev_down_7d`, `eps_rev_down_30d`.
 - **`currency`**, **`fetched_at`**.
+- **No analysts → NULL, not 0** (since 2026-11-11): when `rev_num_analysts` (or `eps_num_analysts`) is 0 or missing, the placeholder 0s Yahoo puts in that group's `_avg`, `_low`, `_high`, `_year_ago`, `_growth` are stored as NULL. With analysts, 0 is kept — it can be a real forecast (a pre-revenue biotech forecast at $0 revenue).
 
 ## Table `earnings_surprise` — one row per (symbol, period_end)
 

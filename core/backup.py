@@ -103,6 +103,34 @@ def backup_file(path: Path, stamp: str | None = None) -> None:
     _prune(path.stem, path.suffix)
 
 
+FIX_BACKUP_DIR: Path = settings.BACKUP_DIR / "data_system_fixes"
+
+
+def fix_backup(db_paths: list[Path], label: str) -> Path:
+    """One-off snapshot of `db_paths` before a data-system-fix cleanup script.
+
+    Lands in ``backups/data_system_fixes/{stamp}_{label}/`` — outside the dated
+    rotation, so `_prune` never sees it and nothing deletes it automatically.
+    Copies with SQLite's own backup API, which gives a consistent copy even when
+    another connection has the file open. Undo = copy the files back with the app
+    and any fetch stopped. Returns the snapshot folder.
+    """
+    import sqlite3
+
+    dest_dir = FIX_BACKUP_DIR / f"{now_stamp()}_{label}"
+    dest_dir.mkdir(parents=True, exist_ok=False)
+    for path in db_paths:
+        src = sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True)
+        dst = sqlite3.connect(dest_dir / path.name)
+        try:
+            src.backup(dst)
+        finally:
+            dst.close()
+            src.close()
+    log.info("Fix backup — %d databases copied to %s", len(db_paths), dest_dir)
+    return dest_dir
+
+
 def _prune(stem: str, suffix: str) -> None:
     """Keep only the newest BACKUP_VERSIONS dated backups of ``{stem}{suffix}``.
 

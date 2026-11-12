@@ -43,6 +43,7 @@ Only `stock`, `adr` and REIT-type stocks have rows. No funds, ETFs or preferreds
 - **Signs follow Yahoo**: cash outflows are **negative** (`capital_expenditure`, `cash_dividends_paid`, `repurchase_of_capital_stock`). EDGAR values were flipped to match.
 - **Quarterly flows are single quarters** (not year-to-date). TTM = sum of the last four consecutive quarters. Balance-sheet items are point-in-time.
 - **Annual and quarterly can share a `period_end`** (the fiscal-year-end quarter). Always filter by `freq` before summing.
+- **`stockholders_equity` is never 0** (since 2026-11-11, both sources): a 0 is a placeholder (partnerships report "partners' capital"; some new listings), so `common_stock_equity` is stored instead when it is non-zero (negative included), else NULL.
 - **Per-share values and share counts are as filed** — not adjusted for later splits. EPS or share series crossing a split jump (AAPL 2014 7:1, 2020 4:1). Use `ohlcv.splits` to adjust. A later filing may already have restated older values, so a series can mix bases.
 
 ## Known limitations

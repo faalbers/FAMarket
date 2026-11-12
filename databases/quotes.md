@@ -12,7 +12,11 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
 - Normally refetched weekly. Rows for symbols that later stopped being fetched (delisted, abandoned) **stay with their old values** — check `fetched_at`.
 - Every scalar field Yahoo returns becomes its own column, named exactly as Yahoo names it (camelCase). Lists/dicts (e.g. company officers) are dropped. Columns only exist for fields Yahoo has ever returned, so most are sparse.
 - Cleaning: blanks, `"N/A"`, `"-"`, NaN and infinities are stored as NULL. A symbol with no usable price at all gets no row.
-- Values are stored **as Yahoo returns them**. Nothing is recalculated here.
+- Placeholder and impossible values are stored as NULL (since 2026-11-11):
+  - `recommendationMean` = 0 (the scale is 1-5; 0 is Yahoo's "no rating");
+  - `|beta|` > 10, `payoutRatio` > 10 (1,000%), `grossMargins` > 1 (100%).
+- Empty `longName` is filled from `shortName`.
+- Otherwise values are stored **as Yahoo returns them**. Nothing is recalculated here.
 
 ## Columns added on top of Yahoo's fields
 

@@ -61,6 +61,7 @@ from config import settings, type_map
 from core.database import Database
 from core.market_calendar import last_completed_session
 from data_layer import fetch_status, staleness
+from data_layer.cleaning_rules import clean_estimates, clean_financials, clean_quotes
 from data_layer.fetchers.base import BaseFetcher
 
 if TYPE_CHECKING:
@@ -123,8 +124,8 @@ class YFinanceQuotes(BaseFetcher):
         row = sanitize_quote(symbol, info)
         if row is None:
             return None
-        df = pd.DataFrame([row])
-        return _enrich_quote(symbol, df, info, ticker)
+        df = _enrich_quote(symbol, pd.DataFrame([row]), info, ticker)
+        return clean_quotes(df)[0]
 
 
 # yfinance quoteTypes that expose a `funds_data` block (ETFs and mutual funds).
@@ -517,7 +518,7 @@ def sanitize_financials(
     # column isn't coerced to NaN. (Added here, not in the loop above, for that
     # reason.)
     out["source"] = "yfinance"
-    return out
+    return clean_financials(out)[0]
 
 
 class YFinanceFinancials(BaseFetcher):
@@ -680,7 +681,7 @@ def sanitize_estimates(symbol, earnings, revenue, growth, trend, revisions) -> p
     if not out_rows:
         return pd.DataFrame()
     out = pd.DataFrame(out_rows)
-    return out[[c for c in _ESTIMATE_COLUMNS if c in out.columns]]
+    return clean_estimates(out[[c for c in _ESTIMATE_COLUMNS if c in out.columns]])[0]
 
 
 def _estimate_frame(ticker, prop: str):

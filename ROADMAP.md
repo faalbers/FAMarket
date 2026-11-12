@@ -1043,6 +1043,19 @@ needs.
    - Directory layout, module naming, and config file structure will be decided during implementation
    - Key architectural decisions captured in Key Decisions Made above
 
+🔄 Data-system fix list (started 2026-11-11, branch `feature/data-system-fixes`)
+   - Source: an independent review of the databases, `docs/fix_list_for_data_system.md` (25 items).
+   - Worked through in 9 groups (A-I); status and open decisions in `docs/fix_list_triage.md`.
+   - Results for the reviewer: `docs/fix_list_for_data_system_done.md`.
+   - ✅ Group A — import cleaning rules (2026-11-11): `data_layer/cleaning_rules.py`, run in the
+     yfinance + EDGAR sanitize steps; stored rows cleaned once by `scripts/clean_stored_data.py`.
+     Placeholder 0s → NULL (estimates with no analysts, recommendationMean), out-of-range
+     beta / payoutRatio / grossMargins → NULL, `stockholders_equity` = 0 → common equity or NULL,
+     empty `longName` ← `shortName`. EBITDA rule dropped (Yahoo's EBITDA is consistent; reported vs
+     normalized is an analysis choice for Groups F/G).
+   - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
+     `core/backup.fix_backup`).
+
 ## Future Ideas (post-MVP, no timeline)
 - Cloud VM for daily fetch + analysis (added 2026-06-17, LOW priority — brainstormed, not scheduled) — move the weekly fetch+analysis to a cloud VM that maintains the DBs and runs **daily** outside market hours; user retrieves only the small analysis data locally. Discussion outcome, not yet a committed design:
   - **Feasible — it's just Python + SQLite, nothing machine-bound.** A clean VM also won't need the local TLS-interception hack (`core/net.configure_tls()` stays but is harmless there).
