@@ -175,5 +175,6 @@ Response to `docs/fix_list_for_data_system.md`, item by item, using its section 
 
 ## Known gaps / limitations
 
+- **No fiscal-Q4 quarter from EDGAR for many companies** (e.g. Agilent): filers rarely tag a separate 3-month Q4, so EDGAR's Q4 row is often missing, TTM sums break there, and `quarter_sum_flag` stays NULL. Possible follow-up: derive Q4 = fiscal year − Q1 − Q2 − Q3.
 - Round 1 counts are from the 2026-11-08 databases (prices as of 2026-11-06); round 2 counts from the 2026-11-11 re-fetch and analysis run. All checked on 2026-11-11.
 - The cleaning thresholds (beta 10, payout 1,000%, gross margin 100%) come from the review and were not tuned further.
