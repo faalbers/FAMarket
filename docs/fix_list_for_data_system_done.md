@@ -250,9 +250,45 @@ Response to `docs/fix_list_for_data_system.md`, item by item, using its section 
 - **Check:** 0 stocks with a last price before 2016, as the review says.
 - **Why deferred:** it needs a new collection effort (Polygon's inactive tickers, old SEC filers), and Yahoo usually drops a delisted ticker's price history, so most added symbols would arrive without prices. Since round 4, every company that dies is kept with its full history (`is_delisted`, `delisted_date`), so the survivorship gap stops growing. Merger / bankruptcy terms are not collected.
 
+## Round 5 — Group E: signals consistency (2026-11-14)
+
+**Approach:** each item was traced to its consumers first. Only what reaches `analysis.db` was changed; the rest is recorded with the reason. Results below are after the 2026-11-14 fetch and analysis run.
+
+### §7 Stale snapshot fields — open parts: Fixed (dates, TTM lag); YPF recorded
+
+- **Past `next_earnings_date`:** 2,878 stored dates were already past (the last report). `days_to_next_earnings` is now NULL when the date has passed (`analysis_layer/signals.py`); the raw row is kept and the weekly fetch refreshes it. **Check:** negative values 2,737 → **0**.
+- **TTM a quarter behind:** **462 of 4,657** companies had a reported quarter in their earnings history newer than their newest stored quarter (AAPL's September quarter, reported Oct 30). Cause: the Yahoo financials due-date gate waited until last quarter-end + 91 + 45 days. Now a company is also due as soon as `signals.earnings_surprise` shows a newer reported quarter (`staleness.financials_not_due`), and stays due each week until it arrives.
+  - **Check:** AAPL now has 2026-09-30. 416 of 4,673 still behind — 390 of them were fetched that day and **Yahoo's statements did not have the quarter yet** (its free statements lag the report by days to weeks). The SEC refresh (round 2) comes due 45 days after quarter-end and fills the quarter for SEC filers.
+  - **Where we differ:** the review proposed scheduling from `next_earnings_date` before it passes; the earnings history is more reliable (Yahoo's calendar date is often stale, as the first bullet shows).
+- **YPF currency labels — recorded, no fix.** Both labels are wrong in opposite ways: the estimate says USD but holds pesos (36.7 trillion), the statements say ARS but hold dollars (18.3 billion). It does not reach the screens: price currency (USD) ≠ statement currency (ARS), so the existing currency guard already uses Yahoo's own ratios for YPF. One company, a source error.
+
+### §11 Estimate rows inconsistent — Partly fixed (revenue chain only)
+
+- **What reaches the screens:** `forward_rev_growth` / `forward_eps_growth` use only Yahoo's growth inside the `+1y` row, so the `0y` row's year-ago revenue (the review's anchor check) is never used. The problem reaches us only where the `+1y` row itself mixes two scales.
+- **Rule:** `forward_rev_growth` is NULL when the `+1y` row's year-ago revenue is more than **1.5x** off the `0y` row's estimate either way (`analysis_layer/estimates.py`).
+- **Check:** the chain is off by > 2% for 28 revenue rows, but only the scale breaks are absurd: MUFG +120%, SMFG +104%, Mizuho +82%. Exactly 7 values blanked (MUFG, SMFG, Mizuho and their OTC lines, NextSource Materials); AAPL (+8.1%) and GE (+11.7%) — fiscal-year timing — unchanged.
+- **Where we differ:**
+  - **The review's 2% chain threshold would blank good values** — most gaps are a fiscal year that just rolled.
+  - **Not applied to EPS.** 75 EPS rows fail the chain, but Yahoo's `0y` and `+1y` EPS rows often use different EPS definitions (reported vs adjusted): Cadence's `+1y` row grows a consistent 17% (8.42 → 9.85) while its `0y` estimate is 4.85. The check would blank good forecasts (Cadence, HASI, APG).
+  - **EPS growth from a loss** (1,301 of 4,185 forecasts, e.g. American Airlines −1.24 → +0.95 shown as +176%) is a percentage of a negative base, but the direction carries information; left as is.
+  - **Rescaling (the review's "power of ten" fix)** is not needed for the screens — the `0y` year-ago value is not used.
+
+### §20 Smaller data items — signals bullets
+
+- **Surprise near a zero estimate — Fixed.** Quarters whose estimate was within $0.05 of zero are left out of `earnings_surprise_avg` / `_last`; `earnings_beat_rate` now counts `eps_difference` > 0 (the review's fix). **Check:** 366 surprise rows > 1,000% (209 of them with an estimate under $0.05); companies with \|average surprise\| > 500%: **167 → 80**; beat rate changed for 218 of 4,533 companies.
+  - **Where we differ:** the remaining extremes are real misses against small but not tiny estimates (ABTC: estimate $0.075, actual −$1.76 → −2,442%) — 14% of all quarters lie beyond ±100%, so capping them was not done. Scores use percentile ranks, so the extremes do not distort rankings.
+- **Estimate currency ≠ statement currency (259 companies) — recorded, no fix.** Measured: our `forward_pe` (price ÷ Yahoo's forward EPS) matches Yahoo's own `forwardPE` for all but 2 of ~3,400 companies — Yahoo's forward EPS is already in the price currency. Growth rates are currency-neutral. Nothing in the analysis compares an estimate amount with a statement amount.
+- **Insider holdings above shares outstanding — recorded, no fix.** `insider_total_held` is not used; `insider_net_buy_pct` is Yahoo's own percentage.
+- **Analyst targets far from the price (409 of 4,433) — recorded, no fix.** `targetMeanPrice` is not used by the analysis. To revisit if a target-upside metric is added.
+
+### Found during the run
+
+- **Yahoo throttles silently.** In a 3½-hour fetch, the last ~7 minutes of the signals step returned empty answers for 727 symbols that normally have data — no error, no 429. Stored data is kept (a no-data answer overwrites nothing) and abandonment needs 4 strikes in a row, so nothing was lost; the symbols update the next week.
+- **A crash from round 4.** Symbols retyped from the SEC mutual-fund list (which has no names) entered the EDGAR CIK name lookup and crashed it on the missing name; fixed by skipping nameless symbols.
+
 ## Not yet reviewed
 
-§2, §8-§11, §16-§19, §21, and the open parts of §7, §14 (steps 2-4), §20 (signals, currency, targets, EV). Grouped as above.
+§2, §8-§10, §16-§19, §21, and the open parts of §14 (steps 2-4) and §20 (EV, EBITDA definition). Grouped as above.
 
 ## Known gaps / limitations
 

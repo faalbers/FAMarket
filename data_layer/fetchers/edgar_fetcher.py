@@ -225,7 +225,7 @@ _NAME_LEGAL_SUFFIX_RE = re.compile(
 
 
 def _norm_name(s: str) -> str:
-    return re.sub(r"[^A-Z0-9]", "", s.upper()) if s else ""
+    return re.sub(r"[^A-Z0-9]", "", s.upper()) if isinstance(s, str) and s else ""
 
 
 def _clean_security_suffix(name: str) -> str:
@@ -714,7 +714,10 @@ class EDGARFinancials(BaseFetcher):
                 f"SELECT symbol, name FROM symbols WHERE symbol IN ({placeholders})",
                 symbols,
             )
-        name_by_symbol = dict(zip(names["symbol"], names["name"]))
+        # Only real names: rows from the SEC mutual-fund list carry none (NaN), and
+        # since the 2026-11-12 type correction some of them are stocks / ADRs here.
+        name_by_symbol = {s: n for s, n in zip(names["symbol"], names["name"])
+                          if isinstance(n, str) and n.strip()}
 
         # Layer 2: bulk name-keyed registry — every SEC filer ever, ~1M entries,
         # one request. SEC_TICKERS_URL only covers a curated ~10k active-ticker

@@ -119,13 +119,13 @@ Plus:
 
 ## 9. Analyst, earnings and ownership (from `signals.db`)
 
-- **`forward_eps_growth`**, **`forward_rev_growth`** — next fiscal year (`+1y`) consensus growth (%).
+- **`forward_eps_growth`**, **`forward_rev_growth`** — next fiscal year (`+1y`) consensus growth (%). `forward_rev_growth` is NULL when the `+1y` row's year-ago revenue is more than 1.5x off the `0y` row's estimate (a scale break: MUFG, SMFG, Mizuho and NextSource Materials; since 2026-11-12). EPS is not checked that way — the two rows often use different EPS definitions.
 - **`forward_peg`** = `forward_pe` / `forward_eps_growth`.
 - **`eps_revision_1m`**, **`eps_revision_3m`** — % change in the current-year consensus EPS vs 30 / 90 days ago.
 - **`eps_revision_breadth`** — analysts raising minus cutting in the last 30 days.
 - **`analyst_count`** — analysts behind the current-year EPS estimate.
-- **`earnings_surprise_avg`**, **`earnings_surprise_last`** — average and latest surprise (%) over the last 4 reported quarters. **`earnings_beat_rate`** — % of those 4 that beat.
-- **`days_to_next_earnings`** — calendar days from the price date to the next earnings date (negative = stale date).
+- **`earnings_surprise_avg`**, **`earnings_surprise_last`** — average and latest surprise (%) over the last 4 reported quarters, leaving out quarters whose estimate was within $0.05 of zero. Large values remain where a real miss met a small estimate (ABTC −2,442%). **`earnings_beat_rate`** — % of those 4 with actual EPS above the estimate (`eps_difference` > 0).
+- **`days_to_next_earnings`** — calendar days from the price date to the next earnings date; NULL when the stored date has already passed (Yahoo updates late).
 - **`insider_net_buy_pct`** — net insider shares bought over 6 months as % of insider holdings.
 - **`institutions_count`**.
 

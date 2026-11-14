@@ -110,14 +110,43 @@ def financials_not_due(candidates: list[str]) -> set[str]:
     for s, freq, d in rows.itertuples(index=False, name=None):
         if s in cand and d:
             latest.setdefault(s, {})[freq] = d
+    reported = _newest_reported_quarters(cand)
     not_due = set()
     for s, by_freq in latest.items():
         q, a = by_freq.get("quarterly"), by_freq.get("annual")
         q_due = q is not None and _older_than(q, q_cut)
         a_due = a is not None and _older_than(a, a_cut)
-        if not q_due and not a_due:
+        # A quarter already REPORTED but not yet stored (fix list §7): due now, not
+        # 136 days after the last quarter-end. 462 of 4,657 companies were a quarter
+        # behind on 2026-11-12 (AAPL's Sep quarter, reported Oct 30).
+        r = reported.get(s)
+        newer_reported = (r is not None and q is not None
+                          and _older_than(q, r - timedelta(days=_REPORTED_QUARTER_SLACK_DAYS)))
+        if not q_due and not a_due and not newer_reported:
             not_due.add(s)
     return not_due
+
+
+# Earnings-history quarter ends are real fiscal dates (AAPL 2026-09-27); stored
+# quarters are snapped to month-end — this slack keeps them from looking "newer".
+_REPORTED_QUARTER_SLACK_DAYS = 20
+
+
+def _newest_reported_quarters(candidates: set[str]) -> dict[str, date]:
+    """{symbol: newest quarter with a reported EPS} from signals.db earnings history."""
+    with Database(settings.SIGNALS_DB) as db:
+        if not db.table_exists("earnings_surprise"):
+            return {}
+        rows = db.query("SELECT symbol, MAX(period_end) AS d FROM earnings_surprise "
+                        "WHERE eps_actual IS NOT NULL GROUP BY symbol")
+    out: dict[str, date] = {}
+    for s, d in rows.itertuples(index=False, name=None):
+        if s in candidates and d:
+            try:
+                out[s] = pd.to_datetime(d).date()
+            except (ValueError, TypeError):
+                continue
+    return out
 
 
 def edgar_not_due(candidates: list[str], last_fetched: dict[str, date]) -> set[str]:

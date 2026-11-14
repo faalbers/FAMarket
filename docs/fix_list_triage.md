@@ -4,7 +4,8 @@ Internal tracker for working through `docs/fix_list_for_data_system.md` on branc
 
 ## Waiting for your input
 
-- **Next group:** E — signals consistency. Start the discussion.
+- **Next group:** F — analysis foundations (§2 all-class market cap, §10 EPS split basis, §16 growth trends, §20 EV + EBITDA definition, §14 steps 2-4). Start the discussion.
+- **Possible follow-ups from E** (not started, your call): cap per-quarter earnings surprise at ±100%; a target-upside metric (would need the §20 target clean-up first); watch Yahoo's silent throttling at the end of long runs.
 - **Possible follow-ups from D** (not started, your call): delisted-company history (§22, deferred); a liveness signal for warrants / units / SPACs (no price history); more industry overrides as misfits turn up.
 - **Possible follow-ups from C** (not started, your call): split CHRD-style stitched histories (old + new company); correct reverse splits Yahoo never recorded (QH) instead of only flagging them; show `price_flags` on the price chart.
 - **SEC refresh waves** (decided 2026-11-11, open to change): ~45 days after each calendar quarter-end the weekly run gets ~1 hour longer. Can be spread over several weeks if it bothers you.
@@ -19,7 +20,7 @@ Internal tracker for working through `docs/fix_list_for_data_system.md` on branc
 | B | EDGAR backfill rework | §1, §4, §12, §13, §14, §22 filed date, §23 | ✅ done 2026-11-11 · re-fetched + analysis run · §14 steps 2-4 → F |
 | C | Price-history validation | §3, §20 (stale runs, gaps) | ✅ done 2026-11-12 · repair-when-broken + `price_flags` + analysis window cleanup + `price_issues` |
 | D | Symbol state & identity | §15, §6, §25, §22 delisted history · + preferred tickers carrying old EDGAR rows (found in B) | ✅ done 2026-11-12 · delisted mark + monthly re-checks + recovery pass, type corrections, CIK / company_id, industry overrides · §22 deferred |
-| E | Signals consistency | §11, §7 (dates, TTM lag, currency), §20 (surprise, currency, insiders, targets) | open |
+| E | Signals consistency | §11, §7 (dates, TTM lag, currency), §20 (surprise, currency, insiders, targets) | ✅ done 2026-11-14 · past dates NULL, earnings-driven financials refresh, surprise near zero, revenue chain check · currency / insiders / targets recorded (don't reach the screens) |
 | F | Analysis foundations | §2, §10, §16, §20 (EV, EBITDA definition), §14 steps 2-4 (split basis via `filed_date`, Talen) | open |
 | G | Analysis built on F | §9, §17, §19, §18 | open |
 | H | New calculations | §21 | open |

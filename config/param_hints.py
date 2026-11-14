@@ -700,7 +700,9 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Fwd rev gr",
         "category": "Estimates",
         "unit": "%",
-        "what_it_is": "Analysts' consensus revenue growth for the next fiscal year vs the current one.",
+        "what_it_is": "Analysts' consensus revenue growth for the next fiscal year vs the current one. "
+                      "Blank when the provider's two estimate rows don't line up (a scale break, "
+                      "e.g. the Japanese megabanks).",
         "how_to_use": [
             "Top-line forward growth — cleaner than EPS for early-stage / thin-margin names.",
             "Pair with forward EPS growth: revenue growing faster than EPS hints at margin pressure.",
@@ -714,7 +716,8 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Days to earnings",
         "category": "Earnings",
         "unit": "days",
-        "what_it_is": "Calendar days until the next expected earnings report (from the analyst calendar).",
+        "what_it_is": "Calendar days until the next expected earnings report (from the analyst calendar). "
+                      "Blank when the provider still shows the last report's date (it updates late).",
         "how_to_use": [
             "A RISK GATE, not a quality score — a report can gap a stock either way.",
             "Avoid initiating right before earnings (small number), or target a post-report window.",
@@ -725,7 +728,8 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Beat rate",
         "category": "Earnings",
         "unit": "%",
-        "what_it_is": "Share of the last 4 reported quarters where actual EPS beat the estimate.",
+        "what_it_is": "Share of the last 4 reported quarters where actual EPS beat the estimate "
+                      "(actual minus estimate above zero).",
         "how_to_use": [
             "Higher = more consistent execution above expectations (100 = beat every quarter).",
             "Consistency matters more than a single lucky beat — use with the surprise average.",
@@ -736,7 +740,9 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Surprise avg",
         "category": "Earnings",
         "unit": "%",
-        "what_it_is": "Average earnings surprise (actual vs estimate EPS) over the last 4 reported quarters.",
+        "what_it_is": "Average earnings surprise (actual vs estimate EPS) over the last 4 reported quarters. "
+                      "Quarters whose estimate was within $0.05 of zero are left out — a percent of "
+                      "almost nothing is meaningless.",
         "how_to_use": [
             "Positive = a habit of beating estimates; post-earnings drift tends to follow beats.",
             "A consistent beater is executing above expectations — pair with the beat rate for consistency.",
@@ -747,7 +753,8 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Surprise last",
         "category": "Earnings",
         "unit": "%",
-        "what_it_is": "Earnings surprise (actual vs estimate EPS) for the most recent reported quarter.",
+        "what_it_is": "Earnings surprise (actual vs estimate EPS) for the most recent reported quarter "
+                      "whose estimate was not within $0.05 of zero.",
         "how_to_use": [
             "The freshest beat/miss — a big positive can kick off post-earnings drift.",
             "Read next to the 4-quarter average: one beat after misses is weaker than a steady streak.",

@@ -1081,6 +1081,12 @@ needs.
      `cik` + `company_id` from the SEC ticker map; sector index collapses by `company_id`.
      `config/industry_overrides.py` (crypto miners, Sun Life). One-time `scripts/fix_symbol_state.py`
      and `scripts/recover_stuck_symbols.py` (342 live symbols recovered). §22 delisted history deferred.
+   - ✅ Group E — signals consistency (2026-11-14): `days_to_next_earnings` NULL for a passed date;
+     Yahoo financials also due as soon as `earnings_surprise` shows a newer reported quarter
+     (`staleness.financials_not_due`); surprise averages skip estimates within $0.05 of zero, beat
+     rate from `eps_difference`; `forward_rev_growth` NULL on a > 1.5x estimate-chain break (not for
+     EPS — rows mix EPS definitions). Currency / insider / target items recorded: they don't reach
+     the screens.
    - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
      `core/backup.fix_backup`).
 
