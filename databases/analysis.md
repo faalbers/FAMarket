@@ -20,6 +20,7 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
 - **TTM** = sum of the last 4 **consecutive** quarters (no gap over ~120 days), else NULL. Balance-sheet items = latest reported value (quarterly, falling back to annual).
 - **Percent metrics are stored as percent numbers** (12.5 = 12.5%). Multiples (P/E, ratios marked "x") are plain numbers.
 - **Market cap** = price × the company's shares across **all classes** (since 2026-11-14): Yahoo `marketCap` ÷ Yahoo's quote price (B-share equivalents for BRK-B, ADR units for an ADR), else `impliedSharesOutstanding`, else `sharesOutstanding`, else the latest `ordinary_shares_number` / `share_issued`. The same count gives `eps_ttm` and the per-share fair values.
+- **Second lines get no market cap** (since 2026-11-15): a line with no Yahoo market cap of its own while another listing of the same company (`company_id`) has one — preferreds, units, warrants and foreign duplicates typed as stocks — gets NULL market cap, price ratios, `eps_ttm` and fair values. Its other columns are the company's. ADRs are exempt (an ADR is the US listing even when Yahoo omits its cap).
 - **NULL = not applicable or not computable** (missing inputs, wrong security type, sign change, outlier guard). It is never a hidden zero.
 - **Currency guard** — `valuation_basis`:
   - `computed` = ratios computed from the statements in `financials.db` (the normal case).
@@ -70,7 +71,7 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
 
 ## 5. Growth
 
-Four series — **revenue**, **eps** (diluted EPS on today's split basis: each row's basis is tested against its implied share count, net income ÷ EPS, since stored rows mix bases), **fcf** (annual operating cash flow + capex), **book_value** (stockholders' equity) — each get:
+Four series — **revenue**, **eps** (diluted EPS on today's split basis: each row's basis is tested against its implied share count, net income ÷ EPS, since stored rows mix bases; a year with no reported EPS is filled with net income ÷ diluted average shares on the same basis test, since 2026-11-15), **fcf** (annual operating cash flow + capex), **book_value** (stockholders' equity) — each get:
 
 - **`<x>_cagr_1y / _3y / _5y`** — compound annual growth (%) from the annual value ~N years back to the latest. NULL if either end is ≤ 0 or no point that far back.
 - **`<x>_growth_trend`** — robust annual growth (%): Theil-Sen slope (median of pairwise slopes) of ln(value) over the last up to 6 annual points on their real dates; ≥ 4 points, all > 0. A first year that is an outlier (> 4 × the robust spread) is dropped once (the FY2020 trough). Since 2026-11-14; was an ordinary least-squares fit over 5 points.
@@ -86,11 +87,19 @@ Plus:
 
 ## 6. Dividends (from `ohlcv.dividends` history)
 
-- **`div_rate_ttm`** — dividends per share with ex-date in the last 365 days. **`div_yield_ttm`** = that / price (%). Non-payers get 0 for both and NULL for the rest.
-- Trend metrics use each **complete calendar year's highest single payment** (not the yearly sum, which jumps with how many payments fall in a year):
-  - **`div_cagr_1y / _3y / _5y`** (%), **`div_growth_trend`**, **`div_growth_vol`**, **`div_growth_tau`** — as in Growth.
-  - **`div_consecutive_years`** — trailing streak of years the payment did not fall (a "not cut" streak, not years paid).
-  - **`div_consistency`** — % of year-to-year steps that did not fall.
+Since 2026-11-15 every metric except the two `_ttm` ones is on **regular** payments (`analysis_layer/dividends.py`):
+
+- **Pay rate** of a payment = amount × payments per year (1, 2, 3, 4, 6, 12, 26 or 52, from the spacing). A switch to monthly payments changes nothing.
+- **Special** = a pay rate > 2.5 × the median of the lower half of the rates within ±400 days, unless the level persists (no lower payment follows within 400 days). A special on the regular schedule (regular + special in one payment) is kept at the regular level. Not tested for semi-annual / annual payers (interim and final differ by design). ~2% of payments; 786 of 2,531 stock / ADR payers had one.
+- **Yearly rate** = median pay rate of a complete calendar year's regular payments (semi-annual / annual payers: the trailing-year sum).
+- **`div_rate_ttm`** / **`div_yield_ttm`** — every dividend with ex-date in the last 365 days, specials included / price (%).
+- **`div_rate`** — current regular annual rate: the latest regular payment's pay rate; 0 when the next payment is overdue (> 2 × spacing + 30 days: suspended). **`div_yield`** = that / price (%). Feeds `income_score` and the DDM.
+- Non-payers get 0 for the four above and `div_years_paid`, NULL for the rest.
+- **`div_cagr_1y / _3y / _5y`** (%), **`div_growth_trend`**, **`div_growth_vol`**, **`div_growth_tau`** — as in Growth, on the yearly rates.
+- **`div_consecutive_years`** — trailing run of consecutive calendar years whose rate did not fall by more than 2% (rounding), or 10% for companies reporting in another currency (dividends arrive converted to dollars). 0 when `div_recent_cut` = 1. A "not cut" streak, not years paid; capped by the ~30-year price history.
+- **`div_years_paid`** — unbroken calendar years with any dividend, counted back from the last full year.
+- **`div_recent_cut`** — 1 when the current rate is below 92% of the median rate 1-2 years ago **and** the last 12 months' regular total is below 95% of the 12 months before; NULL with fewer than 5 regular payments in 3 years.
+- **`div_consistency`** — % of year-to-year steps that did not fall (same tolerance).
 - **`div_payout_ratio`** = TTM dividends paid / TTM net income (%). **`div_coverage`** = TTM FCF / TTM dividends paid (x).
 
 ## 7. Technical (from the last ~2 years of `adj_close`)
@@ -108,12 +117,13 @@ Plus:
 ## 8. Intrinsic value (per share, in price currency)
 
 - **`intrinsic_value_graham`** = √(22.5 × EPS × book value per share).
-- **`intrinsic_value_lynch`** = EPS × min(EPS trend growth %, 25).
-- **`intrinsic_value_dcf`** — 10-year FCF DCF: TTM FCF grown at a rate starting at `fcf_growth_trend` (capped 35%) and fading linearly to 2.5% terminal growth, Gordon terminal value, discounted at `wacc` (or CAPM cost of equity if no WACC; at least 2 points above terminal growth), minus net debt, ÷ shares.
-- **`intrinsic_value_ddm`** — same fading-growth structure applied to `div_rate_ttm` with `div_growth_trend`.
+- **`intrinsic_value_lynch`** = EPS × min(EPS trend growth %, 25). The EPS trend includes the years filled from net income ÷ shares (§5).
+- **`intrinsic_value_dcf`** — 10-year FCF DCF: TTM FCF grown at a rate starting at `fcf_growth_trend` (capped 35%; `revenue_growth_trend` when the FCF history has a negative year, since 2026-11-15) and fading linearly to 2.5% terminal growth, Gordon terminal value, discounted at `wacc` (or CAPM cost of equity if no WACC; at least 2 points above terminal growth), minus net debt, ÷ shares.
+- **`intrinsic_value_ddm`** — same fading-growth structure applied to `div_rate` (regular, since 2026-11-15) with `div_growth_trend`.
 - **`fair_value`** — **median** of the positive values among the models suited to the type: standard → all four (regulated utilities: no DCF); bank/insurance → Graham, Lynch, DDM; REIT → DDM only; funds → none.
 - **`margin_of_safety`** = (fair value − price) / fair value × 100. Positive = price below fair value; large negatives are common for growth stocks.
-- **Scenarios** — **`intrinsic_value_{lynch,dcf,ddm}_{bear,bull}`**, **`fair_value_bear/_bull`**, **`margin_of_safety_bear/_bull`**: the same models rerun with growth = trend ∓ that series' `growth_vol` (bear floored at −10%). Fair values use only models valid in base, bear and bull alike, so bear ≤ base ≤ bull. NULL = no range possible.
+- **`fair_value_tail`** — 1 when `fair_value` > 3 × price: a model tail (distressed price, book far above market value, a past cash flow that won't recur), not a bargain. ~10% of stocks / ADRs with a fair value.
+- **Scenarios** — **`intrinsic_value_{lynch,dcf,ddm}_{bear,bull}`**, **`fair_value_bear/_bull`**, **`margin_of_safety_bear/_bull`**: the same models rerun with growth = the low / high end of that series' trend-growth 80% confidence range (the Theil-Sen slope interval; bear floored at −10%; since 2026-11-15, was trend ∓ `growth_vol`). Fair values use only models valid in base, bear and bull alike, so bear ≤ base ≤ bull. NULL = no range possible.
 - **`valuation_guardrail_flag`** — 1 when the discount rate had to be floored, or `roic_vs_wacc` > 20 pp (terminal value assumes an implausible lasting edge).
 - **Red flags** (0/1, shown, not applied to values): **`bear_flag_cash_conversion`** (OCF/NI < 100%), **`bear_flag_moat_narrowing`** (ROIC − WACC < 3 pp), **`bear_flag_interest_coverage`** (< 2x), **`bear_flag_earnings_quality`** (Beneish > −1.78); **`bear_flag_count`** (0-4).
 
@@ -149,7 +159,7 @@ Plus:
   - **`quality_score`** — roic, gross_margin (1.0), roe, altman_z, fcf_margin (0.75), net_margin, debt_to_equity, current_ratio, interest_coverage (0.5), operating_margin, roa, debt_to_ebitda (0.25).
   - **`growth_score`** — eps_cagr_3y, revenue_cagr_3y (1.0), eps_yoy_q, revenue_yoy_q (0.75), fcf_cagr_3y, eps_growth_tau, eps_cagr_5y, revenue_cagr_5y, forward_eps_growth, eps_revision_1m, revenue_accel, earnings_surprise_avg (0.5).
   - **`momentum_score`** — rs_rank (1.0), pct_from_52w_high (0.75), price_vs_ma_50, price_vs_ma_200 (0.5), price_vs_ma_150, insider_net_buy_pct (0.25).
-  - **`income_score`** — div_yield_ttm (1.0), div_cagr_3y, div_coverage, div_consistency (0.75), div_payout_ratio, div_consecutive_years (0.5), div_cagr_5y (0.375).
+  - **`income_score`** — div_yield (1.0), div_cagr_3y, div_coverage, div_consistency (0.75), div_payout_ratio, div_consecutive_years (0.5), div_cagr_5y (0.375), div_years_paid (0.25).
 - **`overall_score`** — quality 25%, value 22%, momentum 20%, growth 18%, income 15%, renormalized over the categories present (funds usually only have momentum and income).
 - **`orphan_score`** — `growth_score`, kept only for standard/REIT stocks with below-median (or no) analyst coverage and current ratio ≥ 1.1 ("neglected firm" candidates); else NULL.
 - **`<score>_vs_type`** — each category score and `overall_score` as % above/below the median of the same `screen_type`.
@@ -161,4 +171,6 @@ Plus:
 - Funds dominate the row count; filter by `security_type` / `screen_type` before computing statistics.
 - Fundamental metrics inherit `financials.db` gaps: a missing quarter makes every TTM metric NULL. Many stocks lack TTM P/E for this reason.
 - Intrinsic values are model outputs with strong assumptions (fixed 5% equity risk premium, 2.5% terminal growth). DCF is very sensitive to growth.
+- **Most fair values far above the price are not growth problems**: price far below book (Graham), a large past cash flow next to a distressed price (DCF), or a high dividend about to be cut (DDM). `fair_value_tail` marks them.
+- **Dividends of irregular payers**: variable dividends (Cal-Maine pays a share of profit, Argentine banks pay in instalments) can read as cuts or a suspension. Specials are not detected for semi-annual / annual payers.
 - `sector`/`industry`/`country` are Yahoo tags; ADRs and foreign companies carry their home company's tags.

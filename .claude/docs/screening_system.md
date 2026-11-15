@@ -135,10 +135,13 @@ Not every base has every window (dividends have no `yoy_q`); `filter_registry.gr
 - `institutions_count` (count; filter-only) — liquidity/attention context, not a buy signal; low = under-the-radar.
 
 ### Income (types vary — see registry; yield/rate all payers, payout/coverage company-only)
-- `div_yield_ttm` (%) — sweet spot 2-6 (REIT override 4-10). Unusually high often = falling price (yield trap).
-- `div_rate_ttm` ($) — `> 0` is the simplest "pays a dividend" filter.
+- `div_yield` (%) — current REGULAR rate / price, specials left out (like Yahoo's forward yield). Sweet spot 2-6 (REIT override 4-10). Unusually high often = falling price (yield trap). **Use this one for income screens.**
+- `div_rate` ($) — current regular annual rate; 0 for non-payers AND for a suspended payer (next payment overdue). `> 0` = "pays a dividend now".
+- `div_yield_ttm` / `div_rate_ttm` — everything paid in the last 12 months, **specials included** (Dillard's 5.0% vs 0.19% regular). Not for income screens.
+- `div_years_paid` (yr) — unbroken calendar years with any dividend; cuts don't end it. The "reliable payer" question.
+- `div_recent_cut` (0/1) — a regular-dividend cut in the last ~2 years; `= 0` drops recent cutters (NULL = too few payments to judge — add an `is null` OR child to keep those).
 - `div` growth base (%; FUND_DIV) — windows like revenue minus `yoy_q`. 5-10%+ CAGR with safe payout = dividend-growth sweet spot.
-- `div_consecutive_years` (yr) — RAISING streak (not years-paid); 10/25+ = achiever/aristocrat territory; limited by our price-history depth ("at least this many").
+- `div_consecutive_years` (yr) — years WITHOUT A CUT in the regular rate (a flat year keeps it; not years-paid); 0 after a recent cut; foreign companies tolerate a 10% currency dip. 10/25+ = achiever/aristocrat territory; capped by our ~30-year price history ("at least this many").
 - `div_consistency` (%) — share of YoY steps held-or-grew; softer than streak (one old cut doesn't zero it).
 - `div_payout_ratio` (%) — sweet spot 30-60 (REIT override 80-95, they're legally high payers); >80 thin safety, >100 paid from reserves/debt. **Explodes for low-NI payers — prefer coverage.**
 - `div_coverage` (x; anchor 1.0) — FCF / dividends paid; >2 comfortable, <1 = not cash-funded. Cash-based mirror of payout; trust it more (earnings payout can hide a 290%-payout Walgreens-style trap that FCF coverage exposes).
@@ -166,8 +169,9 @@ Not every base has every window (dividends have no `yoy_q`); `filter_registry.gr
 - `intrinsic_value_dcf` ($; standard) — 10y FCF projection where growth **FADES linearly** from its trend rate (start bounded by `DCF_FADE_START_CAP`, 0.35) down to terminal growth by the final year, discounted at the real `wacc` where available else CAPM, + Gordon terminal, − net debt. NULL when FCF ≤ 0. (Replaced a flat 15% cap held for the whole decade — that clipped 57% of FCF growers and collapsed the scenario range.)
 - `intrinsic_value_ddm` ($; standard/bank/insurance/REIT) — the same fading path applied to the per-share dividend. **The model financials and REITs actually get valued on**, since deposits/underwriting and GAAP depreciation break FCF- and EPS-based models for them.
 - `fair_value` ($) — **MEDIAN** (not mean) of whichever models are conceptually sound for the symbol's type: all four for standard, Graham+Lynch+DDM for banks/insurers/regulated utilities, DDM only for REITs. Median so one blown-up DCF or near-zero Lynch can't dominate.
+- `fair_value_tail` (0/1) — fair_value > 3x price: a model tail, not a bargain (distressed price, book far above market value, a one-off cash flow). **Add `fair_value_tail = 0` to any screen that ranks on margin of safety.**
 - `margin_of_safety` (%; pivot 0) — (fair_value − price) / fair_value × 100. **Universe median is ≈ −26% and only ~38% of valued names clear 0**, so "negative" is the norm with these deliberately conservative models — read it relatively, not as an absolute verdict.
-- `fair_value_bear` / `fair_value_bull` ($), `margin_of_safety_bear` / `margin_of_safety_bull` (%) — the same blend re-run with each model's growth pushed down/up by its own `growth_vol`. **Graham is base-only** (nothing forward to flex), so `fair_value` can legitimately sit OUTSIDE the bear→bull range — 35% of the time. Never treat that as an error.
+- `fair_value_bear` / `fair_value_bull` ($), `margin_of_safety_bear` / `margin_of_safety_bull` (%) — the same blend re-run with each model's growth at the low/high end of its trend growth's 80% confidence range (few or scattered years = wide range). **Graham is base-only** (nothing forward to flex), so `fair_value` can legitimately sit OUTSIDE the bear→bull range — 35% of the time. Never treat that as an error.
 - `valuation_guardrail_flag` (0/1; COMPANY) — the discount rate needed its minimum-spread floor, or the ROIC−WACC spread implies an implausibly persistent excess return. A warning, not a blocker.
 - `bear_flag_cash_conversion` / `bear_flag_moat_narrowing` / `bear_flag_interest_coverage` / `bear_flag_earnings_quality` (0/1) and `bear_flag_count` (0-4) — red flags derived from `ocf_to_ni`, `roic_vs_wacc`, `interest_coverage` and `beneish_m_score`. **Visible only — never auto-applied to any valuation number**, because no professional framework exists for converting red flags into numeric assumption deltas. `bear_flag_count <= 1` is a cheap, effective value-trap gate.
 
@@ -348,7 +352,7 @@ Filter Fail review reveals a new trap or a better calibration, add it HERE.
 | `atr_pct` NULL for mutual funds | flat NAV, no intraday range | exclude mutual_fund from types or fallback |
 | `rs_rank` NULL | <~1y price history | pair with `history_years` gate or accept the drop |
 | **`<metric>_vs_sector`/`_vs_industry` silently all-False** | the column only exists for metrics in `settings.PEER_COMPARABLE_METRICS` — a block on any other metric's peer variant returns ZERO rows, silently | check the tuple first. `ps`/`pb`/`p_fcf`/`ev_revenue` were added 2026-08-13 (they had zeroed `small_cap_winners` and `financial_compounders`), so the list is now 15; anything still outside it must use the **Score variant** (`compare: "score"` → `{col}_goodness`), which is peer-anchored anyway |
-| `fair_value_bear`/`_bull` NULL | no usable trend/vol history, so no scenario could be computed | NULL here means **"no range available", NOT "no downside"** — a filter on `margin_of_safety_bear` therefore EXCLUDES those names rather than judging them. Intended; add an `is null` OR child only if you want them back |
+| `fair_value_bear`/`_bull` NULL | no usable growth trend (fewer than 4 years, or a loss year), so no scenario could be computed | NULL here means **"no range available", NOT "no downside"** — a filter on `margin_of_safety_bear` therefore EXCLUDES those names rather than judging them. Intended; add an `is null` OR child only if you want them back |
 
 Calibrations learned from Filter Fail reviews (starting points, not hard rules):
 `current_ratio` floor **1.1** for broad growth screens; `atr_pct` ceiling **5.5**.

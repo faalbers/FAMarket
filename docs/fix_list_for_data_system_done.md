@@ -344,9 +344,79 @@ Response to `docs/fix_list_for_data_system.md`, item by item, using its section 
 - **FAPortfolio push:** `indices.db.gz` pushed and read back OK.
 - **10 fair values differ from the test build** (DTM, EQT, ET, GNE, HE, MPC, NFG, OKE, VST, IDXG): utilities and pipelines, which the real run values as regulated. The test build didn't use that flag. Not a Group F effect.
 
+## Round 7 — Group G, part 1: dividends and fair values (2026-11-15)
+
+**Approach:** §9 and §17 together, since the dividend model needs §9's regular dividends. The review's §21 methods (special filter, recent cut, years paid) were used, with changes where the data disagreed. Tested with a read-only build over all 7,561 stocks and ADRs, plus a run of the dividend logic over all 30,087 payers including funds (0 errors). Results below are from that test build; after the 2026-11-15 analysis run the stored values match it exactly (see "Checked after the run").
+
+### §9 Dividend fields — Fixed (with §21's dividend methods)
+
+- **Module:** `analysis_layer/dividends.py`, used by `metrics._income_block`.
+  - **Pay rate** of each payment = amount × payments per year (1, 2, 3, 4, 6, 12, 26 or 52, from its spacing). Compared as rates, not single payments, so a frequency switch reads as nothing (UDR quarterly → monthly).
+  - **Special:** pay rate > 2.5 × the median of the lower half of the rates within ±400 days (the review's test).
+  - **Yearly rate** = median pay rate of a calendar year's regular payments.
+  - **Recent cut:** the review's two-test rule (rate now < 92% of 1-2 years ago and last 12 months < 95% of the 12 before).
+- **Columns:**
+  - **new `div_rate` / `div_yield`:** the current regular rate (and ÷ price). They feed `income_score` and the DDM.
+  - **`div_rate_ttm` / `div_yield_ttm` kept** as "everything paid in 12 months, specials included".
+  - **new `div_years_paid`** and **`div_recent_cut`**.
+  - **trends, streak and consistency** now run on the yearly regular rates.
+- **Check (the review's examples):**
+
+  | Symbol | Before | After |
+  |---|---|---|
+  | ARE streak | 15 | 0 (recent cut) |
+  | WHR streak | 29 | 0 (cut, then suspended in 2026: `div_rate` 0, as Yahoo shows) |
+  | TROW / ORI / AFG streak | 3 / 2 / 0 | 29 / 29 / 23 |
+  | CNA / MSM streak | 2 / 4 | 14 / 22 |
+  | DDS yield | 5.0% (TTM) | 0.19% (`div_yield`) |
+  | UDR / STAG streak | 15 / 11 | 16 / 14 (frequency switches not read as cuts) |
+
+  - Conagra, Campbell's, Crown Castle, Telus, BXP, Dow, LyondellBasell, Healthcare Realty: streak → 0 (recent cut). Organon → 0 through its 2025 yearly rate (the cut is more than 18 months old, so `div_recent_cut` is 0).
+- **Universe (2,531 stock / ADR payers):** 786 have at least one special (2.1% of payments); 141 recent cuts. Streak of companies ≥ $2B: 956 unchanged, 449 longer, 160 shorter.
+- **Second source:** our current regular rate matches Yahoo's own forward `dividendRate` within 10% for **87%** of large US payers; the old TTM sum matched 73%.
+- **Where we differ from the review:**
+  - **The isolation test was replaced.** The review keeps "two high payments in a row" as a new normal. W.R. Berkley and American Financial pay specials several quarters in a row (WRB 2024: three of four payments), so a pair is not enough. A high payment now counts as a new normal only when **no lower payment follows within 400 days** (STAG's switch to quarterly).
+  - **The special test runs on pay rates, not amounts.** On amounts, UDR's quarterly payments before its switch to monthly were 3x the monthly ones and read as specials.
+  - **No special test for semi-annual / annual payers.** Their interim and final payments differ by design (Harmony, Eni), and the test flagged the finals. Their yearly rate is the trailing-year sum instead.
+  - **Tolerance in the streak:** 2%, because split-adjusted amounts are rounded (EFSC 0.053 → 0.052 cost it 8 years). Companies reporting in another currency get 10%: their dividends arrive converted to dollars, and Manulife / Capital Power lost their streaks to a weaker Canadian dollar in 2022.
+  - **A missing calendar year ends the streak** (it used to be skipped).
+  - **`reg_div_growth` from TTM totals was not added.** The growth columns use the yearly rates instead, which don't move with how many payments fall in a window.
+  - **Suspension:** a payer whose next payment is more than 2x its spacing + 30 days overdue has `div_rate` 0. That's 25 payers; for 12 of them Yahoo still shows a rate (mostly irregular payers, e.g. Banco Macro).
+
+### §17 Fair-value models on weak growth — Fixed (steps 1-5), step 6 as a flag; the tails are not growth
+
+- **Step 1 + 4 — Lynch and PEG on per-share net income:** years with net income and a diluted share count but no reported EPS are now filled with net income ÷ shares, using the same split-basis test (`metrics._eps_from_shares`). **MNST:** EPS trend 16.4% → **8.1%**, PEG 2.6 → **5.2** (the review expected 4-6), Lynch $18 → $9.
+- **Step 2 — DCF with a negative FCF year:** `revenue_growth_trend` instead of 0% (DCF values filled 2,436 → 2,465).
+- **Step 3 — DDM on regular dividends:** `div_rate` with the regular-dividend growth. Dillard's fair value $515 → $365, CME $346 → $182.
+- **Step 5 — bear / bull:** the low / high end of the trend growth's own 80% confidence range (the Theil-Sen slope interval, Sen 1968), not trend ∓ `growth_vol`.
+  - **Why:** `growth_vol` measures how far single years sit off the line, not how sure the growth rate is. MNST's four tidy EPS years gave bear ≈ bull.
+  - **Result:** zero-width ranges 278 → 166. The remaining ones are mostly growth beyond a model's cap on both sides (NVDA).
+- **Step 6 — new flag `fair_value_tail`** (fair value > 3x price). It does not change any value.
+- **Check (the review's SQL):** fair values above 3x the price **341 → 338 (10.0%)**, above 5x **183 → 184**. **Not the sharp drop the review expected,** because the tails are not growth-driven. Of the 341 above 3x:
+  - **Graham 139:** price far below book — distressed companies, and Fannie Mae / Freddie Mac.
+  - **DDM 77:** high dividends about to be cut, or specials (now fixed for the specials).
+  - **DCF 121:** mostly tiny or distressed companies with a large past cash flow; 36 had a high growth input.
+  - **Lynch 4.**
+  - 128 of the 341 are under $100M market cap. `fair_value_tail` marks them all for screens.
+- **Found more — company second lines.** 181 lines have no Yahoo market cap of their own while another listing of the same company does: 36 Fannie Mae / Freddie Mac preferreds typed as stocks (names without "preferred"), Canadian preferreds, units, warrants, rights. They got the company's P/E on their own price (Fannie preferreds: P/E ~1.3). Now they get no market cap, price ratios, `eps_ttm` or fair values; ADRs are exempt (WDS). **Where we differ from round 4:** they are not retyped; the rule needs no name matching.
+
+### Checks
+
+- **Hints:** 124 filter bases, 0 without a hint.
+- **Type check:** no new pyright errors in the changed modules; `api` / `services` 0 errors.
+- **Run time:** the new dividend block is ~2x faster than the old one (12-14 s vs 27 s per 3,000 payers). The first version took 230 s for all payers; a vectorised special test brought it down.
+
+### Checked after the run
+
+- **Stored = test build:** all 7,561 stocks / ADRs match within 2%, with the same NULLs, on `div_yield`, `div_rate`, the streak, `div_years_paid`, `div_recent_cut`, PEG, EPS trend, every fair value and scenario, market cap, P/E and `fair_value_tail`.
+- **Run:** 0 errors, 0 warnings; ~11 minutes; peak RAM 8.3 GB. No private helper columns reached `analysis.db`.
+- **Saved filters:** dividend growers, REIT income and defensive anchors (now on `div_yield` / `div_rate`) pass `validate_filt`.
+- **Sector indices:** daily-return correlation with the SPDR sector funds 0.81-0.99, the same as before or slightly higher.
+- **FAPortfolio push:** `indices.db.gz` pushed and read back OK.
+
 ## Not yet reviewed
 
-§8, §9, §17-§19, §21, and the open parts of §20 not covered above. Grouped as above.
+§8, §18, §19, §21 (other than its dividend methods), and the open parts of §20 not covered above. Grouped as above.
 
 ## Known gaps / limitations
 

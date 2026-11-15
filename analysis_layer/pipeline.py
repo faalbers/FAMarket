@@ -185,6 +185,25 @@ def _events_by_symbol(events: pd.DataFrame, col: str) -> dict[str, pd.Series]:
             for s, g in events.groupby("symbol", sort=False)}
 
 
+def _secondary_lines(universe: pd.DataFrame, quotes: pd.DataFrame) -> set[str]:
+    """Company second lines: no Yahoo market cap of their own, while another listing
+    of the same company (`company_id`) has one — preferreds, units, warrants and
+    foreign duplicates typed as stocks (36 Fannie Mae / Freddie Mac preferreds; 181
+    lines on 2026-11-14). They get no market cap, price ratios or fair values: the
+    company's figures on this line's price are wrong (fix list §17). ADRs are left
+    out: an ADR is the US listing even when Yahoo omits its cap (WDS). A subset run
+    only loads the subset's quotes, so it catches a second line only when the
+    main listing is in the subset too."""
+    if "company_id" not in universe.columns or quotes.empty or "marketCap" not in quotes.columns:
+        return set()
+    u = universe[["symbol", "company_id", "security_type"]].dropna(subset=["company_id"])
+    mc = pd.to_numeric(quotes["marketCap"], errors="coerce").reindex(u["symbol"]).to_numpy()
+    u = u.assign(has_mc=mc > 0)
+    priced = set(u.loc[u["has_mc"], "company_id"])
+    sec = u[~u["has_mc"] & u["company_id"].isin(priced) & (u["security_type"] != "adr")]
+    return set(sec["symbol"])
+
+
 def _universe(symbols: pd.DataFrame, subset: list[str] | None) -> pd.DataFrame:
     """Active + validated symbols (Topic 8: the analysis processing gate).
 
@@ -296,6 +315,7 @@ def run_analysis(subset: list[str] | None = None) -> dict:
     own_by = ({s: g.iloc[0] for s, g in own.groupby("symbol", sort=False)}
               if not own.empty and "symbol" in own.columns else {})
     signals_asof = pd.Timestamp(last_completed_session())
+    secondary = _secondary_lines(universe, quotes)
 
     reconcile: list = []
     rows: list[dict] = []
@@ -324,7 +344,8 @@ def run_analysis(subset: list[str] | None = None) -> dict:
                             as_of=(osym["date"].iloc[-1] if len(osym) else None),
                             screen_type=screen_type,
                             reconcile=reconcile,
-                            risk_free=risk_free)
+                            risk_free=risk_free,
+                            secondary_line=sym in secondary)
         t = technical.compute(sym, osym, first_date=first_date_by.get(sym))
         iv = intrinsic_value.compute(sym, fsym, quote, price, m, risk_free,
                                       screen_type=screen_type, regulated=regulated)
@@ -354,7 +375,8 @@ def run_analysis(subset: list[str] | None = None) -> dict:
             # raw weighted return -> universe-ranked into rs_rank in scoring; kept
             # in the table so subset runs can re-rank the un-recomputed rows too
             "rs_raw": technical.relative_strength_raw(osym),
-            **m, **t, **iv, **vs, **est_m, **sig_m,
+            **{k: v for k, v in m.items() if not k.startswith("_")},  # private keys stay in memory
+            **t, **iv, **vs, **est_m, **sig_m,
         })
         if i % _PROGRESS_EVERY == 0:
             log.info("Analysis — per-symbol metrics %d/%d (%d to go)…",

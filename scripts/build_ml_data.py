@@ -445,7 +445,8 @@ def _build_symbol(symbol: str, osym: pd.DataFrame, fsym: pd.DataFrame, macro: pd
                 "industry": tag.get("industry"),
                 "security_type": tag.get("security_type"),
                 "price": price,
-                **m, **t, **iv,
+                **{k: v for k, v in m.items() if not k.startswith("_")},  # private keys
+                **t, **iv,
             })
     return pd.DataFrame(rows)
 

@@ -420,6 +420,20 @@ BENCHMARK_PUSH_STATE_FILE: Path = STATE_DIR / "benchmark_push.json"
 RECONCILE_TOLERANCE_PCT: float = 0.10
 
 # --------------------------------------------------------------------------- #
+# Dividends — regular payments, cuts (analysis_layer/dividends.py, fix list §9 / §21)
+# --------------------------------------------------------------------------- #
+# A payment whose annual pay rate is above this multiple of the lower-half median
+# rate within ±400 days is a special (the review's method, tested downstream).
+DIV_SPECIAL_MULTIPLE: float = 2.5
+# A yearly regular rate this fraction below the year before still counts as "not
+# cut" in the streak: split-adjusted amounts are rounded (EFSC 0.053 -> 0.052).
+DIV_CUT_TOLERANCE: float = 0.02
+# Same for companies reporting in another currency: their dividends arrive converted
+# to dollars, so a weaker home currency looks like a cut (Manulife and Capital Power
+# raised every year in CAD, yet fell 5% in USD in 2022).
+DIV_CUT_TOLERANCE_FX: float = 0.10
+
+# --------------------------------------------------------------------------- #
 # Intrinsic value (Topic 4.1)
 # --------------------------------------------------------------------------- #
 GRAHAM_MULTIPLIER: float = 22.5        # Graham's 15 (P/E) × 1.5 (P/B)
@@ -465,12 +479,14 @@ WACC_MAX_COST_OF_DEBT: float = 0.5
 # --------------------------------------------------------------------------- #
 # Valuation scenarios (bear / base / bull) — analysis_layer/valuation_scenarios.py
 # --------------------------------------------------------------------------- #
-# Bear/bull growth = trend growth ∓ (residual volatility × this multiplier), using
-# each method's own metrics._robust_trend() steadiness column (eps/fcf/div_growth_vol) — an
-# uncertainty-scaled stand-in for the manual scenario-rebuild professionals do by
-# hand (no named industry-standard formula found for this specific technique,
-# 2026-08 research; treat as FAMarket's own, tunable, not "how Wall Street does it").
-VALUATION_SCENARIO_VOL_MULTIPLIER: float = 1.0
+# Bear/bull growth = the low / high end of the trend growth's own confidence range:
+# the Theil-Sen slope interval (Sen 1968, scipy.stats.theilslopes) at this confidence,
+# from metrics._robust_trend. Fix list §17 (2026-11-15) — replaced trend ∓ the residual
+# spread (eps/fcf/div_growth_vol), which measured how far single years sit off the
+# line, not how sure the growth rate is: MNST's 4 tidy EPS years gave bear ≈ bull
+# (false certainty); the interval gives 5-38%. Few or scattered years -> a wide range,
+# automatically. 0.80 = a 10th-90th percentile range.
+VALUATION_SCENARIO_CONFIDENCE: float = 0.80
 # Floor on the BEAR scenario's year-1 growth (percent). Negative on purpose: a bear
 # case that shrinks for a while before stabilising at terminal growth is a legitimate
 # story (revenue decline, dividend cut), and practitioner guidance is that coded bear
@@ -484,6 +500,11 @@ VALUATION_SCENARIO_BEAR_GROWTH_FLOOR: float = -10.0
 # assuming an implausibly persistent excess return forever (Damodaran: terminal
 # growth alone isn't the risk — the excess-return spread paired with it is).
 GUARDRAIL_ROIC_WACC_SPREAD_MAX: float = 20.0
+# A fair value above this multiple of the price is a model tail (an input outside
+# what the model can handle: distressed price, book far above market value, a past
+# cash flow that won't recur), not a bargain -> `fair_value_tail` (fix list §17).
+# 10% of stocks / ADRs with a fair value sat above 3x on 2026-11-14.
+FAIR_VALUE_TAIL_MULTIPLE: float = 3.0
 # Qualitative red-flag thresholds (visible on Output, never auto-applied to
 # fair_value_bear — see valuation_scenarios.py module docstring for why).
 BEAR_FLAG_CASH_CONVERSION_MIN: float = 100.0   # ocf_to_ni_3y/5y (%) below this = weak
@@ -611,8 +632,9 @@ CATEGORY_METRIC_WEIGHTS: dict[str, dict[str, float]] = {
     "income": {  # near-independent already; keep sustainability weighted
         # cagr_3y is the anchor (like growth's revenue/eps_cagr_3y), cagr_5y half
         # weight; cagr_1y is filter-only (too noisy for the category score).
-        "div_yield_ttm": 1.0, "div_cagr_3y": 0.75, "div_cagr_5y": 0.375, "div_coverage": 0.75,
+        "div_yield": 1.0, "div_cagr_3y": 0.75, "div_cagr_5y": 0.375, "div_coverage": 0.75,
         "div_consistency": 0.75, "div_payout_ratio": 0.5, "div_consecutive_years": 0.5,
+        "div_years_paid": 0.25,
     },
 }
 

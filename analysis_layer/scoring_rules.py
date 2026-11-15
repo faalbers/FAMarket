@@ -128,12 +128,15 @@ DEFAULT_RULES: dict[str, dict] = {
     # -- Ownership: net insider buying pivots on 0 (positive = net buying) --
     "insider_net_buy_pct":    {"shape": "higher_better", "anchor": "absolute", "value": 0.0},
     # -- Income: ABSOLUTE bands (goal is absolute "good income") --
-    "div_yield_ttm":   {"shape": "sweet_spot", "anchor": "absolute", "lo": 2.0, "hi": 6.0,
+    # div_yield = current REGULAR rate / price (fix list §9, 2026-11-15; was
+    # div_yield_ttm, which counted specials: Dillard's 5.0% vs a 0.19% regular yield)
+    "div_yield":       {"shape": "sweet_spot", "anchor": "absolute", "lo": 2.0, "hi": 6.0,
                         "overrides": {"reit": {"lo": 4.0, "hi": 10.0}}},
     "div_cagr_1y":           {"shape": "higher_better", "anchor": "universe"},
     "div_cagr_3y":           {"shape": "higher_better", "anchor": "universe"},
     "div_cagr_5y":           {"shape": "higher_better", "anchor": "universe"},
     "div_consecutive_years": {"shape": "higher_better", "anchor": "universe"},
+    "div_years_paid":        {"shape": "higher_better", "anchor": "universe"},
     "div_consistency":       {"shape": "higher_better", "anchor": "universe"},
     "div_payout_ratio": {"shape": "sweet_spot", "anchor": "absolute", "lo": 30.0, "hi": 60.0,
                          "overrides": {"reit": {"lo": 80.0, "hi": 95.0}}},
@@ -178,8 +181,8 @@ RULE_CATEGORIES: dict[str, list[str]] = {
                   "eps_revision_1m", "eps_revision_3m", "eps_revision_breadth"],
     "Earnings": ["earnings_surprise_avg", "earnings_surprise_last", "earnings_beat_rate"],
     "Ownership": ["insider_net_buy_pct"],
-    "Income": ["div_yield_ttm", "div_cagr_1y", "div_cagr_3y", "div_cagr_5y",
-               "div_consecutive_years", "div_consistency", "div_payout_ratio",
+    "Income": ["div_yield", "div_cagr_1y", "div_cagr_3y", "div_cagr_5y",
+               "div_consecutive_years", "div_years_paid", "div_consistency", "div_payout_ratio",
                "div_coverage"],
     "Momentum / Technical": ["rs_rank", "price_vs_ma_50", "price_vs_ma_150",
                              "price_vs_ma_200", "pct_from_52w_high", "pct_from_52w_low",

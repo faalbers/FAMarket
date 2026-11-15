@@ -519,7 +519,8 @@ needs.
          `universe`-anchored AND price-based (funds would then re-enter that pool).
        - PER-TYPE OVERRIDE EDITING UI — PARKED (decided 2026-06-24, with a trigger).
          Per-`screen_type` overrides already WORK (`scoring_rules.resolve()` /
-         `metric_goodness()`); only 2 are seeded in code (REIT `div_yield_ttm` +
+         `metric_goodness()`); only 2 are seeded in code (REIT `div_yield` — was
+         `div_yield_ttm` until 2026-11-15, fix list §9 —, and
          `div_payout_ratio`). A UI to add/edit more fits the visual-tuning workflow but only
          pays off given a concrete per-type tuning need. REVISIT TRIGGER: a metric
          demonstrably mis-scored across types — standing candidate **P/B** (banks/REITs sit
@@ -1094,6 +1095,17 @@ needs.
      steadiness, first-year outlier dropped once; `_growth_tau` replaces `_growth_r2` / `_growth_cv`);
      EV adds minority interest + preferred equity; `ev_ebitda` / `debt_to_ebitda` use
      `normalized_ebitda`. Limits: UAL / DAL two-year trough, Talen loss rows.
+   - ✅ Group G, part 1 — dividends + fair values (2026-11-15, §9 + §17): regular dividends
+     (`analysis_layer/dividends.py`: pay rates, special filter, yearly rates, recent cut);
+     new `div_rate` / `div_yield` (current regular rate) feed `income_score` and the DDM, `_ttm`
+     pair kept as "everything paid"; streak on yearly regular rates (2% tolerance, 10% for foreign
+     currency) and 0 after a recent cut; new `div_years_paid`, `div_recent_cut`. EPS years
+     without a reported EPS filled from net income ÷ shares (Lynch, PEG); bear/bull from the
+     Theil-Sen slope interval (`VALUATION_SCENARIO_CONFIDENCE` 0.80, replaced the vol
+     multiplier); DCF falls back to revenue growth; `fair_value_tail` (> 3x price). Company
+     second lines (no own market cap) get no market cap / price ratios / fair values. Three saved
+     filters (dividend growers, REIT income, defensive anchors) moved to `div_yield` / `div_rate`.
+     Analysis run checked 2026-11-15: stored values = the test build.
    - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
      `core/backup.fix_backup`).
 

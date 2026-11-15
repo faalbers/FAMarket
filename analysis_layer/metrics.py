@@ -31,12 +31,15 @@ Sections: valuation · profitability · growth · income · financial health.
 
 from __future__ import annotations
 
+from datetime import date
+
 import numpy as np
 import pandas as pd
 from scipy.stats import kendalltau, theilslopes
 
 from config import settings
 from analysis_layer import _periods as P
+from analysis_layer import dividends as divs
 from analysis_layer.screen_type import BANK, STANDARD
 
 # ---- field kinds for _periods.current() ---------------------------------- #
@@ -341,8 +344,9 @@ def _fractional_years(idx) -> np.ndarray:
     return np.asarray(idx, dtype=float) + 0.997  # a calendar year ends ~Dec 31
 
 
-def _robust_trend(s: pd.Series) -> tuple[float, float, float]:
-    """(steadiness %, direction tau, trend growth %/yr) over the last ~6 years.
+def _robust_trend(s: pd.Series) -> tuple[float, float, float, float, float]:
+    """(steadiness %, direction tau, trend growth %/yr, growth low %, growth high %)
+    over the last ~6 years.
 
     Fix list §16 (2026-11-14). Replaces an ordinary least-squares fit on a year
     index, which one odd year moved (often a FY2020 trough as the first point):
@@ -354,11 +358,17 @@ def _robust_trend(s: pd.Series) -> tuple[float, float, float]:
         10%) is dropped once and the fit redone — the FY2020 rule;
       * steadiness = 1.4826 x the median absolute residual, in % (lower = steadier);
       * tau = Kendall's tau of value vs time (Mann-Kendall direction: +1 always
-        up, -1 always down).
+        up, -1 always down);
+      * growth low / high = the slope's confidence interval at
+        `VALUATION_SCENARIO_CONFIDENCE` (Theil-Sen's own, Sen 1968) — how sure the
+        growth RATE is; few or scattered points give a wide range. Feeds the
+        bear / bull scenarios (fix list §17). Log mode only, like growth.
     """
+    nan = float("nan")
+    nan5 = (nan, nan, nan, nan, nan)
     s = s.dropna().iloc[-(settings.GROWTH_TREND_YEARS + 1):]
     if len(s) < _TREND_MIN_POINTS:
-        return float("nan"), float("nan"), float("nan")
+        return nan5
     t = _fractional_years(s.index)
     y = s.to_numpy(dtype=float)
     log_mode = bool(np.all(y > 0))
@@ -367,26 +377,30 @@ def _robust_trend(s: pd.Series) -> tuple[float, float, float]:
     else:
         scale = float(np.median(np.abs(y)))
         if not scale:
-            return float("nan"), float("nan"), float("nan")
+            return nan5
         z, floor = y / scale, _TREND_FLOOR_LEVEL
 
-    def fit(tt: np.ndarray, zz: np.ndarray) -> tuple[float, np.ndarray]:
-        slope, intercept = theilslopes(zz, tt)[:2]
-        return float(slope), zz - (intercept + slope * tt)
+    conf = settings.VALUATION_SCENARIO_CONFIDENCE
 
-    slope, resid = fit(t, z)
+    def fit(tt: np.ndarray, zz: np.ndarray) -> tuple[float, float, float, np.ndarray]:
+        slope, intercept, lo, hi = theilslopes(zz, tt, alpha=conf)
+        return float(slope), float(lo), float(hi), zz - (intercept + slope * tt)
+
+    slope, lo, hi, resid = fit(t, z)
     for _ in range(_TREND_MAX_EDGE_DROPS):
         spread = max(_MAD_SCALE * float(np.median(np.abs(resid - np.median(resid)))), floor)
         if (len(z) - 1 < _TREND_MIN_POINTS
                 or abs(resid[0] - np.median(resid)) <= _TREND_OUTLIER_K * spread):
             break
         t, z, y = t[1:], z[1:], y[1:]
-        slope, resid = fit(t, z)
+        slope, lo, hi, resid = fit(t, z)
 
     steadiness = _MAD_SCALE * float(np.median(np.abs(resid - np.median(resid)))) * 100
     tau = float(kendalltau(t, y).statistic)
-    growth = (np.exp(slope) - 1) * 100 if log_mode else float("nan")
-    return steadiness, tau, growth
+    if not log_mode:
+        return steadiness, tau, float("nan"), float("nan"), float("nan")
+    pct = lambda b: (np.exp(b) - 1) * 100  # noqa: E731
+    return steadiness, tau, pct(slope), pct(lo), pct(hi)
 
 
 def _yoy_latest(sq: pd.Series) -> float:
@@ -635,6 +649,9 @@ def eps_current_basis(frames: list[pd.DataFrame], splits: pd.Series | None,
         for d, row in df.iterrows():
             eps = pd.to_numeric(row.get("diluted_eps"), errors="coerce")
             if pd.isna(eps):
+                filled = _eps_from_shares(row, d, real, ref)
+                if pd.notna(filled):
+                    vals[d] = filled
                 continue
             big = _splits_after(real, _basis_date(row, d))
             imp = implied(row)
@@ -650,15 +667,37 @@ def eps_current_basis(frames: list[pd.DataFrame], splits: pd.Series | None,
     return out
 
 
+def _eps_from_shares(row: pd.Series, d: pd.Timestamp, real: pd.Series, ref: float) -> float:
+    """EPS for a row with no `diluted_eps`: net income / diluted average shares, the
+    shares put on today's basis by the same candidate test (fix list §17: per-share
+    net income). Fills SEC years with a share count but no EPS tag — Monster had EPS
+    only for FY2022-25 (EPS trend 20%), net income and shares back to 2017 (~7%)."""
+    try:
+        ni, sh = float(row.get("net_income")), float(row.get("diluted_average_shares"))
+    except (TypeError, ValueError):
+        return float("nan")
+    if not (pd.notna(ni) and pd.notna(sh) and sh > 0 and pd.notna(ref) and ref > 0):
+        return float("nan")
+    cands = _basis_candidates(real, _basis_date(row, d))
+    f = min(cands, key=lambda c: abs(np.log(sh * c / ref)))
+    if abs(np.log(sh * f / ref)) > np.log(_EPS_BASIS_MAX_OFF):
+        return float("nan")
+    return ni / (sh * f)
+
+
 def _growth_block(name: str, annual: pd.Series, quarterly: pd.Series) -> dict:
     """CAGR(1/3/5y) + trend stats + latest YoY-quarterly for one growth series."""
     out: dict[str, float] = {}
     for w in settings.GROWTH_WINDOWS_YEARS:
         out[f"{name}_cagr_{w}y"] = _pct(_cagr(annual, w))
-    vol, tau, growth_trend = _robust_trend(annual)
+    vol, tau, growth_trend, lo, hi = _robust_trend(annual)
     out[f"{name}_growth_vol"] = vol
     out[f"{name}_growth_tau"] = tau
     out[f"{name}_growth_trend"] = growth_trend
+    # Private (not written to analysis.db): the growth's confidence range, read by
+    # valuation_scenarios for bear / bull.
+    out[f"_{name}_growth_lo"] = lo
+    out[f"_{name}_growth_hi"] = hi
     out[f"{name}_yoy_q"] = _pct(_yoy_latest(quarterly))
     return out
 
@@ -678,6 +717,7 @@ def compute(
     screen_type: str | None = None,
     reconcile: list | None = None,
     risk_free: float | None = None,
+    secondary_line: bool = False,
 ) -> dict:
     """All fundamental metrics for one symbol (raw numbers, percents as percents).
 
@@ -700,7 +740,11 @@ def compute(
     m: dict[str, float] = {}
 
     # -- shared inputs ------------------------------------------------------- #
-    shares = company_shares(quote, fin)   # all classes (fix list §2)
+    # all classes (fix list §2). A second line of a company (preferred, unit,
+    # foreign duplicate) with no market value of its own gets none: the company's
+    # numbers on this line's price gave Fannie Mae preferreds a P/E of ~1.3 (§17).
+    shares = float("nan") if secondary_line else company_shares(quote, fin)
+    m["_shares"] = shares  # private: reused by intrinsic_value / valuation_scenarios
     mktcap = _div(price * shares, 1.0) if pd.notna(shares) else float("nan")
     m["market_cap"] = mktcap  # size; currency-neutral (price & shares share the listing's terms)
 
@@ -875,7 +919,8 @@ def compute(
     m["peg"] = _div(m["pe"], g_eps) if (pd.notna(g_eps) and g_eps > 0) else float("nan")
 
     # -- income / dividends ------------------------------------------------- #
-    m.update(_income_block(fin, dividends, price, ni, fcf, as_of))
+    m.update(_income_block(fin, dividends, price, ni, fcf, as_of,
+                           foreign=not (pd.isna(fin_ccy) or fin_ccy in (None, "", "USD"))))
 
     # -- reconciliation ----------------------------------------------------- #
     if reconcile is not None and currency_ok:
@@ -1055,16 +1100,28 @@ def _quick_health_score(fin, cash_ratio: float) -> float:
     return float(sum(bool(c) for c in checks))
 
 
-def _income_block(fin, paid: pd.Series | None, price, ni_ttm, fcf_ttm, as_of) -> dict:
-    """Dividend metrics from the full-history dividend events (no extra API)."""
+def _income_block(fin, paid: pd.Series | None, price, ni_ttm, fcf_ttm, as_of,
+                  foreign: bool = False) -> dict:
+    """Dividend metrics from the full-history dividend events (no extra API).
+
+    `div_rate_ttm` / `div_yield_ttm` = everything paid in the last 365 days,
+    specials included. Every other dividend metric is on REGULAR payments
+    (`analysis_layer.dividends`, fix list §9 / §21): `div_rate` / `div_yield` =
+    the current regular annual rate; trends, streak and consistency on each
+    calendar year's regular annual rate. `foreign` = the company reports in
+    another currency (wider cut tolerance for currency moves).
+    """
     out = {
         "div_yield_ttm": float("nan"), "div_rate_ttm": float("nan"),
+        "div_yield": float("nan"), "div_rate": float("nan"),
         "div_cagr_1y": float("nan"), "div_cagr_3y": float("nan"), "div_cagr_5y": float("nan"),
         "div_payout_ratio": float("nan"),
         "div_consecutive_years": float("nan"), "div_consistency": float("nan"),
+        "div_years_paid": float("nan"), "div_recent_cut": float("nan"),
         "div_coverage": float("nan"),
         "div_growth_vol": float("nan"), "div_growth_tau": float("nan"),
         "div_growth_trend": float("nan"),
+        "_div_growth_lo": float("nan"), "_div_growth_hi": float("nan"),
     }
     if as_of is None or pd.isna(as_of):  # no price history at all -> not applicable
         return out
@@ -1072,8 +1129,8 @@ def _income_block(fin, paid: pd.Series | None, price, ni_ttm, fcf_ttm, as_of) ->
         paid = pd.to_numeric(paid, errors="coerce")
         paid = paid[paid > 0]
     if paid is None or paid.empty:  # non-payer: a real 0% yield, the rest not applicable
-        out["div_yield_ttm"] = 0.0
-        out["div_rate_ttm"] = 0.0
+        for k in ("div_yield_ttm", "div_rate_ttm", "div_yield", "div_rate", "div_years_paid"):
+            out[k] = 0.0
         return out
 
     last = pd.Timestamp(as_of)
@@ -1081,22 +1138,24 @@ def _income_block(fin, paid: pd.Series | None, price, ni_ttm, fcf_ttm, as_of) ->
     out["div_rate_ttm"] = ttm_div
     out["div_yield_ttm"] = _pct(_div(ttm_div, price))
 
-    # Dividend-trend metrics use each complete year's MAX payment (the per-share
-    # rate), not the calendar-year sum: a monthly/quarterly payer's yearly sum
-    # swings with how many ex-dates land in a calendar year (11 vs 12 vs 13),
-    # which would falsely break a long raising streak (e.g. Realty Income).
-    by_year = paid.groupby(paid.index.year).max()
-    by_year = by_year[by_year.index < last.year]
+    view = divs.analyse(paid, last)
+    out["div_rate"] = view.rate_now
+    out["div_yield"] = _pct(_div(view.rate_now, price))
+    out["div_years_paid"] = float(view.years_paid)
+    out["div_recent_cut"] = view.recent_cut
+
+    by_year = view.year_rates
     if len(by_year) >= 2:
+        tol = settings.DIV_CUT_TOLERANCE_FX if foreign else settings.DIV_CUT_TOLERANCE
         for w in settings.GROWTH_WINDOWS_YEARS:
             out[f"div_cagr_{w}y"] = _pct(_cagr_from_yearly(by_year, w))
-        steps = by_year.diff().dropna()
-        out["div_consistency"] = _pct((steps >= 0).mean())
-        out["div_consecutive_years"] = float(_consecutive_increases(by_year))
-        vol, tau, growth_trend = _robust_trend(by_year)
-        out["div_growth_vol"] = vol
-        out["div_growth_tau"] = tau
-        out["div_growth_trend"] = growth_trend
+        ratio = (by_year / by_year.shift(1)).dropna()
+        out["div_consistency"] = _pct((ratio >= 1 - tol).mean())
+        out["div_consecutive_years"] = (0.0 if view.recent_cut == 1.0
+                                        else float(divs.no_cut_streak(by_year, tol)))
+        tr = _robust_trend(by_year)
+        out["div_growth_vol"], out["div_growth_tau"], out["div_growth_trend"] = tr[:3]
+        out["_div_growth_lo"], out["_div_growth_hi"] = tr[3:]
 
     # payout / coverage off the cash-flow statement (currency-neutral ratios)
     div_paid = abs(P.ttm(fin, "cash_dividends_paid"))
@@ -1106,19 +1165,20 @@ def _income_block(fin, paid: pd.Series | None, price, ni_ttm, fcf_ttm, as_of) ->
 
 
 def _cagr_from_yearly(by_year: pd.Series, years: int) -> float:
-    """CAGR over a calendar-year-indexed Series (used for dividends)."""
-    s = by_year.copy()
-    s.index = pd.to_datetime(s.index.astype(str) + "-12-31")
-    return _cagr(s, years)
+    """CAGR over a calendar-year-indexed Series (used for dividends) — `_cagr`'s rule
+    on Dec-31 dates, computed on the year numbers directly (building dates from
+    text took half the dividend block's run time)."""
+    if len(by_year) < 2:
+        return float("nan")
+    yrs = by_year.index.to_numpy(dtype=int)
+    vals = by_year.to_numpy(dtype=float)
+    last_y, last = int(yrs[-1]), float(vals[-1])
+    older = np.flatnonzero(yrs <= last_y - years)
+    if not len(older):
+        return float("nan")
+    base_y, base = int(yrs[older[-1]]), float(vals[older[-1]])
+    span = (date(last_y, 12, 31) - date(base_y, 12, 31)).days / 365.25
+    if base <= 0 or last <= 0 or span < 0.5:
+        return float("nan")
+    return (last / base) ** (1 / span) - 1
 
-
-def _consecutive_increases(by_year: pd.Series) -> int:
-    """Count of trailing consecutive years the annual value did not fall."""
-    v = by_year.to_numpy(dtype=float)
-    n = 0
-    for i in range(len(v) - 1, 0, -1):
-        if v[i] >= v[i - 1]:
-            n += 1
-        else:
-            break
-    return n

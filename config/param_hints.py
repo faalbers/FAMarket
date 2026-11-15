@@ -157,7 +157,7 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "PEG",
         "category": "Valuation",
         "unit": "x",
-        "what_it_is": "Trailing P/E divided by the EPS trend growth rate (robust trend over ~6 years, in %).",
+        "what_it_is": "Trailing P/E divided by the EPS trend growth rate (robust trend over ~6 years, in %; years with no reported EPS filled from net income / shares).",
         "how_to_use": [
             "Around 1 is fairly priced for its growth (Lynch's rule of thumb).",
             "Under 1 suggests growth at a discount; NULL when growth is zero or negative.",
@@ -795,25 +795,31 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Div growth",
         "category": "Income",
         "unit": "%",
-        "what_it_is": "Growth of the annual dividend rate (each complete year's max per-share "
-                      "payment). Windows: 1/3/5-year CAGR, plus trend quality over ~5 years.",
+        "what_it_is": "Growth of the REGULAR annual dividend rate (each complete year's typical "
+                      "payment × payments per year, special dividends left out). Windows: "
+                      "1/3/5-year CAGR, plus trend quality over ~5 years.",
         "how_to_use": [
             "CAGR: 5-10%+ with a safe payout ratio is the dividend-growth sweet spot.",
             "Steadiness spread % low + direction (tau) near 1 = steady raiser; high vol = lumpy raises.",
             "Negative CAGR means the payout shrank — check for cuts.",
             "Trend growth %/yr — a steadier alternative to CAGR, fit across the full ~5-year window instead of just the two endpoints.",
             "Feeds the DDM intrinsic value — trend growth sets where the projection starts (bounded at 35%) before fading to the terminal rate.",
+            "A switch to monthly payments or a one-off special no longer distorts it.",
         ],
         "vs_peers": "Yes — utilities grow slowly from high yields; tech fast from low ones.",
     },
     "div_consecutive_years": {
-        "name": "Div streak",
+        "name": "Years w/o cut",
         "category": "Income",
         "unit": "yr",
-        "what_it_is": "Number of consecutive complete years the annual dividend total increased.",
+        "what_it_is": "Consecutive complete years in which the regular annual dividend rate "
+                      "did not fall (specials left out). 0 after a cut in the last ~2 years "
+                      "(see Recent dividend cut).",
         "how_to_use": [
             "Long streaks (10/25+ = achiever/aristocrat territory) signal management commitment.",
-            "Limited by our price-history depth — treat it as 'at least this many'.",
+            "'Not cut', not 'raised': a flat year keeps the streak going.",
+            "Foreign companies: a drop under 10% in dollars counts as currency, not a cut.",
+            "Limited by our price-history depth (~30 years) — treat it as 'at least this many'.",
         ],
         "vs_peers": "No — a streak is meaningful on its own.",
     },
@@ -821,7 +827,7 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Div consist",
         "category": "Income",
         "unit": "%",
-        "what_it_is": "Share of year-over-year steps where the annual dividend held or grew (100 = never cut in our history).",
+        "what_it_is": "Share of year-over-year steps where the regular annual dividend rate held or grew (100 = never cut in our history).",
         "how_to_use": [
             "100 = no cuts; 80 = cut roughly one year in five.",
             "Softer than the streak: one old cut doesn't zero it out.",
@@ -851,13 +857,68 @@ PARAM_HINTS: dict[str, dict] = {
         ],
         "vs_peers": "Yes — sustainable levels are industry-specific.",
     },
-    "div_rate_ttm": {
+    "div_rate": {
         "name": "Div rate",
         "category": "Income",
         "unit": "$",
-        "what_it_is": "Dollars of dividend paid per share over the last 365 days. 0 for non-payers.",
+        "what_it_is": "Current regular annual dividend per share: the latest regular payment × "
+                      "payments per year (special dividends left out). 0 for non-payers and "
+                      "for a payer whose next payment is overdue (suspended).",
         "how_to_use": [
-            "The absolute payout behind the yield — yield = rate / price.",
+            "The forward-looking payout behind the yield — yield = rate / price.",
+            "Like Yahoo's 'forward dividend rate'; matched it for 87% of large US payers.",
+        ],
+        "vs_peers": "No — it's a per-share dollar amount; compare yields instead.",
+    },
+    "div_yield": {
+        "name": "Yield",
+        "category": "Income",
+        "unit": "%",
+        "what_it_is": "Current regular annual dividend rate / current price — the yield you "
+                      "can expect to keep collecting, special dividends left out.",
+        "how_to_use": [
+            "Higher pays more income; unusually high can signal a falling price.",
+            "Pair with payout ratio, years without a cut and Recent dividend cut for safety.",
+            "Income is an absolute goal — what counts is the actual yield you collect, "
+            "not whether it's high 'for the sector'.",
+            "Feeds the Income score and the DDM intrinsic value.",
+        ],
+        "vs_peers": "For screening, sector norms differ — but for income the absolute "
+                    "level is what matters most (a sector-high 0.5% is still tiny).",
+    },
+    "div_years_paid": {
+        "name": "Years paid",
+        "category": "Income",
+        "unit": "yr",
+        "what_it_is": "Unbroken calendar years with any dividend, counted back from the last "
+                      "full year. Cuts don't end it; a year with no payment does.",
+        "how_to_use": [
+            "The 'reliable income payer' question — a company that cut once but never stopped paying still counts.",
+            "Limited by our price-history depth (~30 years).",
+        ],
+        "vs_peers": "No — a record is meaningful on its own.",
+    },
+    "div_recent_cut": {
+        "name": "Recent cut",
+        "category": "Income",
+        "unit": "",
+        "what_it_is": "1 = the regular dividend was cut in the last ~2 years: today's rate is "
+                      "under 92% of the rate 1-2 years ago AND the last 12 months paid under 95% "
+                      "of the 12 months before. Empty with fewer than 5 payments in 3 years.",
+        "how_to_use": [
+            "Filter it to 0 to drop recent cutters from income screens.",
+            "Both tests must hold, so a shifted payment date or a switch to monthly payments is not a cut.",
+        ],
+        "vs_peers": "No — a yes / no fact.",
+    },
+    "div_rate_ttm": {
+        "name": "Div rate TTM",
+        "category": "Income",
+        "unit": "$",
+        "what_it_is": "Every dividend paid per share over the last 365 days, special dividends "
+                      "included. 0 for non-payers.",
+        "how_to_use": [
+            "What was actually paid; Div rate (regular) is what to expect going forward.",
             "Use `> 0` as the simplest 'pays a dividend' filter.",
         ],
         "vs_peers": "No — it's a per-share dollar amount; compare yields instead.",
@@ -866,12 +927,11 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Yield TTM",
         "category": "Income",
         "unit": "%",
-        "what_it_is": "Sum of dividends paid in the last 365 days / current price.",
+        "what_it_is": "Every dividend paid in the last 365 days, special dividends included, "
+                      "/ current price.",
         "how_to_use": [
-            "Higher pays more income; unusually high can signal a falling price.",
-            "Pair with payout ratio and consecutive growth years for safety.",
-            "Income is an absolute goal — what counts is the actual yield you collect, "
-            "not whether it's high 'for the sector'.",
+            "Counts one-off specials: Dillard's shows 5.0% here against a 0.19% regular yield.",
+            "For income screens use Yield (regular) instead.",
         ],
         "vs_peers": "For screening, sector norms differ — but for income the absolute "
                     "level is what matters most (a sector-high 0.5% is still tiny).",
@@ -1144,6 +1204,7 @@ PARAM_HINTS: dict[str, dict] = {
             "The fade is why this reads lower than a flat-growth DCF: nothing compounds at its trailing rate for a decade.",
             "Treat as a rough anchor; demand a margin of safety, not precision.",
             "NULL when FCF is negative.",
+            "When the FCF history has a negative year (no compound growth), revenue trend growth is used instead — FCF grows with sales at today's margin.",
         ],
         "vs_peers": "No — compare price to value.",
     },
@@ -1151,7 +1212,7 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "DDM",
         "category": "Intrinsic Value",
         "unit": "$",
-        "what_it_is": "Dividend discount model: trailing per-share dividend projected 10 years on the same fading growth path as the DCF (trend rate, start bounded at 35%, declining to the 2.5% terminal rate), discounted at the same rate as the DCF, plus terminal value.",
+        "what_it_is": "Dividend discount model: the current regular annual dividend (special dividends left out) projected 10 years on the same fading growth path as the DCF (regular-dividend trend rate, start bounded at 35%, declining to the 2.5% terminal rate), discounted at the same rate as the DCF, plus terminal value.",
         "how_to_use": [
             "The model banks, insurers and REITs actually get valued on — deposits/underwriting and GAAP depreciation make FCF-DCF and EPS-based Graham/Lynch unreliable for them.",
             "Only meaningful for real dividend payers; NULL for non-payers. In the base case a shrinking dividend is floored to 0% growth; only the bear scenario may start negative.",
@@ -1173,7 +1234,7 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Lynch",
         "category": "Intrinsic Value",
         "unit": "$",
-        "what_it_is": "Peter Lynch fair value: EPS × growth rate (EPS trend growth %, robust trend, capped at 25) used as the fair P/E.",
+        "what_it_is": "Peter Lynch fair value: EPS × growth rate (EPS trend growth %, robust trend, capped at 25) used as the fair P/E. Years with no reported EPS are filled from net income / shares.",
         "how_to_use": [
             "Embodies PEG = 1: a grower deserves its growth rate as a P/E.",
             "Only meaningful for steady growers; NULL without positive EPS and growth.",
@@ -1209,10 +1270,10 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Fair value (bear)",
         "category": "Intrinsic Value",
         "unit": "$",
-        "what_it_is": "fair_value recomputed with each applicable model's starting growth pulled down to trend growth minus its own residual volatility (Graham excluded — it has no forward growth input to flex, so it never varies by scenario).",
+        "what_it_is": "fair_value recomputed with each applicable model's starting growth at the LOW end of its trend growth's 80% confidence range (Graham excluded — it has no forward growth input to flex, so it never varies by scenario).",
         "how_to_use": [
             "The pessimistic end of the range — compare against fair_value_bull to see how sensitive the valuation actually is.",
-            "A narrow bear-to-bull spread means a steady growth history; a wide one means a noisy one.",
+            "A narrow bear-to-bull spread means a long, steady growth record; few or scattered years give a wide one.",
             "May start from a negative growth rate (floored at -10%), which then fades up toward the terminal rate — a genuine contraction case. Lynch drops out of the blend when that happens, since fair P/E ≈ growth says nothing about a shrinking company.",
             "NULL under the same conditions as fair_value, AND whenever no applicable model has enough growth history to build a scenario — a blank here means 'no range available', not 'no downside'.",
         ],
@@ -1222,7 +1283,7 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Fair value (bull)",
         "category": "Intrinsic Value",
         "unit": "$",
-        "what_it_is": "fair_value recomputed with each applicable model's starting growth pushed up to trend growth plus its own residual volatility, still bounded by each model's own start cap (Graham excluded, same as fair_value_bear).",
+        "what_it_is": "fair_value recomputed with each applicable model's starting growth at the HIGH end of its trend growth's 80% confidence range, still bounded by each model's own start cap (Graham excluded, same as fair_value_bear).",
         "how_to_use": [
             "The optimistic end of the range.",
             "NULL under the same conditions as fair_value, AND whenever no applicable model has enough growth history to build a scenario.",
@@ -1249,6 +1310,17 @@ PARAM_HINTS: dict[str, dict] = {
             "NULL wherever fair_value_bull is NULL.",
         ],
         "vs_peers": "No — it's already an absolute discount measure.",
+    },
+    "fair_value_tail": {
+        "name": "Fair value > 3x",
+        "category": "Intrinsic Value",
+        "unit": "",
+        "what_it_is": "True when fair_value is more than 3x the price — a model tail, not a bargain: a distressed price, book value far above market value, or a past cash flow that won't recur.",
+        "how_to_use": [
+            "Filter it to False in value screens so model tails don't top the margin-of-safety ranking.",
+            "Mostly tiny and distressed companies; 10% of stocks with a fair value were above 3x on 2026-11-14.",
+        ],
+        "vs_peers": "No — an absolute mechanical check.",
     },
     "valuation_guardrail_flag": {
         "name": "Valuation guardrail",
