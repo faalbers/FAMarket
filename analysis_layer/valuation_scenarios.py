@@ -13,7 +13,7 @@ scenario lever for this pass.
 
   * intrinsic_value_{lynch,dcf,ddm}_{bear,bull} — per-method scenario values.
     Bear/bull growth comes from that method's own trend-growth column ∓ its
-    residual volatility (metrics._trend_stats: eps/fcf/div_growth_vol),
+    robust spread around the trend (metrics._robust_trend: eps/fcf/div_growth_vol),
     scaled by settings.VALUATION_SCENARIO_VOL_MULTIPLIER — an uncertainty-
     scaled stand-in for the manual scenario-rebuild professionals do by hand,
     not a named industry technique (see settings.py comment). A steady grower

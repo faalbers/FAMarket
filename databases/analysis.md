@@ -19,7 +19,7 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
 - **Price window cleanup** (since 2026-11-12): before `price`, the technical columns and `rs_raw` are computed, each symbol's ~2-year price window gets its `ohlcv.price_flags` applied — `bad_print` and `stale` bars are dropped, and a `bad_adj` symbol uses `close` for `adj_close` (price return, not total return). `level_shift` is flagged only. See `price_issues`.
 - **TTM** = sum of the last 4 **consecutive** quarters (no gap over ~120 days), else NULL. Balance-sheet items = latest reported value (quarterly, falling back to annual).
 - **Percent metrics are stored as percent numbers** (12.5 = 12.5%). Multiples (P/E, ratios marked "x") are plain numbers.
-- **Market cap** = price × shares, where shares = Yahoo `sharesOutstanding`, else the latest reported `ordinary_shares_number`, else `share_issued`.
+- **Market cap** = price × the company's shares across **all classes** (since 2026-11-14): Yahoo `marketCap` ÷ Yahoo's quote price (B-share equivalents for BRK-B, ADR units for an ADR), else `impliedSharesOutstanding`, else `sharesOutstanding`, else the latest `ordinary_shares_number` / `share_issued`. The same count gives `eps_ttm` and the per-share fair values.
 - **NULL = not applicable or not computable** (missing inputs, wrong security type, sign change, outlier guard). It is never a hidden zero.
 - **Currency guard** — `valuation_basis`:
   - `computed` = ratios computed from the statements in `financials.db` (the normal case).
@@ -42,7 +42,7 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
 
 - **`market_cap`**.
 - **`pe`** = market cap / TTM net income. **`ps`** = / TTM revenue. **`pb`** = / latest stockholders' equity. **`p_fcf`** = / TTM free cash flow.
-- **`ev_ebitda`**, **`ev_revenue`** — enterprise value = market cap + total debt − cash.
+- **`ev_ebitda`**, **`ev_revenue`** — enterprise value = market cap + total debt − cash + minority interest + preferred equity (the last two as 0 when not reported). EBITDA = Yahoo's `normalized_ebitda` (one-off charges removed) where available, else reported — also for `debt_to_ebitda` (since 2026-11-14).
 - **`eps_ttm`** = TTM net income / shares.
 - **`forward_pe`** = price / Yahoo `forwardEps`.
 - **`peg`** = `pe` / `eps_growth_trend` (only when growth > 0).
@@ -70,13 +70,13 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
 
 ## 5. Growth
 
-Four series — **revenue**, **eps** (diluted EPS, split-adjusted with `ohlcv.splits`), **fcf** (annual operating cash flow + capex), **book_value** (stockholders' equity) — each get:
+Four series — **revenue**, **eps** (diluted EPS on today's split basis: each row's basis is tested against its implied share count, net income ÷ EPS, since stored rows mix bases), **fcf** (annual operating cash flow + capex), **book_value** (stockholders' equity) — each get:
 
 - **`<x>_cagr_1y / _3y / _5y`** — compound annual growth (%) from the annual value ~N years back to the latest. NULL if either end is ≤ 0 or no point that far back.
-- **`<x>_growth_trend`** — annualized growth (%) from a log-linear fit over the last up to 5 annual points (all must be > 0).
-- **`<x>_growth_vol`** — residual volatility around a linear fit, % of the mean (lower = steadier).
-- **`<x>_growth_r2`** — R² of that linear fit (1 = perfectly steady trend).
-- **`<x>_growth_cv`** — coefficient of variation, % (std / |mean|).
+- **`<x>_growth_trend`** — robust annual growth (%): Theil-Sen slope (median of pairwise slopes) of ln(value) over the last up to 6 annual points on their real dates; ≥ 4 points, all > 0. A first year that is an outlier (> 4 × the robust spread) is dropped once (the FY2020 trough). Since 2026-11-14; was an ordinary least-squares fit over 5 points.
+- **`<x>_growth_vol`** — steadiness: 1.4826 × the median absolute residual around that line, % (lower = steadier). Series with a loss year are fitted on value ÷ median |value|.
+- **`<x>_growth_tau`** — direction consistency, Kendall's tau of value vs time, −1 to 1 (+1 = up every year). Replaced `_growth_r2` and `_growth_cv` on 2026-11-14.
+- Known limit: a two-year trough is not dropped — airlines keep a ~30%/yr post-COVID recovery "trend" (with a ~30% steadiness spread) until the window moves past 2021.
 - **`<x>_yoy_q`** — latest quarter vs the same quarter a year earlier (%).
 
 Plus:
@@ -88,7 +88,7 @@ Plus:
 
 - **`div_rate_ttm`** — dividends per share with ex-date in the last 365 days. **`div_yield_ttm`** = that / price (%). Non-payers get 0 for both and NULL for the rest.
 - Trend metrics use each **complete calendar year's highest single payment** (not the yearly sum, which jumps with how many payments fall in a year):
-  - **`div_cagr_1y / _3y / _5y`** (%), **`div_growth_trend`**, **`div_growth_vol`**, **`div_growth_r2`**, **`div_growth_cv`** — as in Growth.
+  - **`div_cagr_1y / _3y / _5y`** (%), **`div_growth_trend`**, **`div_growth_vol`**, **`div_growth_tau`** — as in Growth.
   - **`div_consecutive_years`** — trailing streak of years the payment did not fall (a "not cut" streak, not years paid).
   - **`div_consistency`** — % of year-to-year steps that did not fall.
 - **`div_payout_ratio`** = TTM dividends paid / TTM net income (%). **`div_coverage`** = TTM FCF / TTM dividends paid (x).
@@ -147,7 +147,7 @@ Plus:
 - **Category scores** — weighted average of the available goodness values in the category (missing metrics drop out, weights renormalize; NULL if none):
   - **`value_score`** — ev_ebitda, p_fcf, margin_of_safety (1.0), pe (0.75), peg, pb, ps (0.5), ev_revenue, forward_pe (0.25).
   - **`quality_score`** — roic, gross_margin (1.0), roe, altman_z, fcf_margin (0.75), net_margin, debt_to_equity, current_ratio, interest_coverage (0.5), operating_margin, roa, debt_to_ebitda (0.25).
-  - **`growth_score`** — eps_cagr_3y, revenue_cagr_3y (1.0), eps_yoy_q, revenue_yoy_q (0.75), fcf_cagr_3y, eps_growth_r2, eps_cagr_5y, revenue_cagr_5y, forward_eps_growth, eps_revision_1m, revenue_accel, earnings_surprise_avg (0.5).
+  - **`growth_score`** — eps_cagr_3y, revenue_cagr_3y (1.0), eps_yoy_q, revenue_yoy_q (0.75), fcf_cagr_3y, eps_growth_tau, eps_cagr_5y, revenue_cagr_5y, forward_eps_growth, eps_revision_1m, revenue_accel, earnings_surprise_avg (0.5).
   - **`momentum_score`** — rs_rank (1.0), pct_from_52w_high (0.75), price_vs_ma_50, price_vs_ma_200 (0.5), price_vs_ma_150, insider_net_buy_pct (0.25).
   - **`income_score`** — div_yield_ttm (1.0), div_cagr_3y, div_coverage, div_consistency (0.75), div_payout_ratio, div_consecutive_years (0.5), div_cagr_5y (0.375).
 - **`overall_score`** — quality 25%, value 22%, momentum 20%, growth 18%, income 15%, renormalized over the categories present (funds usually only have momentum and income).

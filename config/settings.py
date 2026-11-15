@@ -466,7 +466,7 @@ WACC_MAX_COST_OF_DEBT: float = 0.5
 # Valuation scenarios (bear / base / bull) — analysis_layer/valuation_scenarios.py
 # --------------------------------------------------------------------------- #
 # Bear/bull growth = trend growth ∓ (residual volatility × this multiplier), using
-# each method's own metrics._trend_stats() vol column (eps/fcf/div_growth_vol) — an
+# each method's own metrics._robust_trend() steadiness column (eps/fcf/div_growth_vol) — an
 # uncertainty-scaled stand-in for the manual scenario-rebuild professionals do by
 # hand (no named industry-standard formula found for this specific technique,
 # 2026-08 research; treat as FAMarket's own, tunable, not "how Wall Street does it").
@@ -594,7 +594,7 @@ CATEGORY_METRIC_WEIGHTS: dict[str, dict[str, float]] = {
     },
     "growth": {  # historical CAGRs anchor; forward signals add at half weight
         "eps_cagr_3y": 1.0, "revenue_cagr_3y": 1.0, "eps_yoy_q": 0.75,
-        "revenue_yoy_q": 0.75, "fcf_cagr_3y": 0.5, "eps_growth_r2": 0.5,
+        "revenue_yoy_q": 0.75, "fcf_cagr_3y": 0.5, "eps_growth_tau": 0.5,
         "eps_cagr_5y": 0.5, "revenue_cagr_5y": 0.5,
         # forward-looking (analyst estimates) — sparse, so they drop out & renormalize
         # for no-coverage names; for covered names they tilt growth toward what's NEXT.

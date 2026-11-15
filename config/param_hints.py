@@ -27,7 +27,7 @@ correctly (append "%", align columns, format axes). Controlled vocabulary:
 The UI renders titles bold with indented body text; use a list for body when
 multiple points need explaining. Growth bases (revenue/eps/fcf/book_value) carry
 ONE hint each — it covers all their windows (CAGR 1/3/5y, YoY quarter, trend
-stats); the R² window is the only unitless one in an otherwise "%" family.
+stats); the direction (tau) window is the only unitless one in an otherwise "%" family.
 
 How the hint is turned into on-screen TEXT lives here too, in ONE place:
 `hint_markdown()` (for Streamlit `help=` tooltips, the Parameter Reference page,
@@ -90,7 +90,8 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "EV/EBITDA",
         "category": "Valuation",
         "unit": "x",
-        "what_it_is": "Enterprise value (market cap + debt − cash) over trailing EBITDA.",
+        "what_it_is": "Enterprise value (all-class market cap + debt − cash + minority interest + preferred equity) "
+                      "over trailing EBITDA — normalized EBITDA (one-off charges removed) where available.",
         "how_to_use": [
             "Capital-structure neutral — good for comparing leveraged vs unleveraged firms.",
             "Roughly: under ~8 cheap, over ~15 expensive — but very sector-dependent.",
@@ -156,7 +157,7 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "PEG",
         "category": "Valuation",
         "unit": "x",
-        "what_it_is": "Trailing P/E divided by the EPS trend growth rate (log-linear fit, in %).",
+        "what_it_is": "Trailing P/E divided by the EPS trend growth rate (robust trend over ~6 years, in %).",
         "how_to_use": [
             "Around 1 is fairly priced for its growth (Lynch's rule of thumb).",
             "Under 1 suggests growth at a discount; NULL when growth is zero or negative.",
@@ -538,7 +539,7 @@ PARAM_HINTS: dict[str, dict] = {
     },
     # ------------------------------------------------------------------ #
     # Growth (one hint per base; covers all windows: CAGR 1/3/5y, YoY
-    # quarter, growth volatility %, trend R² (0-1), variability CV %)
+    # quarter, robust trend %, steadiness spread %, direction tau (-1..1))
     # ------------------------------------------------------------------ #
     "book_value": {
         "name": "BV growth",
@@ -548,7 +549,7 @@ PARAM_HINTS: dict[str, dict] = {
         "how_to_use": [
             "THE growth metric for banks and insurers (their earnings compound into book).",
             "Steady ~10%+ book growth plus reasonable P/B is the classic financial-sector screen.",
-            "Volatility % and CV % low + R² near 1 = steady compounding; high vol = one-off write-downs/raises distorting book value.",
+            "Steadiness spread % low + direction (tau) near 1 = steady compounding; high vol = one-off write-downs/raises distorting book value.",
             "Trend growth %/yr — a steadier alternative to CAGR, fit across the full ~5-year window instead of just the two endpoints.",
         ],
         "vs_peers": "Yes — compare within banks/insurance specifically.",
@@ -560,8 +561,8 @@ PARAM_HINTS: dict[str, dict] = {
         "what_it_is": "Growth of split-adjusted diluted EPS. Same windows as revenue growth (CAGR 1/3/5y, YoY quarter, trend stats).",
         "how_to_use": [
             "EPS growing faster than revenue = margin expansion or buybacks.",
-            "Erratic EPS (high vol, low R²) makes P/E and PEG less trustworthy.",
-            "Volatility % and CV % low + R² near 1 = steady earner; high vol = one-off gains/charges distorting the trend.",
+            "Erratic EPS (wide steadiness spread, low direction tau) makes P/E and PEG less trustworthy.",
+            "Steadiness spread % low + direction (tau) near 1 = steady earner; high vol = one-off gains/charges distorting the trend.",
             "Trend growth %/yr — a steadier alternative to CAGR, fit across the full ~5-year window instead of just the two endpoints.",
         ],
         "vs_peers": "Yes — compare pace and steadiness within the industry.",
@@ -585,10 +586,10 @@ PARAM_HINTS: dict[str, dict] = {
         "how_to_use": [
             "The cash check on EPS growth — both should roughly agree over time.",
             "Feeds the DCF intrinsic value — trend growth sets where the projection starts (bounded at 35%) before fading to the terminal rate.",
-            "Volatility % and CV % low + R² near 1 = steady cash generation; high vol = lumpy or capex-heavy years.",
+            "Steadiness spread % low + direction (tau) near 1 = steady cash generation; high vol = lumpy or capex-heavy years.",
             "Trend growth %/yr — a steadier alternative to CAGR, fit across the full ~5-year window instead of just the two endpoints.",
         ],
-        "vs_peers": "Yes — but steadiness (R², CV) matters more than raw pace.",
+        "vs_peers": "Yes — but steadiness (spread, tau) matters more than raw pace.",
     },
     "revenue": {
         "name": "Rev growth",
@@ -597,8 +598,8 @@ PARAM_HINTS: dict[str, dict] = {
         "what_it_is": "Growth of annual total revenue. Windows: 1/3/5-year CAGR, latest quarter vs the same quarter last year (YoY), plus trend quality over ~5 years.",
         "how_to_use": [
             "CAGR = smoothed yearly pace; YoY quarter = what's happening right now.",
-            "Volatility % and CV % low + R² near 1 = steady grower; high vol = lumpy or cyclical.",
-            "R² is 0-1 (fit quality), not a percent.",
+            "Steadiness spread % low + direction (tau) near 1 = steady grower; high vol = lumpy or cyclical.",
+            "Direction (tau) runs -1 to 1 (+1 = up every year), not a percent.",
             "Trend growth %/yr — a steadier alternative to CAGR, fit across the full ~5-year window instead of just the two endpoints.",
         ],
         "vs_peers": "Yes — growth is only impressive against the industry's pace.",
@@ -798,7 +799,7 @@ PARAM_HINTS: dict[str, dict] = {
                       "payment). Windows: 1/3/5-year CAGR, plus trend quality over ~5 years.",
         "how_to_use": [
             "CAGR: 5-10%+ with a safe payout ratio is the dividend-growth sweet spot.",
-            "Volatility % and CV % low + R² near 1 = steady raiser; high vol = lumpy raises.",
+            "Steadiness spread % low + direction (tau) near 1 = steady raiser; high vol = lumpy raises.",
             "Negative CAGR means the payout shrank — check for cuts.",
             "Trend growth %/yr — a steadier alternative to CAGR, fit across the full ~5-year window instead of just the two endpoints.",
             "Feeds the DDM intrinsic value — trend growth sets where the projection starts (bounded at 35%) before fading to the terminal rate.",
@@ -1137,7 +1138,7 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "DCF",
         "category": "Intrinsic Value",
         "unit": "$",
-        "what_it_is": "Per-share DCF: trailing FCF projected 10 years at a growth rate that fades from its trend rate (log-linear fit, start bounded at 35%) down to the 2.5% terminal rate by the final year, discounted at the weighted WACC where available (else risk-free + beta × 5%), plus terminal value, minus net debt.",
+        "what_it_is": "Per-share DCF: trailing FCF projected 10 years at a growth rate that fades from its trend rate (robust trend, start bounded at 35%) down to the 2.5% terminal rate by the final year, discounted at the weighted WACC where available (else risk-free + beta × 5%), plus terminal value, minus net debt.",
         "how_to_use": [
             "The most complete model — and the most assumption-sensitive.",
             "The fade is why this reads lower than a flat-growth DCF: nothing compounds at its trailing rate for a decade.",
@@ -1172,7 +1173,7 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Lynch",
         "category": "Intrinsic Value",
         "unit": "$",
-        "what_it_is": "Peter Lynch fair value: EPS × growth rate (EPS trend growth %, log-linear fit, capped at 25) used as the fair P/E.",
+        "what_it_is": "Peter Lynch fair value: EPS × growth rate (EPS trend growth %, robust trend, capped at 25) used as the fair P/E.",
         "how_to_use": [
             "Embodies PEG = 1: a grower deserves its growth rate as a P/E.",
             "Only meaningful for steady growers; NULL without positive EPS and growth.",

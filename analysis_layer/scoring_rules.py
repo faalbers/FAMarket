@@ -233,17 +233,17 @@ def rule_for(metric: str, rules: dict[str, dict] | None = None) -> dict | None:
     """The base rule for a metric: explicit entry, else a pattern fallback, else None.
 
     Pattern fallback covers growth-window columns the explicit table doesn't list
-    (`*_cagr_*`, `*_yoy_q` higher-better; `*_growth_vol`/`*_growth_cv` lower-better;
-    `*_growth_r2` higher-better) and any `*_score` (0-100). None = not a scorable metric.
+    (`*_cagr_*`, `*_yoy_q` higher-better; `*_growth_vol` lower-better;
+    `*_growth_tau` higher-better) and any `*_score` (0-100). None = not a scorable metric.
     """
     rules = rules if rules is not None else load_rules()
     if metric in rules:
         return rules[metric]
     if metric.endswith("_score"):
         return {"shape": "higher_better", "anchor": "absolute"}
-    if metric.endswith(("_growth_vol", "_growth_cv")):
+    if metric.endswith("_growth_vol"):
         return {"shape": "lower_better", "anchor": "universe"}
-    if metric.endswith("_growth_r2") or "_cagr_" in metric or metric.endswith("_yoy_q"):
+    if metric.endswith("_growth_tau") or "_cagr_" in metric or metric.endswith("_yoy_q"):
         return {"shape": "higher_better", "anchor": "universe"}
     return None
 

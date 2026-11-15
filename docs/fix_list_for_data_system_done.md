@@ -286,9 +286,67 @@ Response to `docs/fix_list_for_data_system.md`, item by item, using its section 
 - **Yahoo throttles silently.** In a 3½-hour fetch, the last ~7 minutes of the signals step returned empty answers for 727 symbols that normally have data — no error, no 429. Stored data is kept (a no-data answer overwrites nothing) and abandonment needs 4 strikes in a row, so nothing was lost; the symbols update the next week.
 - **A crash from round 4.** Symbols retyped from the SEC mutual-fund list (which has no names) entered the EDGAR CIK name lookup and crashed it on the missing name; fixed by skipping nameless symbols.
 
+## Round 6 — Group F: analysis foundations (2026-11-14)
+
+**Approach:** all four are calculation fixes in `analysis.db`; nothing in the data files changed. Tested first with a read-only build over all 7,561 stocks and ADRs, then checked after the 2026-11-14 analysis run: the stored values match the test build exactly (market cap, P/E, `eps_ttm`, EV/EBITDA, growth, PEG, Graham / Lynch / DCF values).
+
+### §2 Market cap counts one share class only — Fixed
+
+- **Rule:** one helper, `metrics.company_shares`: Yahoo `marketCap` ÷ `regularMarketPrice` (all classes, in the listing's own units), falling back to `impliedSharesOutstanding`, `sharesOutstanding`, then the latest statement count.
+- **Used by** `market_cap`, every price ratio (P/E, P/S, P/B, P/FCF), EV, `eps_ttm`, and the fair-value models (`intrinsic_value._shares` → Graham, Lynch, DCF, bear / bull scenarios). The sector index keeps its own per-listing logic.
+- **Check:** stocks / ADRs more than 10% off `quotes.marketCap`: **1,085 → 122**.
+  - GOOG P/E 6.9 → **15.3** (Yahoo 15.4) · BRK-B 10.8 → **16.3** (16.5) · META 18.9 → **21.8** (21.3) · MSFT unchanged (single class, the control).
+  - GOOG's fair values roughly halve (DCF $143 → $72, Graham $340 → $154): they were divided by one class's shares.
+- **Where we differ:** `market_cap` itself is all-class too, not only the ratios. No column measures one class's liquidity or float today, so there was nothing to keep on the one-class count.
+
+### §10 and §14 steps 2-4 EPS split basis — Fixed (computed, not stored); change of basis partly
+
+- **Rule** (`metrics.eps_current_basis`, used by the analysis and the fundamentals chart): each EPS row's implied share count (`net_income ÷ diluted_eps`) is tested against candidate bases: as filed, partly restated (only the later splits), or fully restated (factor 1). The basis closest to the reference wins.
+  - **Reference:** the newest testable row. When a split came after it, its basis is picked against today's all-class share count (Monster's 2026 split).
+  - **More than 2.5x off every candidate → the row is dropped** (bad value or a change of basis).
+  - **Not testable** (EPS within $0.01 of zero, or a loss): split dates alone. EDGAR rows are taken as filed, Yahoo rows as already restated.
+- **Replaces** `metrics.split_adjust`, which multiplied every row (Yahoo's already-restated ones too) by the later splits.
+- **Check:** NVDA `eps_growth_trend` 178% → **97%** (EPS $0.17 → $4.90 in five years); MNST 77% → **16%** (PEG 0.5 → 2.6); ISRG 17.5% → 21.8%. Companies with \|EPS trend\| > 100%: **82 → 26**.
+- **Where we differ:**
+  - **Not stored as `diluted_eps_adj` columns.** It is computed in the analysis from `filed_date` (round 2), so a new split needs no re-write of `financials.db`. The chart uses the same function.
+  - **2.5x, not 1.5x.** The test only has to tell split bases apart, and every split factor in the data is ≥ 2. A wider margin leaves room for real share-count changes (buybacks, dilution) between a row and the reference.
+  - **Change of basis (step 4): only for profitable years.** UWM's years test cleanly (no drop needed). **Talen's 2021-22 loss rows (−$2,198 and −$2,864 a share, the pre-bankruptcy basis) can't be tested and are kept.** No EPS trend is computed for Talen (a loss in the window), but its `eps_growth_tau` (−0.2) is computed across the jump. A level-shift rule for loss years is a possible follow-up.
+
+### §16 Growth columns break on one odd year — Fixed
+
+- **Rule** (`metrics._robust_trend`), per series (revenue, EPS, FCF, book value, dividends), last `GROWTH_TREND_YEARS + 1` years on **real dates**, **≥ 4 points**:
+  - **slope:** Theil-Sen (`scipy.stats.theilslopes`) on ln(value), when all values are > 0; otherwise on value ÷ median \|value\|;
+  - **direction:** Kendall's tau (`scipy.stats.kendalltau`);
+  - **steadiness:** 1.4826 × median absolute deviation of the residuals;
+  - **first-year rule:** a first point more than 4 × the robust spread from the line (floor 3% in log terms) is dropped once.
+- **Columns:** `_growth_trend` = robust growth, `_growth_vol` = steadiness. **`_growth_r2` → `_growth_tau`** (same "higher = better" sense). **`_growth_cv` dropped.** `_cagr_*` stay as endpoint growth. Scoring weight `eps_growth_r2` → `eps_growth_tau`. Filter registry, scoring rules and hints updated (0 metrics without a hint).
+- **Check:** simulated series, median error in percentage points a year:
+
+  | Case | Before | After |
+  |---|---|---|
+  | One bad last year | 10.9 | 1.47 |
+  | One bad first year | 10.78 | 0.73 |
+  | Clean series | 0.51 | 0.59 |
+
+- **Trade-off:** fewer values, since 3 points no longer make a trend. EPS trends 2,382 → **2,025**, revenue 5,701 → **5,538**.
+- **Known limit — a two-year trough at the start.** UAL and DAL still show ~31% / ~27% revenue trends (COVID years 2020-21). A second drop was tried and had no effect, since one low year then looks normal next to the other; reverted. Their wide steadiness spread flags the trend, and it fades as the window moves on.
+
+### §20 Smaller data items — EV and EBITDA definition: Fixed (EV), Fixed differently (EBITDA)
+
+- **EV** = all-class market cap + total debt − cash **+ minority interest + preferred equity** (each 0 when missing).
+- **EBITDA** for `ev_ebitda` and `debt_to_ebitda`: Yahoo's **`normalized_ebitda`** (one-off charges removed), falling back to reported EBITDA.
+- **Check:** EV/EBITDA more than 25% off Yahoo's `enterpriseToEbitda`: 1,971 → **1,687**. The rest is mostly Yahoo's own EV and EBITDA definitions (the review: Yahoo's `enterpriseValue` doesn't add up for ~10%).
+- **Where we differ:** the review proposed recomputing EBITDA from its parts when it falls below operating income + D&A. Normalized EBITDA was preferred: Yahoo already removes the one-off charges behind the low rows (write-downs, e.g. Welltower FY2025), and it is filled for the same 7,145 companies as reported EBITDA. Group A found 2,351 annual rows where reported EBITDA is < 80% of normalized.
+
+### Checked after the run
+
+- **Sector indices:** daily-return correlation with the SPDR sector funds over two years 0.83-0.99, the same as before or slightly higher. The index uses its own share logic, so Group F doesn't change it.
+- **FAPortfolio push:** `indices.db.gz` pushed and read back OK.
+- **10 fair values differ from the test build** (DTM, EQT, ET, GNE, HE, MPC, NFG, OKE, VST, IDXG): utilities and pipelines, which the real run values as regulated. The test build didn't use that flag. Not a Group F effect.
+
 ## Not yet reviewed
 
-§2, §8-§10, §16-§19, §21, and the open parts of §14 (steps 2-4) and §20 (EV, EBITDA definition). Grouped as above.
+§8, §9, §17-§19, §21, and the open parts of §20 not covered above. Grouped as above.
 
 ## Known gaps / limitations
 

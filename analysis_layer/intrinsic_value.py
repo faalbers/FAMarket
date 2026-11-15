@@ -76,13 +76,10 @@ def _num(x) -> float:
 
 
 def _shares(quote: pd.Series | None, fin: pd.DataFrame) -> float:
-    if quote is not None and pd.notna(quote.get("sharesOutstanding")):
-        return float(quote["sharesOutstanding"])
-    for col in ("ordinary_shares_number", "share_issued"):
-        v = P.latest(fin, col)
-        if pd.notna(v):
-            return v
-    return float("nan")
+    """All-class share count — the same one `market_cap` and `eps_ttm` use (§2)."""
+    from analysis_layer.metrics import company_shares
+
+    return company_shares(quote, fin)
 
 
 _MODEL_COLUMN = {

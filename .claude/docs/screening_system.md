@@ -110,7 +110,7 @@ Rule = default scoring-rule shape/anchor from `scoring_rules.DEFAULT_RULES` (dri
 
 ### Growth
 Four growth **bases** — `revenue` (types: +REIT), `eps`, `book_value` (standard/bank/insurance), `fcf` (standard) — each expand to windows (column = `{base}_{window}`):
-`cagr_1y`, `cagr_3y`, `cagr_5y`, `growth_trend` (%/yr), `yoy_q` (latest quarter YoY), `growth_vol` (%, lower better), `growth_r2` (0-1 fit quality, higher better), `growth_cv` (%, lower better).
+`cagr_1y`, `cagr_3y`, `cagr_5y` (endpoint growth), `growth_trend` (%/yr, robust Theil-Sen trend over ~6 years), `yoy_q` (latest quarter YoY), `growth_vol` (steadiness spread %, lower better), `growth_tau` (direction −1..1, +1 = up every year, higher better). `growth_r2` / `growth_cv` no longer exist (2026-11-14).
 - `growth_trend` is a **log-linear fit across the whole window**, not an endpoint-to-endpoint CAGR — steadier, because one freak first or last year can't swing it. It is what Lynch/DCF/DDM actually consume, and its paired `growth_vol` is what sets the bear/bull scenario spread. NULL when any value in the window is ≤ 0 (a compound rate across a loss year is undefined).
 Not every base has every window (dividends have no `yoy_q`); `filter_registry.growth_windows()` is data-driven.
 - `book_value` growth is THE growth metric for banks/insurers (earnings compound into book; ~10%+ + reasonable P/B = classic financial screen).

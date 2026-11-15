@@ -1087,6 +1087,13 @@ needs.
      rate from `eps_difference`; `forward_rev_growth` NULL on a > 1.5x estimate-chain break (not for
      EPS — rows mix EPS definitions). Currency / insider / target items recorded: they don't reach
      the screens.
+   - ✅ Group F — analysis foundations (2026-11-14): all-class shares (`metrics.company_shares` =
+     Yahoo `marketCap` ÷ price) for market cap, price ratios, `eps_ttm` and the fair values; EPS on one
+     split basis (`metrics.eps_current_basis`, implied-share test per row, replaces `split_adjust`);
+     robust growth (`_robust_trend`: Theil-Sen on real dates, ≥ 4 points, Kendall tau, MAD
+     steadiness, first-year outlier dropped once; `_growth_tau` replaces `_growth_r2` / `_growth_cv`);
+     EV adds minority interest + preferred equity; `ev_ebitda` / `debt_to_ebitda` use
+     `normalized_ebitda`. Limits: UAL / DAL two-year trough, Talen loss rows.
    - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
      `core/backup.fix_backup`).
 
