@@ -416,7 +416,7 @@ Response to `docs/fix_list_for_data_system.md`, item by item, using its section 
 
 ## Round 8 — Group G, part 2: smaller metric fixes, §19 (2026-11-15)
 
-**Approach:** each item checked on the data first. Tested with a read-only build over all 7,561 stocks and ADRs; every column outside the ones below is unchanged. The analysis-run check is pending.
+**Approach:** each item checked on the data first. Tested with a read-only build over all 7,561 stocks and ADRs; every column outside the ones below is unchanged. After the 2026-11-15 analysis run the stored values match the test build exactly (see "Checked after the run").
 
 ### `quick_health_score` is not Piotroski — Fixed (added `piotroski_f`)
 
@@ -453,6 +453,14 @@ The review points to §21 for it; it needs the industry benchmark map, so it is 
 - **Hints:** 127 filter bases, 0 without a hint.
 - **Type check:** no new pyright errors.
 - **Run time:** Piotroski adds ~5 s per run, the same as `quick_health_score`. The first version took 23 s; reading each year's row once brought it down. The peer-median helper is now vectorised.
+
+### Checked after the run
+
+- **Stored = test build:** all 7,561 stocks / ADRs match on `piotroski_f`, `ebitda_negative`, every changed ratio, the peer columns (including the new debt/EBITDA and interest-coverage ones) and `peer_universe` (5,551; no fund or preferred is in it).
+- **The review's SQL:** 0 negative `debt_to_ebitda` among stocks / ADRs ≥ $2B.
+- **Run:** 0 errors, 0 warnings; ~11 minutes; peak RAM 8.3 GB.
+- **Saved filters:** Quality / Buyback Compounders, Defensive Anchors and Financial Compounders pass `validate_filt`.
+- **Sector indices and FAPortfolio push:** built as before (4,326 constituents); `indices.db.gz` pushed and read back OK.
 
 ## Not yet reviewed
 
