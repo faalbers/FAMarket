@@ -76,6 +76,27 @@ def _div(a: float, b: float) -> float:
     return a / b
 
 
+def _positive_or_nan(x: float) -> float:
+    """x when > 0, else NaN — for a vendor multiple whose sign we can't trace back."""
+    return x if pd.notna(x) and x > 0 else float("nan")
+
+
+def _div_pos(a: float, b: float) -> float:
+    """a / b for a ratio whose denominator must be positive to mean anything
+    (earnings, EBITDA, FCF, equity): NaN when b <= 0 (fix list §19, 2026-11-15).
+
+    A negative denominator flips the ratio's sign and makes it read as GOOD: a
+    loss gives a "cheap" negative P/E, negative EBITDA a "low-debt" negative
+    debt/EBITDA (163 stocks >= $2B), and negative NI over negative equity a huge
+    positive ROE (RBLX 97,200%). Data vendors show these as n/a; so do we. The
+    sign itself stays visible in the denominator's own columns (eps_ttm,
+    net_margin, ebitda_negative, book value).
+    """
+    if b is None or pd.isna(b) or b <= 0:
+        return float("nan")
+    return _div(a, b)
+
+
 def _pct(x: float) -> float:
     """Fraction -> stored percent number (0.125 -> 12.5)."""
     return x * 100 if pd.notna(x) else float("nan")
@@ -115,7 +136,7 @@ def fcf_margin(fcf: float, rev: float) -> float:
 
 
 def roe(ni: float, equity: float) -> float:
-    return _pct(_div(ni, equity))
+    return _pct(_div_pos(ni, equity))
 
 
 def roa(ni: float, total_assets: float) -> float:
@@ -127,7 +148,7 @@ def asset_turnover(rev: float, total_assets: float) -> float:
 
 
 def equity_multiplier(total_assets: float, equity: float) -> float:
-    return _div(total_assets, equity)
+    return _div_pos(total_assets, equity)
 
 
 def roe_roa_gap(ni: float, equity: float, total_assets: float) -> float:
@@ -136,7 +157,7 @@ def roe_roa_gap(ni: float, equity: float, total_assets: float) -> float:
 
 
 def debt_to_equity(total_debt: float, equity: float) -> float:
-    return _div(total_debt, equity)
+    return _div_pos(total_debt, equity)
 
 
 def current_ratio(cur_assets: float, cur_liab: float) -> float:
@@ -144,7 +165,7 @@ def current_ratio(cur_assets: float, cur_liab: float) -> float:
 
 
 def debt_to_ebitda(total_debt: float, ebitda: float) -> float:
-    return _div(total_debt, ebitda)
+    return _div_pos(total_debt, ebitda)
 
 
 def interest_coverage(ebit: float, interest_expense: float) -> float:
@@ -779,27 +800,30 @@ def compute(
     )
 
     # -- valuation ----------------------------------------------------------- #
+    # A multiple over a non-positive denominator is n/a, not "cheap" (§19, `_div_pos`).
     if currency_ok:
-        m["pe"] = _div(mktcap, ni)
-        m["pb"] = _div(mktcap, equity)
+        m["pe"] = _div_pos(mktcap, ni)
+        m["pb"] = _div_pos(mktcap, equity)
         m["ps"] = _div(mktcap, rev)
-        m["p_fcf"] = _div(mktcap, fcf)
-        m["ev_ebitda"] = _div(ev, ebitda)
+        m["p_fcf"] = _div_pos(mktcap, fcf)
+        m["ev_ebitda"] = _div_pos(ev, ebitda)
         m["ev_revenue"] = _div(ev, rev)
         m["eps_ttm"] = _div(ni, shares)
         m["valuation_basis"] = "computed"
     else:  # foreign filer — price÷fundamental is invalid; use yfinance ratios
-        m["pe"] = _qget(quote, "trailingPE")
-        m["pb"] = _qget(quote, "priceToBook")
+        # Yahoo's own multiples: a negative one means a negative denominator
+        # (the price / EV side is positive), so it is n/a too (§19).
+        m["pe"] = _positive_or_nan(_qget(quote, "trailingPE"))
+        m["pb"] = _positive_or_nan(_qget(quote, "priceToBook"))
         m["ps"] = _qget(quote, "priceToSalesTrailing12Months")
         m["p_fcf"] = float("nan")
-        m["ev_ebitda"] = _qget(quote, "enterpriseToEbitda")
+        m["ev_ebitda"] = _positive_or_nan(_qget(quote, "enterpriseToEbitda"))
         m["ev_revenue"] = _qget(quote, "enterpriseToRevenue")
         m["eps_ttm"] = _qget(quote, "trailingEps")
         m["valuation_basis"] = "yfinance"
 
     forward_eps = _qget(quote, "forwardEps")
-    m["forward_pe"] = _div(price, forward_eps)  # forward = analyst data, from quotes
+    m["forward_pe"] = _div_pos(price, forward_eps)  # forward = analyst data, from quotes
 
     # -- profitability (currency-neutral) ----------------------------------- #
     m["roe"] = roe(ni, equity)
@@ -879,6 +903,9 @@ def compute(
     m["cash_ratio"] = _div(cash, cur_liab)
     m["interest_coverage"] = interest_coverage(ebit, P.ttm(fin, "interest_expense"))
     m["debt_to_ebitda"] = debt_to_ebitda(total_debt, ebitda)
+    # The sign of EBITDA, since debt/EBITDA and EV/EBITDA are n/a when it is <= 0
+    # (§19): a filter "debt/EBITDA <= 4 OR is null" needs this to keep them out.
+    m["ebitda_negative"] = float(ebitda <= 0) if pd.notna(ebitda) else float("nan")
     m["efficiency_ratio"] = _bank_efficiency(fin) if screen_type == BANK else float("nan")
     m["altman_z"] = (_altman_z(fin, ebit, rev, mktcap, total_assets, total_liab,
                                 m["net_margin"], m["operating_margin"])
@@ -896,6 +923,9 @@ def compute(
     # relying only on which fields happen to be populated.
     m["quick_health_score"] = (_quick_health_score(fin, m["cash_ratio"])
                                 if screen_type == STANDARD else float("nan"))
+    # The real F-score (§19), standard-only for the same reason: its gross-margin
+    # and current-ratio tests assume an ordinary producing company.
+    m["piotroski_f"] = _piotroski_f(fin) if screen_type == STANDARD else float("nan")
 
     # -- growth ------------------------------------------------------------- #
     pf = P.prepare(fin)
@@ -1100,6 +1130,85 @@ def _quick_health_score(fin, cash_ratio: float) -> float:
     return float(sum(bool(c) for c in checks))
 
 
+_PIOTROSKI_FIELDS = ("net_income", "operating_cash_flow", "long_term_debt",
+                     "current_assets", "current_liabilities",
+                     "ordinary_shares_number", "gross_profit", "total_revenue")
+
+
+def _piotroski_f(fin) -> float:
+    """Piotroski F-score (Piotroski 2000), 0-9, from the two newest fiscal years
+    a (latest) and b (the one before), 300-430 days apart (fix list §19).
+
+    One point each: ROA_a > 0; OCF_a > 0; ROA_a > ROA_b; OCF_a > NI_a; long-term
+    debt / assets not up (missing debt = 0); current ratio up; shares
+    (`ordinary_shares_number`) not up; gross margin up; asset turnover up.
+    As in the paper, ROA and turnover divide by the year's OPENING total assets
+    and leverage by the average, when a third year (c) 300-430 days earlier is on
+    file; otherwise by year-end assets (the review's simpler form; 191 of 4,736
+    differ by 2+ points between the two forms). NaN unless all nine tests can be
+    computed with positive total assets, current liabilities and revenue.
+    """
+    ta = P.annual(fin, "total_assets")
+    ta = ta[~ta.index.duplicated(keep="last")]
+    if len(ta) < 2:
+        return float("nan")
+    d_a, d_b = ta.index[-1], ta.index[-2]
+    if not 300 <= (d_a - d_b).days <= 430:
+        return float("nan")
+    d_c = ta.index[-3] if len(ta) >= 3 and 300 <= (d_b - ta.index[-3]).days <= 430 else None
+
+    # One slice per year (a year can have several rows, e.g. Yahoo + EDGAR): the
+    # last non-null value of each field, as P.annual would give. Per-field
+    # P.annual calls cost 3.5 ms a symbol (23 s a full run); pandas slicing 2.8 ms.
+    ann = P.prepare(fin).annual
+    cols = [f for f in _PIOTROSKI_FIELDS if f in ann.columns]
+    try:  # the columns are numeric in practice; coerce only if one is not
+        vals = ann[cols].to_numpy(dtype="float64", na_value=np.nan)
+    except (TypeError, ValueError):
+        vals = ann[cols].apply(pd.to_numeric, errors="coerce").to_numpy(dtype="float64")
+    dates = ann.index.to_numpy()
+
+    def year(d) -> dict[str, float]:
+        rows = vals[dates == d.to_datetime64()]
+        out = dict.fromkeys(_PIOTROSKI_FIELDS, float("nan"))
+        for j, f in enumerate(cols):
+            col = rows[:, j]
+            col = col[~np.isnan(col)]
+            if len(col):
+                out[f] = float(col[-1])
+        return out
+
+    a, b = year(d_a), year(d_b)
+    a["ta"], b["ta"] = float(ta.iloc[-1]), float(ta.iloc[-2])
+    for x in (a, b):
+        if pd.isna(x["long_term_debt"]):
+            x["long_term_debt"] = 0.0
+    if any(pd.isna(v) for v in (*a.values(), *b.values())) or \
+            min(a["ta"], b["ta"], a["current_liabilities"], b["current_liabilities"],
+                a["total_revenue"], b["total_revenue"]) <= 0:
+        return float("nan")
+    ta_c = float(ta.loc[d_c]) if d_c is not None else float("nan")
+    if pd.notna(ta_c) and ta_c > 0:  # paper form: opening / average assets
+        open_a, open_b = b["ta"], ta_c
+        avg_a, avg_b = (a["ta"] + b["ta"]) / 2, (b["ta"] + ta_c) / 2
+    else:
+        open_a, open_b = a["ta"], b["ta"]
+        avg_a, avg_b = a["ta"], b["ta"]
+    roa_a, roa_b = a["net_income"] / open_a, b["net_income"] / open_b
+    tests = (
+        roa_a > 0,
+        a["operating_cash_flow"] > 0,
+        roa_a > roa_b,
+        a["operating_cash_flow"] > a["net_income"],
+        a["long_term_debt"] / avg_a <= b["long_term_debt"] / avg_b,
+        a["current_assets"] / a["current_liabilities"] > b["current_assets"] / b["current_liabilities"],
+        a["ordinary_shares_number"] <= b["ordinary_shares_number"],
+        a["gross_profit"] / a["total_revenue"] > b["gross_profit"] / b["total_revenue"],
+        a["total_revenue"] / open_a > b["total_revenue"] / open_b,
+    )
+    return float(sum(bool(t) for t in tests))
+
+
 def _income_block(fin, paid: pd.Series | None, price, ni_ttm, fcf_ttm, as_of,
                   foreign: bool = False) -> dict:
     """Dividend metrics from the full-history dividend events (no extra API).
@@ -1159,7 +1268,7 @@ def _income_block(fin, paid: pd.Series | None, price, ni_ttm, fcf_ttm, as_of,
 
     # payout / coverage off the cash-flow statement (currency-neutral ratios)
     div_paid = abs(P.ttm(fin, "cash_dividends_paid"))
-    out["div_payout_ratio"] = _pct(_div(div_paid, ni_ttm))
+    out["div_payout_ratio"] = _pct(_div_pos(div_paid, ni_ttm))  # n/a on a loss (§19)
     out["div_coverage"] = _div(fcf_ttm, div_paid)
     return out
 

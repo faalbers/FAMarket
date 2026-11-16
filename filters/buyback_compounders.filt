@@ -4,7 +4,7 @@
   "selected_types": [
     "standard"
   ],
-  "comment": "**What it does**\nCompanies **quietly shrinking their own share count with real cash**. Buybacks are one of the best-evidenced return signals - far better evidenced than dividends alone.\n\n- **The signal** - share count DOWN at least 2% over the last year. Net of stock-comp, so this is real shrinkage, not buybacks eaten by dilution.\n- **Funded properly** - FCF margin 8%+ and ROIC 12%+. A buyback paid for with borrowed money is not the same signal.\n- **Debt under control** - debt/EBITDA under 4, with an `is null` fallback so debt-free companies are not punished for having no debt data, exactly as you asked.\n- **Profitable only**, $1B+, daily moves under 5.5%.\n\n**The two numbers you left open**: you said 'healthy FCF margin and solid returns on capital' without picking values. I used **8% and 12%**, which lands the list at **127**. At 5% and 10% it was 186.\n\n**How to tweak**\n- **Want deeper buybacks?** Change `share_count_chg_1y` to -5 for serious shrinkers.\n- **Want a tighter quality bar?** `fcf_margin >= 10` and `roic >= 15` gives ~89.\n- **Want a wider net?** Drop back to `fcf_margin >= 5` and `roic >= 10`.\n- **Want total shareholder yield?** Add `div_yield > 0` to find companies doing both - you said dividends are welcome but not required.\n\n**How to sort for best picks**\n- **Sort by `quality_score`** - the thesis is quality funding the buyback.\n- **Tiebreak on `value_score`** - a shrinking share count matters more when you are not overpaying per share.\n- **Worth a look**: sort by `share_count_chg_1y` ascending (most negative first) to rank by the raw signal.\n- **Avoid `momentum_score`** - buyback compounding is a slow, quiet effect; ranking on recent price action misses the point.",
+  "comment": "**What it does**\nCompanies **quietly shrinking their own share count with real cash**. Buybacks are one of the best-evidenced return signals - far better evidenced than dividends alone.\n\n- **The signal** - share count DOWN at least 2% over the last year. Net of stock-comp, so this is real shrinkage, not buybacks eaten by dilution.\n- **Funded properly** - FCF margin 8%+ and ROIC 12%+. A buyback paid for with borrowed money is not the same signal.\n- **Debt under control** - debt/EBITDA under 4, with an `is null` fallback so debt-free companies are not punished for having no debt data, exactly as you asked. Since 2026-11-15 debt/EBITDA is blank when EBITDA is negative, so an extra test (`ebitda_negative` = 0, or unknown) keeps loss-making companies from passing as debt-free.\n- **Profitable only**, $1B+, daily moves under 5.5%.\n\n**The two numbers you left open**: you said 'healthy FCF margin and solid returns on capital' without picking values. I used **8% and 12%**, which lands the list at **127**. At 5% and 10% it was 186.\n\n**How to tweak**\n- **Want deeper buybacks?** Change `share_count_chg_1y` to -5 for serious shrinkers.\n- **Want a tighter quality bar?** `fcf_margin >= 10` and `roic >= 15` gives ~89.\n- **Want a wider net?** Drop back to `fcf_margin >= 5` and `roic >= 10`.\n- **Want total shareholder yield?** Add `div_yield > 0` to find companies doing both - you said dividends are welcome but not required.\n\n**How to sort for best picks**\n- **Sort by `quality_score`** - the thesis is quality funding the buyback.\n- **Tiebreak on `value_score`** - a shrinking share count matters more when you are not overpaying per share.\n- **Worth a look**: sort by `share_count_chg_1y` ascending (most negative first) to rank by the raw signal.\n- **Avoid `momentum_score`** - buyback compounding is a slow, quiet effect; ranking on recent price action misses the point.",
   "ai_instructions": "Find companies steadily shrinking their own share count with real cash \u2014 the\nnet-buyback signal (quietly one of the best-evidenced return signals; dividends\nalone predict little, buybacks do).\n- **Goal**: shareholder-yield quality. **Dividends**: nice but not required.\n- **The signal**: share count DOWN at least ~2% over the last year \u2014 real net\n  buybacks, not buybacks eaten by stock-comp dilution.\n- **Funded properly**: healthy free-cash-flow margin and solid returns on capital;\n  debt under control (don't punish debt-free companies for missing debt data).\n- **Profitable companies only.** **Size**: $1B and bigger. **Kinds**: normal\n  stocks only. **Risk**: moderate.\n- **Results**: ~30-150 names. **Sorting**: quality first, tiebreak value.",
   "blocks": [
     {
@@ -81,6 +81,31 @@
         {
           "enabled": true,
           "param": "debt_to_ebitda",
+          "window": null,
+          "compare": "value",
+          "op": "is null",
+          "vmode": "V",
+          "value": "",
+          "vmode2": "V",
+          "value2": "",
+          "or_children": []
+        }
+      ]
+    },
+    {
+      "enabled": true,
+      "param": "ebitda_negative",
+      "window": null,
+      "compare": "value",
+      "op": "=",
+      "vmode": "V",
+      "value": 0,
+      "vmode2": "V",
+      "value2": "",
+      "or_children": [
+        {
+          "enabled": true,
+          "param": "ebitda_negative",
           "window": null,
           "compare": "value",
           "op": "is null",

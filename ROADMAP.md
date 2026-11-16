@@ -1106,6 +1106,13 @@ needs.
      second lines (no own market cap) get no market cap / price ratios / fair values. Three saved
      filters (dividend growers, REIT income, defensive anchors) moved to `div_yield` / `div_rate`.
      Analysis run checked 2026-11-15: stored values = the test build.
+   - Group G, part 2 — smaller metric fixes (2026-11-15, §19), analysis run pending: new
+     `piotroski_f` (0-9, standard only; paper form with opening / average assets when a third
+     year exists); peer medians over a fixed `peer_universe` (listed stocks / ADRs with their own
+     market cap), ≥ 5 members (`MIN_PEERS_FOR_MEDIAN` 3 → 5), no sector fallback, `debt_to_ebitda`
+     + `interest_coverage` added; ratios over a non-positive denominator stored NULL (replaced
+     "negative multiples are kept") with an `ebitda_negative` flag; Quality / Buyback Compounders
+     filters got an `ebitda_negative` block. Relative strength vs the industry moved to Group H.
    - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
      `core/backup.fix_backup`).
 

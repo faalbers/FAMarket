@@ -37,6 +37,7 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
   - **Industry overrides** (`config/industry_overrides.py`, since 2026-11-12) replace Yahoo's industry for a short list before `screen_type`, peers and the sector index: 19 bitcoin / crypto miners → "Crypto Mining" (Yahoo's "Capital Markets" routed them to `bank`), Sun Life → "Insurance - Life".
 - **`price`** — the canonical price (above).
 - **`rs_raw`** — weighted trailing return, the input to `rs_rank` (see 9).
+- **`peer_universe`** (0/1, since 2026-11-15) — 1 for an exchange-listed stock / ADR with a market cap of its own (Yahoo's exchange name not "OTC Markets …", not a company second line). The set the peer medians are taken over (see 10).
 - **`price_issues`** — the `ohlcv.price_flags` checks that touched the price window, comma-joined (e.g. `bad_print, stale`); NULL = clean prices. Screenable ("is null" keeps clean symbols). `level_shift` is not corrected — a lasting 10x move can be an unrecorded reverse split or a real collapse.
 
 ## 2. Valuation (TTM)
@@ -47,13 +48,14 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
 - **`eps_ttm`** = TTM net income / shares.
 - **`forward_pe`** = price / Yahoo `forwardEps`.
 - **`peg`** = `pe` / `eps_growth_trend` (only when growth > 0).
-- Negative multiples are kept here (a loss gives a negative P/E). Peer comparisons and scores ignore non-positive P/E, P/B, P/S, P/FCF, EV/EBITDA, debt ratios.
+- **A multiple over a zero or negative denominator is NULL** (since 2026-11-15; it used to be stored negative): `pe`, `forward_pe`, `p_fcf` on a loss, `pb` on negative equity, `ev_ebitda` on negative EBITDA, and `peg` through `pe`. Yahoo's own multiples (foreign filers) are NULL when negative. The sign stays visible in `eps_ttm`, `net_margin`, `ebitda_negative`. `ev_ebitda` can still be negative when EV is negative (cash above market cap + debt).
 
 ## 3. Profitability and returns (TTM, percent)
 
 - **`gross_margin`**, **`operating_margin`**, **`net_margin`**, **`fcf_margin`** — over TTM revenue.
 - **`roe`** = TTM net income / equity. **`roa`** = / total assets.
 - **`asset_turnover`** (revenue / assets, x), **`equity_multiplier`** (assets / equity, x), **`roe_roa_gap`** (percentage points of ROE coming from leverage).
+- `roe`, `equity_multiplier` and `roe_roa_gap` are NULL when equity ≤ 0 (since 2026-11-15): a loss over negative equity gave a large positive ROE.
 - **`roic`** = NOPAT / invested capital; NOPAT = TTM operating income × (1 − effective tax rate, clipped 0-100%). NULL when invested capital ≤ 0 or |ROIC| > 500%.
 - **`wacc`** (standard only, percent) — CAPM: cost of equity = 10y Treasury + beta × 5%; cost of debt = TTM interest expense / total debt × (1 − tax). NULL when beta is missing or |beta| > 10, or cost of debt > 50%.
 - **`roic_vs_wacc`** — ROIC − WACC (pp); > 0 = creating value. **`roic_vs_wacc_5y`** — median annual ROIC of the last 5 years − today's WACC. **`roic_trend_3y`** — 3-year change in annual ROIC (pp). All standard only.
@@ -62,12 +64,14 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
 
 ## 4. Financial health
 
-- **`debt_to_equity`** (x), **`debt_to_ebitda`** (x), **`interest_coverage`** = TTM operating income / |TTM interest expense| (x).
+- **`debt_to_equity`** (x), **`debt_to_ebitda`** (x), **`interest_coverage`** = TTM operating income / |TTM interest expense| (x). `debt_to_equity` is NULL when equity ≤ 0, `debt_to_ebitda` when EBITDA ≤ 0 (since 2026-11-15).
+- **`ebitda_negative`** (0/1) — 1 when TTM EBITDA (as above) ≤ 0; NULL when unknown. Lets a filter with a "debt/EBITDA … or is null" branch keep these out.
 - **`current_ratio`**, **`quick_ratio`** (cash + short-term investments + receivables, or current assets − inventory, over current liabilities), **`cash_ratio`**.
 - **`altman_z`** — Altman Z-score, manufacturing form: 1.2·WC/TA + 1.4·RE/TA + 3.3·EBIT/TA + 0.6·MarketCap/Liabilities + 1.0·Sales/TA. Above ~3 safe, below ~1.8 distressed. NULL for large profitable firms whose retained earnings are deeply negative from buybacks.
 - **`beneish_m_score`** — Beneish M-score from 8 year-over-year ratios of the last two fiscal years. Above −1.78 = possible earnings manipulation. NULL when |score| > 10.
 - **`efficiency_ratio`** (banks only, %) — non-interest expense / revenue. TTM, else the newest fiscal year with both figures. Lower = better (~55-65% typical).
-- **`quick_health_score`** (standard only, 0-7) — count of passed checks, last fiscal year vs the one before: revenue up; cost of revenue not outgrowing revenue; gross profit up; assets > liabilities; liabilities not outgrowing assets; cash ratio ≥ 0.2; operating cash flow up.
+- **`quick_health_score`** (standard only, 0-7) — count of passed checks, last fiscal year vs the one before: revenue up; cost of revenue not outgrowing revenue; gross profit up; assets > liabilities; liabilities not outgrowing assets; cash ratio ≥ 0.2; operating cash flow up. Our own checklist, not the Piotroski score.
+- **`piotroski_f`** (standard only, 0-9, since 2026-11-15) — Piotroski (2000), latest fiscal year (a) vs the one before (b), 300-430 days apart; one point each: ROA_a > 0; operating cash flow_a > 0; ROA_a > ROA_b; cash flow_a > net income_a; long-term debt / assets not up (missing debt = 0); current ratio up; `ordinary_shares_number` not up; gross margin up; revenue / assets up. ROA and turnover use the year's opening assets and leverage the average, as in the paper, when a third year is on file; else year-end assets. NULL unless all nine can be computed (total assets, current liabilities, revenue > 0).
 
 ## 5. Growth
 
@@ -142,9 +146,9 @@ Since 2026-11-15 every metric except the two `_ttm` ones is on **regular** payme
 ## 10. Peer comparison
 
 - **`<metric>_vs_sector`**, **`<metric>_vs_industry`** = (value − group median) / |median| × 100. Positive = higher than the typical peer (more expensive for a multiple, more profitable for a margin).
-- Metrics: `pe`, `forward_pe`, `peg`, `ps`, `pb`, `p_fcf`, `ev_ebitda`, `ev_revenue`, `gross_margin`, `operating_margin`, `net_margin`, `roe`, `roa`, `revenue_cagr_3y`, `debt_to_equity`.
-- NULL when the group has fewer than 3 values. Non-positive values of P/E, P/B, P/S, P/FCF, EV/EBITDA, PEG, debt-to-equity are excluded from the median and get NULL.
-- The median is over all rows in the table with that sector/industry tag (including ADRs).
+- Metrics: `pe`, `forward_pe`, `peg`, `ps`, `pb`, `p_fcf`, `ev_ebitda`, `ev_revenue`, `gross_margin`, `operating_margin`, `net_margin`, `roe`, `roa`, `revenue_cagr_3y`, `debt_to_equity`, `debt_to_ebitda`, `interest_coverage` (the last two since 2026-11-15).
+- **The median is taken over the peer universe** (`peer_universe` = 1: listed stocks / ADRs with their own market cap; since 2026-11-15). Every row with a value and a tag, OTC included, is measured against it. Before, OTC lines, preferreds, units and closed-end funds with a sector tag were in the median (Auto Manufacturers' P/E median 7.9 with them, 18.3 without).
+- NULL when the group has fewer than 5 peer-universe values (3 before 2026-11-15). A small industry stays NULL; it does not fall back to the sector. Non-positive values of P/E, P/B, P/S, P/FCF, EV/EBITDA, PEG, debt-to-equity, debt/EBITDA are excluded from the median and get NULL.
 
 ## 11. Rankings and scores (0-100, higher = better)
 

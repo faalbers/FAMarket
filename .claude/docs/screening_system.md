@@ -80,11 +80,12 @@ Rule = default scoring-rule shape/anchor from `scoring_rules.DEFAULT_RULES` (dri
 - `market_cap` ($, COMPANY) — price × shares. Band filters: micro <300M, small/mid 300M–10B, large >10B.
 
 ### Valuation (all: lower = cheaper; rule lower_better/peer unless noted)
-- `pe` (x; standard/bank/insurance) — trailing P/E; `positive_only` (negative P/E = N/A not cheap).
+- `pe` (x; standard/bank/insurance) — trailing P/E. **NULL on a loss** (since 2026-11-15; it used to be stored negative), so `pe < 25` no longer lets loss-makers in. Same for `forward_pe` (negative estimate), `pb` (negative equity), `p_fcf` (negative FCF), `ev_ebitda` (negative EBITDA).
 - `forward_pe` (x; same types) — price / analyst next-12m EPS; below trailing P/E ⇒ expected growth.
 - `peg` (x; same) — trailing P/E ÷ 3y EPS CAGR%. Rule: absolute anchor at **1.0** (Lynch: ≈1 fair, <1 growth at a discount). NULL when growth ≤ 0.
 - `pb` (x; + REIT) — the core multiple for banks/insurers/REITs; <1 = below book, check why.
 - `ps`, `p_fcf`, `ev_ebitda`, `ev_revenue` (x; **standard only**) — sales/cash/EV multiples; hidden for financials & REITs by design. EV/EBITDA rough bands: <8 cheap, >15 expensive (sector-dependent). P/FCF NULL when FCF < 0.
+- **Peer medians (2026-11-15):** taken over listed stocks / ADRs with their own market cap only (`peer_universe` = 1; OTC rows are still compared against them), NULL below 5 members (no sector fallback). `debt_to_ebitda` and `interest_coverage` now have peer columns too.
 - **Peer columns (2026-08-13):** `ps`, `pb`, `p_fcf` and `ev_revenue` now have `_vs_sector`/`_vs_industry` alongside the original 11 — P/S because it is the most sector-dependent multiple there is, P/B because it is the core multiple for banks/insurers/REITs. Non-positive values are masked before the peer median for every `positive_only` metric, so a negative P/E or negative-book-value P/B no longer reports as a deep discount (it reads NULL instead). `ev_revenue` keeps its negatives on purpose — those are negative ENTERPRISE VALUE (net cash above market cap), which is genuinely cheap rather than an artifact.
 - `eps_ttm` ($; standard/bank/insurance) — raw earnings input; negative disables P/E, PEG, Graham, Lynch.
 
@@ -99,8 +100,10 @@ Rule = default scoring-rule shape/anchor from `scoring_rules.DEFAULT_RULES` (dri
 - DuPont trio (standard/bank/insurance): `asset_turnover` (x, revenue/assets — efficiency), `equity_multiplier` (x, assets/equity — 1.0 = no debt, high = leverage-inflated ROE), `roe_roa_gap` (pp — how much ROE is debt-driven; small positive = real ROE, large = leverage, negative = losses amplified).
 
 ### Balance Sheet (mostly standard-only; leverage also REIT)
-- `debt_to_equity` (x; standard/reit) — <0.5 conservative, 1-2 typical, >2 leveraged; REITs high by design.
-- `debt_to_ebitda` (x; standard/reit) — lender yardstick: <2 comfortable, 2-4 manageable, >4-5 strained.
+- `debt_to_equity` (x; standard/reit) — <0.5 conservative, 1-2 typical, >2 leveraged; REITs high by design. NULL when equity ≤ 0 (so are `roe`, `equity_multiplier`).
+- `debt_to_ebitda` (x; standard/reit) — lender yardstick: <2 comfortable, 2-4 manageable, >4-5 strained. NULL when EBITDA ≤ 0.
+- `ebitda_negative` (0/1; standard/reit) — 1 = EBITDA ≤ 0. **A `debt_to_ebitda … OR is null` block must be paired with `ebitda_negative = 0 OR is null`**, or loss-makers pass as debt-free.
+- `piotroski_f` (0-9; standard) — the real Piotroski F-score (2000): profitability, cash flow, leverage, liquidity, dilution, margin, turnover, this year vs last. 8-9 strong, 0-2 weak; pair with a cheapness filter (that's how Piotroski used it). NULL for most banks / insurers.
 - `interest_coverage` (x; standard/reit) — EBIT/interest: >5 comfortable, <2 danger (absolute zone matters more than peers).
 - `current_ratio` (x; standard) — sweet spot 1.5-3; **calibrated floor for broad screens: 1.1** (retail/e-commerce run structurally below textbook 1.2 — that's model strength, not risk).
 - `quick_ratio` (x; standard) — sweet spot 1.0-2.0. `cash_ratio` (x; standard) — sweet spot 0.2-0.75; 0.2-0.5 is normal, use to find fortress balance sheets.
@@ -348,7 +351,7 @@ Filter Fail review reveals a new trap or a better calibration, add it HERE.
 | `*_cagr_5y` N/A | <5y of data (recent IPOs, thin backfill) | add the `cagr_3y` variant at the same threshold as an OR child |
 | `altman_z` N/A | formula needs manufacturer-style tangible assets; asset-light tech/software can't compute it | when other health blocks exist (debt_to_ebitda, interest_coverage, current_ratio), add `altman_z is null` as an OR child |
 | margin/trend metrics N/A (`gross_margin_trend_3y` etc.) | pre-revenue or short history | if the brief allows not-yet-profitable names, never make these a sole hard gate — add `is null` OR child or a fallback the early-stage name can satisfy |
-| `debt_to_ebitda`/`interest_coverage` N/A | no debt / no interest expense (often the HEALTHIEST names) | add `is null` OR child (see quality_compounders.filt) |
+| `debt_to_ebitda`/`interest_coverage` N/A | no debt / no interest expense (often the HEALTHIEST names) — **or negative EBITDA** (since 2026-11-15) | add `is null` OR child AND a separate `ebitda_negative = 0` OR `is null` block (see quality_compounders.filt) |
 | `atr_pct` NULL for mutual funds | flat NAV, no intraday range | exclude mutual_fund from types or fallback |
 | `rs_rank` NULL | <~1y price history | pair with `history_years` gate or accept the drop |
 | **`<metric>_vs_sector`/`_vs_industry` silently all-False** | the column only exists for metrics in `settings.PEER_COMPARABLE_METRICS` — a block on any other metric's peer variant returns ZERO rows, silently | check the tuple first. `ps`/`pb`/`p_fcf`/`ev_revenue` were added 2026-08-13 (they had zeroed `small_cap_winners` and `financial_compounders`), so the list is now 15; anything still outside it must use the **Score variant** (`compare: "score"` → `{col}_goodness`), which is peer-anchored anyway |

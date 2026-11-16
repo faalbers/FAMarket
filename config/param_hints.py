@@ -93,6 +93,7 @@ PARAM_HINTS: dict[str, dict] = {
         "what_it_is": "Enterprise value (all-class market cap + debt − cash + minority interest + preferred equity) "
                       "over trailing EBITDA — normalized EBITDA (one-off charges removed) where available.",
         "how_to_use": [
+            "NULL when EBITDA is zero or negative; ebitda_negative = 1 marks those.",
             "Capital-structure neutral — good for comparing leveraged vs unleveraged firms.",
             "Roughly: under ~8 cheap, over ~15 expensive — but very sector-dependent.",
         ],
@@ -115,6 +116,7 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "x",
         "what_it_is": "Price divided by analysts' expected next-12-month EPS (estimate data).",
         "how_to_use": [
+            "NULL when the forward EPS estimate is zero or negative.",
             "Well below trailing P/E means analysts expect earnings to grow.",
             "It is a forecast — treat it as opinion, not fact.",
         ],
@@ -137,6 +139,7 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "x",
         "what_it_is": "Market cap divided by book value (shareholders' equity).",
         "how_to_use": [
+            "NULL when book value (equity) is zero or negative.",
             "The core multiple for banks, insurers and REITs.",
             "Under 1 means priced below accounting net worth — check why.",
         ],
@@ -148,8 +151,8 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "x",
         "what_it_is": "Price divided by trailing 12-month earnings per share.",
         "how_to_use": [
+            "NULL when trailing earnings are zero or negative (since 2026-11-15) — a loss is n/a, not cheap. Use eps_ttm or net margin to find the loss-makers.",
             "Lower can mean cheaper, but very low may signal trouble.",
-            "Negative means no earnings — read alongside growth and margins.",
         ],
         "vs_peers": "Yes — P/E is only meaningful relative to sector/industry.",
     },
@@ -289,6 +292,7 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "%",
         "what_it_is": "Return on equity: trailing net income / shareholders' equity × 100.",
         "how_to_use": [
+            "NULL when equity is zero or negative — a loss over negative equity used to show a huge positive ROE (Roblox 97,200%).",
             "15%+ sustained is a quality marker; the key metric for banks/insurers.",
             "Very high ROE with high debt is leverage, not skill — check D/E.",
         ],
@@ -323,6 +327,7 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "x",
         "what_it_is": "Total assets / equity — how much of the balance sheet is funded by debt vs shareholders' own money (the leverage piece of ROE).",
         "how_to_use": [
+            "NULL when equity is zero or negative.",
             "1.0 = no debt at all; the higher above 1, the more assets are debt-funded.",
             "A high value inflates ROE without improving the underlying business — pair with debt/equity and interest coverage.",
         ],
@@ -457,6 +462,7 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "x",
         "what_it_is": "Total debt divided by trailing EBITDA — years of cash earnings to repay all debt.",
         "how_to_use": [
+            "NULL when EBITDA is zero or negative (it used to go negative and read as 'little debt'). A filter with an 'or is null' branch should also require ebitda_negative = 0.",
             "Under 2 comfortable, 2-4 manageable, above 4-5 strained (lenders' own yardstick).",
             "More telling than D/E when equity is distorted by buybacks.",
         ],
@@ -468,6 +474,7 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "x",
         "what_it_is": "Total debt divided by shareholders' equity (stored as a ratio, not percent).",
         "how_to_use": [
+            "NULL when equity is zero or negative.",
             "Under ~0.5 conservative, 1-2 typical, above ~2 leveraged.",
             "REITs run higher by design — judge them against REIT norms.",
         ],
@@ -494,6 +501,35 @@ PARAM_HINTS: dict[str, dict] = {
             "A rising ratio means costs are growing faster than income.",
         ],
         "vs_peers": "Yes — compare with banks of similar size and business mix.",
+    },
+    "piotroski_f": {
+        "name": "Piotroski F-score",
+        "category": "Balance Sheet",
+        "unit": "",
+        "what_it_is": "The Piotroski F-score (2000), 0-9: one point each for positive ROA, positive "
+                      "operating cash flow, ROA up, cash flow above net income, long-term debt / "
+                      "assets not up, current ratio up, no new shares, gross margin up and asset "
+                      "turnover up — latest fiscal year vs the one before.",
+        "how_to_use": [
+            "8-9 = strong and improving, 0-2 = weak and worsening. Piotroski used it to pick the "
+            "healthy firms among cheap (high book-to-market) stocks — pair it with a value filter.",
+            "Empty unless all nine tests can be computed: needs two fiscal years 300-430 days apart "
+            "with current assets / liabilities and gross profit (most banks and insurers have none).",
+            "Not the same as Quick health, our own 7-check list.",
+        ],
+        "vs_peers": "No — an absolute count.",
+    },
+    "ebitda_negative": {
+        "name": "EBITDA negative",
+        "category": "Balance Sheet",
+        "unit": "",
+        "what_it_is": "1 when trailing EBITDA (normalized when Yahoo has it) is zero or negative, "
+                      "0 when positive. Debt/EBITDA and EV/EBITDA are empty for these companies.",
+        "how_to_use": [
+            "Add 'ebitda_negative = 0' to any filter that keeps debt/EBITDA 'or is null', so "
+            "loss-making companies don't pass as debt-free.",
+        ],
+        "vs_peers": "No — a yes/no flag.",
     },
     "quick_health_score": {
         "name": "Quick health",
@@ -851,6 +887,7 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "%",
         "what_it_is": "Dividends paid / trailing net income × 100 — the slice of profit paid out.",
         "how_to_use": [
+            "NULL when trailing net income is zero or negative (use div_coverage then).",
             "30-60% is the comfortable band for most companies.",
             "Above ~80% leaves little safety; above 100% is paid from reserves or debt.",
             "REITs are legally high payers — judge them separately.",
@@ -1644,6 +1681,18 @@ PARAM_HINTS: dict[str, dict] = {
         "what_it_is": "The fund's provider / sponsor (e.g. Vanguard, iShares). Funds only — blank for stocks.",
         "how_to_use": ["Pick one or more providers to include, or exclude families you don't want."],
         "vs_peers": "No — it is the grouping label itself, not a value to compare.",
+    },
+    "peer_universe": {
+        "name": "Listed peer company",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "1 for an exchange-listed stock or ADR with a market cap of its own (not OTC, "
+                      "not a company's second line). The vs-sector / vs-industry medians are taken "
+                      "over these companies only; every stock is then compared against them.",
+        "how_to_use": [
+            "Filter = 1 to leave out OTC stocks and second lines.",
+        ],
+        "vs_peers": "No — a yes/no flag.",
     },
     "price_issues": {
         "name": "Price issues",

@@ -13,6 +13,11 @@ more profitable for a margin; the filter/scoring layer assigns direction). Group
 with fewer than settings.MIN_PEERS_FOR_MEDIAN members give NaN — too few to trust
 a median. Sector is broad, industry narrow, both sourced from quotes.db.
 
+The median is taken over the PEER UNIVERSE only (`peer_universe` = 1: exchange-
+listed stocks / ADRs with a market cap of their own, fix list §19); every row is
+then measured against it, OTC lines included. A small industry stays NaN rather
+than falling back to the sector, so `_vs_industry` always means the industry.
+
 Metrics whose scoring rule is `positive_only` are masked to NaN where non-positive
 BEFORE the median is taken — see `_peer_input`.
 """
@@ -56,16 +61,17 @@ def _peer_input(df: pd.DataFrame, metric: str) -> pd.Series:
 def compute(df: pd.DataFrame) -> pd.DataFrame:
     """Add _vs_sector / _vs_industry columns for every peer-comparable metric."""
     min_n = settings.MIN_PEERS_FOR_MEDIAN
+    ref = df["peer_universe"] == 1 if "peer_universe" in df.columns else None
     for metric in settings.PEER_COMPARABLE_METRICS:
         if metric not in df.columns:
             continue
         values = _peer_input(df, metric)
         if "sector" in df.columns:
             df[f"{metric}_vs_sector"] = _stats.relative_to_group_median(
-                values, df["sector"], min_n
+                values, df["sector"], min_n, ref
             )
         if "industry" in df.columns:
             df[f"{metric}_vs_industry"] = _stats.relative_to_group_median(
-                values, df["industry"], min_n
+                values, df["industry"], min_n, ref
             )
     return df

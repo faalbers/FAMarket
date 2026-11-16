@@ -38,7 +38,6 @@ ANALYSIS_DB: Path = DB_DIR / "analysis.db"
 MACRO_DB: Path = DB_DIR / "macro.db"
 INDICES_DB: Path = DB_DIR / "indices.db"  # sector / sub-industry index level series
 SIGNALS_DB: Path = DB_DIR / "signals.db"  # yfinance per-symbol signals: estimates + earnings_surprise + ownership
-ML_DATA_DB: Path = DB_DIR / "ml_data.db"  # scripts/build_ml_data.py — daily historical ML feature export
 
 # Rotating backups of every .db file, taken before each fetch run.
 BACKUP_DIR: Path = BASE_DIR / "backups"
@@ -560,8 +559,10 @@ PEER_COMPARABLE_METRICS: tuple[str, ...] = (
     "pe", "forward_pe", "peg", "gross_margin", "operating_margin", "net_margin",
     "roe", "roa", "ev_ebitda", "revenue_cagr_3y", "debt_to_equity",
     "ps", "pb", "p_fcf", "ev_revenue",
+    "debt_to_ebitda", "interest_coverage",  # health vs peers (fix list §19)
 )
-MIN_PEERS_FOR_MEDIAN: int = 3       # below this a sector/industry median is too noisy
+MIN_PEERS_FOR_MEDIAN: int = 5       # below this a sector/industry median is too noisy (3 before
+                                    # 2026-11-15, §19); counted in the peer universe only
 MIN_PEERS_FOR_PERCENTILE: int = 5   # below this fall back to the universe for scoring
 
 # Category/overall scores that get a _vs_type column (% above/below their own

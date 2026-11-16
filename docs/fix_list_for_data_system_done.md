@@ -414,9 +414,49 @@ Response to `docs/fix_list_for_data_system.md`, item by item, using its section 
 - **Sector indices:** daily-return correlation with the SPDR sector funds 0.81-0.99, the same as before or slightly higher.
 - **FAPortfolio push:** `indices.db.gz` pushed and read back OK.
 
+## Round 8 — Group G, part 2: smaller metric fixes, §19 (2026-11-15)
+
+**Approach:** each item checked on the data first. Tested with a read-only build over all 7,561 stocks and ADRs; every column outside the ones below is unchanged. The analysis-run check is pending.
+
+### `quick_health_score` is not Piotroski — Fixed (added `piotroski_f`)
+
+- **New `piotroski_f`** (0-9), the review's nine tests on the two newest fiscal years, 300-430 days apart. `quick_health_score` is kept and its docs now say it is our own checklist.
+- **Where we differ from the review:**
+  - **Opening and average assets, as in the paper** (Piotroski 2000): ROA and asset turnover divide by the year's opening total assets, leverage by the average, when a third year is on file. Otherwise year-end assets, as the review wrote. The two forms differ by 2+ points for 191 of ~4,700 companies.
+  - **Standard companies only**, like `quick_health_score`: the gross-margin and current-ratio tests assume an ordinary producing company. Most banks and insurers have no current assets or gross profit anyway.
+- **Check:** MSFT 6, AAPL 9, KO 7, NVDA 4, F 3. 4,510 companies have a score, 1,952 of the 2,566 above $2B. Spread: 0-2 for 6%, 8-9 for 10%.
+
+### Peer medians cover every row — Fixed (one difference)
+
+- **Peer universe:** the median is taken over exchange-listed stocks / ADRs with a market cap of their own (new column `peer_universe`, 5,551 of 7,561). Every row is still measured against it, OTC included. It also excludes the preferreds, units and closed-end funds that carried a sector tag (8,533 tagged rows before).
+  - **Example:** Auto Manufacturers' median P/E was 7.9 with the OTC lines and 18.3 without. Tesla's `pe_vs_industry` 5,993% → 2,515%.
+- **At least 5 members** (was 3).
+- **Health metrics added:** `debt_to_ebitda` and `interest_coverage` have peer columns now. Margins were already in.
+- **Where we differ:** **no fallback to the sector** for a small industry. `_vs_industry` stays NULL there, so it always means the industry. Only 4 small industries (19 stocks) are affected.
+- The same universe is meant for the §18 scores.
+
+### Ratios with a negative denominator — Fixed (NULL plus a flag)
+
+- **NULL when the denominator is zero or negative:** `pe`, `forward_pe`, `p_fcf` (a loss), `pb`, `debt_to_equity`, `roe`, `equity_multiplier`, `roe_roa_gap` (negative equity), `ev_ebitda`, `debt_to_ebitda` (negative EBITDA), `div_payout_ratio` (a loss), and `peg` through `pe`. Yahoo's own multiples for foreign filers are NULL when negative.
+- **New flag `ebitda_negative`** (1 when EBITDA ≤ 0). A filter with a "debt/EBITDA ≤ 4 or is null" branch would otherwise let these companies pass through the "is null" branch.
+- **Found more — ROE on negative equity.** A loss over negative equity gives a positive ROE: 629 stocks, 36 of them above $2B (Roblox 97,200%). Now NULL.
+- **Saved filters checked:** Quality Compounders and Buyback Compounders got an `ebitda_negative = 0 (or unknown)` block. Defensive Anchors' "P/E < 25" and Financial Compounders' "ROE ≥ 12" / "P/B ≤ 2" no longer let loss-makers or negative-equity companies in, with no change to the files.
+- **Check (the review's SQL):** negative `debt_to_ebitda` among stocks / ADRs ≥ $2B: **163 → 0**. Values that stay are unchanged.
+  - **Left as is:** 13 negative `ev_ebitda` values where the EV itself is negative (cash above market cap + debt), which is a real reading. One bank (FBNC) has a tiny negative debt figure.
+
+### Relative strength vs the industry — Moved to Group H
+
+The review points to §21 for it; it needs the industry benchmark map, so it is built with the other §21 calculations.
+
+### Checks
+
+- **Hints:** 127 filter bases, 0 without a hint.
+- **Type check:** no new pyright errors.
+- **Run time:** Piotroski adds ~5 s per run, the same as `quick_health_score`. The first version took 23 s; reading each year's row once brought it down. The peer-median helper is now vectorised.
+
 ## Not yet reviewed
 
-§8, §18, §19, §21 (other than its dividend methods), and the open parts of §20 not covered above. Grouped as above.
+§8, §18, §21 (other than its dividend methods), and the open parts of §20 not covered above. Grouped as above.
 
 ## Known gaps / limitations
 

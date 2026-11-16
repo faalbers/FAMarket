@@ -201,6 +201,8 @@ BASES: list[Base] = [
     _b("altman_z", "Altman Z", "Balance Sheet", frozenset({STANDARD})),
     _b("beneish_m_score", "Beneish M", "Balance Sheet", frozenset({STANDARD})),
     _b("quick_health_score", "Quick health", "Balance Sheet", frozenset({STANDARD})),
+    _b("piotroski_f", "Piotroski F-score", "Balance Sheet", frozenset({STANDARD})),
+    _b("ebitda_negative", "EBITDA negative", "Balance Sheet", frozenset({STANDARD, REIT})),
     _b("efficiency_ratio", "Efficiency ratio", "Balance Sheet", frozenset({BANK})),
     # -- Growth (base + window) --------------------------------------------- #
     _b("revenue", "Revenue growth", "Growth", frozenset({STANDARD, BANK, INSURANCE, REIT}), growth=True),
@@ -297,6 +299,7 @@ BASES: list[Base] = [
     _b("country", "Country", "Classification", COMPANY),
     _b("fund_family", "Fund family", "Classification", FUNDS),
     _b("price_issues", "Price issues", "Classification", ALL_TRADED),
+    _b("peer_universe", "Listed peer company", "Classification", COMPANY),
 ]
 
 BASE_BY_KEY: dict[str, Base] = {b.key: b for b in BASES}

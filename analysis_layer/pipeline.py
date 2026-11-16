@@ -204,6 +204,19 @@ def _secondary_lines(universe: pd.DataFrame, quotes: pd.DataFrame) -> set[str]:
     return set(sec["symbol"])
 
 
+def _in_peer_universe(security_type, quote, market_cap) -> bool:
+    """The fixed set peer medians are taken over (fix list §19): a stock or ADR,
+    listed on an exchange (Yahoo's exchange name is not "OTC Markets ..."), with a
+    market cap of its own (so not a company second line, §17). 5,551 of 7,561
+    stocks / ADRs on 2026-11-15. OTC rows are still compared against it."""
+    if security_type not in ("stock", "adr") or quote is None:
+        return False
+    exch = quote.get("fullExchangeName")
+    if not isinstance(exch, str) or not exch or exch.startswith("OTC"):
+        return False
+    return market_cap is not None and pd.notna(market_cap) and market_cap > 0
+
+
 def _universe(symbols: pd.DataFrame, subset: list[str] | None) -> pd.DataFrame:
     """Active + validated symbols (Topic 8: the analysis processing gate).
 
@@ -375,6 +388,8 @@ def run_analysis(subset: list[str] | None = None) -> dict:
             # raw weighted return -> universe-ranked into rs_rank in scoring; kept
             # in the table so subset runs can re-rank the un-recomputed rows too
             "rs_raw": technical.relative_strength_raw(osym),
+            # peer-median reference set (§19), stored so subset runs keep it
+            "peer_universe": int(_in_peer_universe(sec_type, quote, m.get("market_cap"))),
             **{k: v for k, v in m.items() if not k.startswith("_")},  # private keys stay in memory
             **t, **iv, **vs, **est_m, **sig_m,
         })
