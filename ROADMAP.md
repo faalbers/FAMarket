@@ -1113,6 +1113,14 @@ needs.
      + `interest_coverage` added; ratios over a non-positive denominator stored NULL (replaced
      "negative multiples are kept") with an `ebitda_negative` flag; Quality / Buyback Compounders
      filters got an `ebitda_negative` block. Relative strength vs the industry moved to Group H.
+   - ✅ Group G, part 3 — scores (2026-11-15, §18), analysis run checked: fixed ranking universe
+     (`rank_pool` company / fund / other type, `rank_universe` reference rows = listed companies
+     and one class per mutual fund; replaced "percentile over every row" and `rs_rank` within
+     `security_type`); category / overall scores NULL below `SCORE_MIN_INPUT_SHARE` (0.5) with
+     `<category>_inputs`; growth score on robust trends + forecast-checked `*_growth_checked`
+     (replaced the 3y / 5y CAGRs and `forward_eps_growth`); `forward_pe` out of value; no margin-of-
+     safety credit for `fair_value_tail`; new `score_history.db` (one snapshot per full run) for
+     the score validation still to do. Funds no longer get an `overall_score`.
    - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
      `core/backup.fix_backup`).
 

@@ -179,14 +179,15 @@ Not every base has every window (dividends have no `yoy_q`); `filter_registry.gr
 - `bear_flag_cash_conversion` / `bear_flag_moat_narrowing` / `bear_flag_interest_coverage` / `bear_flag_earnings_quality` (0/1) and `bear_flag_count` (0-4) — red flags derived from `ocf_to_ni`, `roic_vs_wacc`, `interest_coverage` and `beneish_m_score`. **Visible only — never auto-applied to any valuation number**, because no professional framework exists for converting red flags into numeric assumption deltas. `bear_flag_count <= 1` is a cheap, effective value-trap gate.
 
 ### Relative Strength
-- `rs_rank` (0-99; used as-is by the rule) — IBD-style weighted trailing return (four ~3-month windows, 40/20/20/20 recent-heavy), **ranked WITHIN security type** (universe is ~65% mutual funds — cross-type ranking would distort). 80+ leads; NULL under ~1y history. `rs_raw` is the persisted input (for subset-run re-ranking; not a filter metric).
+- `rs_rank` (0-99; used as-is by the rule) — IBD-style weighted trailing return (four ~3-month windows, 40/20/20/20 recent-heavy), **ranked within its ranking pool** (companies vs listed companies, funds vs one class per fund; since 2026-11-15). 80+ leads; NULL under ~1y history. `rs_raw` is the persisted input (for subset-run re-ranking; not a filter metric).
 
 ### Scores (0-100; derived RESULTS of scoring rules — not rules themselves)
-- `overall_score` (ALL_TRADED) — weighted blend: Quality 25, Value 22, Momentum 20, Growth 18, Income 15 (Settings-adjustable); empty categories drop out and re-weight.
-- `value_score`, `quality_score` (COMPANY) — peer-relative (industry→sector).
-- `growth_score` (COMPANY) — universe-ranked (rev/EPS 3y+5y CAGR, FCF 3y, latest YoYs, steadiness).
+- `overall_score` (ALL_TRADED) — weighted blend: Quality 25, Value 22, Momentum 20, Growth 18, Income 15 (Settings-adjustable); empty categories drop out and re-weight. **NULL below half of that weight** (since 2026-11-15) — so funds (momentum + income only) have none.
+- `value_score`, `quality_score` (COMPANY) — peer-relative (industry→sector). Value no longer uses `forward_pe`; a fair-value tail's margin of safety doesn't count.
+- `growth_score` (COMPANY) — universe-ranked: robust revenue / EPS trend growth checked against the forecast (`*_growth_checked`: a lower forecast pulls it halfway down, a higher one adds nothing), FCF trend, latest YoYs, steadiness, revisions, surprise. No 3y/5y CAGRs since 2026-11-15.
 - `momentum_score` (ALL_TRADED) — RS rank + MA distances + 52w-high distance.
-- `income_score` (DIVIDEND_PAYERS) — absolute income targets; NaN for non-payers.
+- `income_score` (DIVIDEND_PAYERS) — absolute income targets; NULL for non-payers.
+- **Every category score is NULL below half of its input weight** (since 2026-11-15); `<category>_inputs` (%) stores the share. Scores are ranked against a fixed set (listed companies; one class per fund), not every row in the table. A score block now drops thin-data names — add `<category>_score is null` as an OR child only if you really want them.
 - `orphan_score` (standard/reit only) — growth_score gated to under-covered (no estimates, or analyst_count below own peer-group median) + solvent (current_ratio ≥ 1.1) names; the "neglected firm effect"; NaN otherwise.
 
 ### Classification (text; multi-pick filters)

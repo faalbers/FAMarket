@@ -4,7 +4,8 @@ Internal tracker for working through `docs/fix_list_for_data_system.md` on branc
 
 ## Waiting for your input
 
-- **Group G part 2 (§19) done:** committed `7894b6f`, analysis run checked 2026-11-15 (stored = test build). Next: §18 (scores).
+- **Group G done (§18 scores checked after the 2026-11-15 run).** Next: Group H (§21 new calculations) or Group I (§8 indices, touches FAPortfolio) — your pick.
+- **Score validation (§18 step 5)** waits for data: `score_history.db` started 2026-11-15; test later returns per score decile once a few months of runs exist.
 - **Possible follow-ups from G part 1** (not started, your call): variable-dividend payers (Cal-Maine, Argentine banks) can read as cuts; specials of semi-annual payers are not detected; more `fair_value_tail` causes could be handled per model (Graham for distressed companies).
 - **Possible follow-ups from F** (not started, your call): a change-of-basis rule for loss years (Talen's pre-bankruptcy EPS rows are kept); a two-year-trough rule for growth trends (UAL / DAL COVID recovery).
 - **Possible follow-ups from E** (not started, your call): cap per-quarter earnings surprise at ±100%; a target-upside metric (would need the §20 target clean-up first); watch Yahoo's silent throttling at the end of long runs.
@@ -23,7 +24,7 @@ Internal tracker for working through `docs/fix_list_for_data_system.md` on branc
 | D | Symbol state & identity | §15, §6, §25, §22 delisted history · + preferred tickers carrying old EDGAR rows (found in B) | ✅ done 2026-11-12 · delisted mark + monthly re-checks + recovery pass, type corrections, CIK / company_id, industry overrides · §22 deferred |
 | E | Signals consistency | §11, §7 (dates, TTM lag, currency), §20 (surprise, currency, insiders, targets) | ✅ done 2026-11-14 · past dates NULL, earnings-driven financials refresh, surprise near zero, revenue chain check · currency / insiders / targets recorded (don't reach the screens) |
 | F | Analysis foundations | §2, §10, §16, §20 (EV, EBITDA definition), §14 steps 2-4 (split basis via `filed_date`, Talen) | ✅ done 2026-11-14 · all-class market cap, EPS on one split basis, robust growth (Theil-Sen, `_growth_tau` replaces `_growth_r2`/`_cv`), EV + minority / preferred, normalized EBITDA · Talen loss rows open |
-| G | Analysis built on F | §9, §17, §19, §18 | part 1 ✅ done 2026-11-15 (§9 regular dividends, §17 fair values, second lines) — analysis run checked · part 2 ✅ done 2026-11-15 (§19: Piotroski, peer universe, negative-denominator ratios) — analysis run checked · §18 open |
+| G | Analysis built on F | §9, §17, §19, §18 | part 1 ✅ done 2026-11-15 (§9 regular dividends, §17 fair values, second lines) — analysis run checked · part 2 ✅ done 2026-11-15 (§19: Piotroski, peer universe, negative-denominator ratios) — analysis run checked · part 3 ✅ done 2026-11-15 (§18: input counts, fixed ranking universe, trend + forecast-checked growth, score history) — analysis run checked · score validation waits for history |
 | H | New calculations | §21 · + §19 relative strength vs the industry | open |
 | I | Indices | §8 — touches FAPortfolio's `indices.db` contract | open |
 

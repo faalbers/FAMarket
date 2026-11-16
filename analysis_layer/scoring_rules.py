@@ -106,6 +106,12 @@ DEFAULT_RULES: dict[str, dict] = {
     "eps_cagr_5y":     {"shape": "higher_better", "anchor": "universe"},
     "fcf_cagr_3y":     {"shape": "higher_better", "anchor": "universe"},
     "book_value_cagr_3y": {"shape": "higher_better", "anchor": "universe"},
+    # robust trends (§16) and the forecast-checked trends the growth score uses (§18)
+    "revenue_growth_trend":   {"shape": "higher_better", "anchor": "universe"},
+    "eps_growth_trend":       {"shape": "higher_better", "anchor": "universe"},
+    "fcf_growth_trend":       {"shape": "higher_better", "anchor": "universe"},
+    "revenue_growth_checked": {"shape": "higher_better", "anchor": "universe"},
+    "eps_growth_checked":     {"shape": "higher_better", "anchor": "universe"},
     "revenue_yoy_q":   {"shape": "higher_better", "anchor": "universe"},
     "eps_yoy_q":       {"shape": "higher_better", "anchor": "universe"},
     # acceleration pivots on 0 (speeding up vs own pace); buybacks (lower share count) better
@@ -176,7 +182,8 @@ RULE_CATEGORIES: dict[str, list[str]] = {
     "Growth": ["revenue_cagr_1y", "revenue_cagr_3y", "revenue_cagr_5y", "eps_cagr_1y",
                "eps_cagr_3y", "eps_cagr_5y", "fcf_cagr_3y", "book_value_cagr_3y",
                "revenue_yoy_q", "eps_yoy_q", "revenue_accel", "eps_accel",
-               "share_count_chg_1y"],
+               "share_count_chg_1y", "revenue_growth_trend", "eps_growth_trend",
+               "fcf_growth_trend", "revenue_growth_checked", "eps_growth_checked"],
     "Estimates": ["forward_eps_growth", "forward_rev_growth", "forward_peg",
                   "eps_revision_1m", "eps_revision_3m", "eps_revision_breadth"],
     "Earnings": ["earnings_surprise_avg", "earnings_surprise_last", "earnings_beat_rate"],
@@ -269,30 +276,76 @@ def resolve(metric: str, screen_type: str | None,
 # Goodness — a column → 0-100 (100 strong, 0 weak), NaN preserved
 # --------------------------------------------------------------------------- #
 def goodness(values: pd.Series, rule: dict,
-             tiers: list[pd.Series] | None = None) -> pd.Series:
+             tiers: list[pd.Series] | None = None,
+             ref: pd.Series | None = None) -> pd.Series:
     """Apply a rule to a column, returning 0-100 goodness (NaN where not applicable).
 
-    For peer/universe anchors this is a percentile across the passed frame, so pass the
-    WHOLE universe (not a handful of rows) — ranks are only meaningful against the crowd.
-    Absolute anchors are self-contained (a pivot or band), with falloff scaled to the
-    column's own 5th/95th-percentile spread.
+    For peer/universe anchors this is a percentile against the REFERENCE rows `ref`
+    (bool; None = every passed row), so pass the whole ranking group. Absolute
+    anchors are self-contained (a pivot or band), with falloff scaled to the
+    reference values' spread. Callers normally go through `frame_goodness`, which
+    splits the frame into its ranking pools first (fix list §18).
     """
     s = pd.to_numeric(values, errors="coerce")
     if rule.get("positive_only"):
         s = s.where(s > 0)
+    spread_src = s[ref.reindex(s.index).fillna(False).astype(bool)] if ref is not None else s
+    if spread_src.notna().sum() == 0:
+        spread_src = s
     shape = rule.get("shape", "higher_better")
     if shape == "sweet_spot":
-        return _sweet_spot(s, rule)
+        return _sweet_spot(s, rule, spread_src)
     ascending = shape == "higher_better"           # high value → high goodness
     anchor = rule.get("anchor", "peer")
     if anchor == "peer" and tiers:
-        return _stats.percentile_rank_tiered(s, tiers, ascending, _MIN_PEERS)
+        return _stats.percentile_vs_ref_tiered(s, tiers, ref, ascending, _MIN_PEERS)
     if anchor in ("peer", "universe"):
-        return _stats.percentile_rank(s, ascending)
+        return _stats.percentile_vs_ref(s, ref, ascending)
     # absolute
     if rule.get("value") is not None:
-        return _pivot(s, float(rule["value"]), ascending)
+        return _pivot(s, float(rule["value"]), ascending, spread_src)
     return s.clip(lower=0, upper=100)              # already a 0-100 rank (rs_rank, scores)
+
+
+def _merged(rule: dict, screen_type: str) -> dict:
+    """`rule` with its override for `screen_type` merged on top (no lookup)."""
+    ov = (rule.get("overrides") or {}).get(screen_type)
+    merged = {k: v for k, v in rule.items() if k != "overrides"}
+    if ov:
+        merged.update(ov)
+    return merged
+
+
+def frame_goodness(df: pd.DataFrame, metric: str, rule: dict) -> pd.Series:
+    """One metric's 0-100 goodness over a whole analysis frame under `rule`.
+
+    Ranked within each ranking POOL (`rank_pool`: companies / funds / each other
+    type) against that pool's fixed reference rows (`rank_universe` = 1), fix
+    list §18; a frame without those columns is one pool with every row as
+    reference (the old behaviour). Peer anchors use industry -> sector tiers.
+    Per-`screen_type` overrides are spliced in on their rows.
+    """
+    if metric not in df.columns:
+        return pd.Series(np.nan, index=df.index, dtype="float64")
+    pools = (list(df.groupby("rank_pool", dropna=False).groups.values())
+             if "rank_pool" in df.columns else [df.index])
+    has_ref = "rank_universe" in df.columns
+    peer = rule.get("anchor") == "peer" and {"industry", "sector"} <= set(df.columns)
+    overrides = rule.get("overrides") or {}
+    out = pd.Series(np.nan, index=df.index, dtype="float64")
+    for idx in pools:
+        sub = df.loc[idx]
+        ref = (sub["rank_universe"] == 1) if has_ref else None
+        tiers = [sub["industry"], sub["sector"]] if peer else None
+        out.loc[idx] = goodness(sub[metric], rule, tiers, ref)
+        if overrides and "screen_type" in sub.columns:
+            for st_val in overrides:                   # sparse; all ABSOLUTE today
+                mask = sub["screen_type"] == st_val
+                if mask.any():
+                    out.loc[sub.index[mask]] = goodness(
+                        sub.loc[mask, metric], _merged(rule, st_val), None,
+                        ref[mask] if ref is not None else None).to_numpy()
+    return out
 
 
 def metric_goodness(df: pd.DataFrame, metric: str,
@@ -307,17 +360,11 @@ def metric_goodness(df: pd.DataFrame, metric: str,
     base = rule_for(metric, rules)
     if base is None or metric not in df.columns:
         return pd.Series(np.nan, index=df.index, dtype="float64")
-    tiers = ([df["industry"], df["sector"]]
-             if base.get("anchor") == "peer" and {"industry", "sector"} <= set(df.columns)
-             else None)
-    g = goodness(df[metric], base, tiers)
-    overrides = base.get("overrides") or {}
-    if overrides and "screen_type" in df.columns:
-        for st_val in overrides:                       # sparse; all ABSOLUTE today
-            mask = df["screen_type"] == st_val
-            if mask.any():                             # absolute → tiers irrelevant
-                merged = resolve(metric, st_val, rules)
-                g.loc[mask] = goodness(df.loc[mask, metric], merged, None)
+    g = frame_goodness(df, metric, base)
+    # A fair value > 3x the price is a model tail, not a bargain (fix list §17/§18):
+    # its margin of safety earns no goodness (tails scored 77 on value vs 51).
+    if metric.startswith("margin_of_safety") and "fair_value_tail" in df.columns:
+        g = g.where(pd.to_numeric(df["fair_value_tail"], errors="coerce") != 1)
     return g
 
 
@@ -336,11 +383,12 @@ def _spread(s: pd.Series) -> tuple[float, float]:
     return float(lo), float(hi)
 
 
-def _sweet_spot(s: pd.Series, rule: dict) -> pd.Series:
-    """100 inside [lo, hi]; linear falloff to 0 toward the 5th/95th pctile on each side."""
+def _sweet_spot(s: pd.Series, rule: dict, spread_src: pd.Series | None = None) -> pd.Series:
+    """100 inside [lo, hi]; linear falloff to 0 toward the IQR fence on each side
+    (of `spread_src`, the reference values; default `s`)."""
     lo = float(rule.get("lo"))
     hi = float(rule.get("hi"))
-    p05, p95 = _spread(s)
+    p05, p95 = _spread(s if spread_src is None else spread_src)
     lo_span = max(lo - p05, 1e-9)
     hi_span = max(p95 - hi, 1e-9)
     g = pd.Series(100.0, index=s.index)
@@ -351,10 +399,11 @@ def _sweet_spot(s: pd.Series, rule: dict) -> pd.Series:
     return g.where(s.notna())
 
 
-def _pivot(s: pd.Series, v: float, ascending: bool) -> pd.Series:
+def _pivot(s: pd.Series, v: float, ascending: bool,
+           spread_src: pd.Series | None = None) -> pd.Series:
     """50 at the anchor line `v`; toward 100 in the good direction, 0 in the bad one,
-    scaled by the column's spread on each side of the line."""
-    p05, p95 = _spread(s)
+    scaled by the reference values' spread on each side of the line."""
+    p05, p95 = _spread(s if spread_src is None else spread_src)
     up = max(p95 - v, 1e-9)   # reach above the line
     dn = max(v - p05, 1e-9)   # reach below the line
     g = pd.Series(50.0, index=s.index)

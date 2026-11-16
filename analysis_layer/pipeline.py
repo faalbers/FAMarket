@@ -407,10 +407,16 @@ def run_analysis(subset: list[str] | None = None) -> dict:
     log.info("Analysis — peer comparisons across %d symbols…", len(df))
     df = peers.compute(df)
     log.info("Analysis — scoring (ranks + category scores)…")
+    syms = data["symbols"]
+    series_ids = (syms.set_index("symbol")["series_id"].dropna()
+                  if "series_id" in syms.columns else None)
+    df = scoring.assign_rank_universe(df, series_ids)  # fixed ranking universe (§18)
     df = scoring.compute(df)  # rs_rank, category scores, overall_score
 
     log.info("Analysis — writing analysis.db…")
     _write(df, prices_as_of)
+    if subset is None:
+        _save_score_history(df, prices_as_of)
     _log_reconcile(reconcile, n_recomputed)
     log.info("analysis.db — %d symbols (%d recomputed), %d columns written",
              len(df), n_recomputed, df.shape[1])
@@ -481,10 +487,34 @@ def _write(df: pd.DataFrame, prices_as_of: str | None) -> None:
         "analyzed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "prices_as_of": prices_as_of,
         "n_symbols": len(df),
+        **scoring.universe_sizes(df),  # rank_universe_company / _fund / … (§18)
     }])
     with Database(settings.ANALYSIS_DB) as db:
         db.replace(TABLE, df)
         db.replace(META_TABLE, meta)
+
+
+_HISTORY_COLS = ("security_type", "price", "rank_universe", "value_score", "quality_score",
+                  "growth_score", "momentum_score", "income_score", "overall_score")
+
+
+def _save_score_history(df: pd.DataFrame, prices_as_of: str | None) -> None:
+    """Keep one snapshot of the scores per full run in score_history.db (fix list
+    §18), so their accuracy can be checked later: later returns per score decile.
+    Rows with no score at all are skipped. A rerun on the same price date replaces
+    that date's snapshot. Never fails the analysis."""
+    if not prices_as_of:
+        return
+    try:
+        cols = [c for c in _HISTORY_COLS if c in df.columns]
+        scores = [c for c in cols if c.endswith("_score")]
+        snap = df.loc[df[scores].notna().any(axis=1), ["symbol", *cols]].copy()
+        snap.insert(0, "as_of", prices_as_of)
+        with Database(settings.SCORE_HISTORY_DB) as db:
+            db.replace_by("score_history", snap, key="as_of")
+        log.info("score_history.db — %d rows for %s", len(snap), prices_as_of)
+    except Exception:
+        log.exception("Score history snapshot failed; analysis.db is unaffected")
 
 
 def _log_reconcile(reconcile: list, n_symbols: int) -> None:

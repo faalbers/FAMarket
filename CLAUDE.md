@@ -156,7 +156,7 @@ Three intentionally decoupled layers plus shared infrastructure:
 ### Conventions that cut across the codebase
 
 - **Separate SQLite DBs per data type** (`symbols`, `quotes`, `ohlcv`,
-  `financials`, `estimates`, `analysis`, `macro`, `indices` — paths in `config/settings.py`). There are
+  `financials`, `signals`, `analysis`, `macro`, `indices`, `score_history` — paths in `config/settings.py`). There are
   **no cross-database SQL joins**; merge in pandas instead.
 - **The SQLite wrapper is opinionated by design** (`core/database.py`): never a
   generic write. Use the verb that names the intent — `append` (add rows),

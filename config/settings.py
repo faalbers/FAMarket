@@ -38,6 +38,7 @@ ANALYSIS_DB: Path = DB_DIR / "analysis.db"
 MACRO_DB: Path = DB_DIR / "macro.db"
 INDICES_DB: Path = DB_DIR / "indices.db"  # sector / sub-industry index level series
 SIGNALS_DB: Path = DB_DIR / "signals.db"  # yfinance per-symbol signals: estimates + earnings_surprise + ownership
+SCORE_HISTORY_DB: Path = DB_DIR / "score_history.db"  # one snapshot of the scores per full run (fix list §18)
 
 # Rotating backups of every .db file, taken before each fetch run.
 BACKUP_DIR: Path = BASE_DIR / "backups"
@@ -578,6 +579,19 @@ RS_RANK_MIN_PER_TYPE: int = 30      # min members for a security_type to rank RS
 # --------------------------------------------------------------------------- #
 # Scoring & ranking (Topic 4.4) — all adjustable from the Settings page
 # --------------------------------------------------------------------------- #
+# Fixed ranking universe (fix list §18, 2026-11-15): percentiles are taken within a
+# POOL, against its reference rows (`rank_universe`). Types not listed are their own
+# pool. Companies: listed with their own market cap (`peer_universe`); funds: one
+# share class per mutual fund.
+RANK_POOL_BY_TYPE: dict[str, str] = {
+    "stock": "company", "adr": "company",
+    "etf": "fund", "mutual_fund": "fund", "closed_end_fund": "fund",
+}
+# A category score (and overall_score) needs at least this share of its weight
+# present, else NULL (§18): a loss-maker's value score from P/S + P/B alone (22% of
+# the weight) ranked it cheaper than profitable companies.
+SCORE_MIN_INPUT_SHARE: float = 0.5
+
 # Weights of each category score within the Overall Score (must sum to 1.0).
 # Mix re-derived 2026-06-20 (was Q25/G25/M20/V20/I10): the five category scores are
 # near-uncorrelated on the live universe (all |r|≈0, value↔momentum −0.23), so this is
@@ -606,7 +620,8 @@ OVERALL_SCORE_WEIGHTS: dict[str, float] = {
 CATEGORY_METRIC_WEIGHTS: dict[str, dict[str, float]] = {
     "value": {  # favor EV/EBITDA, FCF, DCF gap; down-weight redundant multiples
         "ev_ebitda": 1.0, "p_fcf": 1.0, "margin_of_safety": 1.0, "pe": 0.75,
-        "peg": 0.5, "pb": 0.5, "ps": 0.5, "ev_revenue": 0.25, "forward_pe": 0.25,
+        "peg": 0.5, "pb": 0.5, "ps": 0.5, "ev_revenue": 0.25,
+        # forward_pe left out 2026-11-15 (§18): optimistic EPS forecasts make it look cheap.
     },
     "quality": {  # gross_margin + roic + safety carry; margin blob shares one slot
         "roic": 1.0, "gross_margin": 1.0, "roe": 0.75, "altman_z": 0.75,
@@ -614,13 +629,12 @@ CATEGORY_METRIC_WEIGHTS: dict[str, dict[str, float]] = {
         "current_ratio": 0.5, "interest_coverage": 0.5, "operating_margin": 0.25,
         "roa": 0.25, "debt_to_ebitda": 0.25,
     },
-    "growth": {  # historical CAGRs anchor; forward signals add at half weight
-        "eps_cagr_3y": 1.0, "revenue_cagr_3y": 1.0, "eps_yoy_q": 0.75,
-        "revenue_yoy_q": 0.75, "fcf_cagr_3y": 0.5, "eps_growth_tau": 0.5,
-        "eps_cagr_5y": 0.5, "revenue_cagr_5y": 0.5,
-        # forward-looking (analyst estimates) — sparse, so they drop out & renormalize
-        # for no-coverage names; for covered names they tilt growth toward what's NEXT.
-        "forward_eps_growth": 0.5, "eps_revision_1m": 0.5, "revenue_accel": 0.5,
+    "growth": {  # robust trends anchor (§16); since 2026-11-15 (§18) they replace the
+        # endpoint 3y / 5y CAGRs, and an analyst forecast can only pull them DOWN
+        # (`_growth_checked`) — forward_eps_growth is no longer its own input.
+        "eps_growth_checked": 1.0, "revenue_growth_checked": 1.0, "eps_yoy_q": 0.75,
+        "revenue_yoy_q": 0.75, "fcf_growth_trend": 0.5, "eps_growth_tau": 0.5,
+        "eps_revision_1m": 0.5, "revenue_accel": 0.5,
         # earnings beating estimates = growth surprising to the upside (sparse).
         "earnings_surprise_avg": 0.5,
     },

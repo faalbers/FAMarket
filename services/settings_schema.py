@@ -70,7 +70,8 @@ HELP: dict[str, str] = {
     "DCF_FADE_START_CAP": "Upper bound on the year-1 growth rate the projection starts from, before it fades to terminal growth (decimal). Guards against corrupted trend inputs.",
     "DCF_MIN_DISCOUNT_SPREAD": "Floor on (discount rate − terminal growth) so the terminal value stays finite (decimal).",
     "MIN_PEERS_FOR_MEDIAN": "Fewest peers needed before a sector/industry median is trusted.",
-    "MIN_PEERS_FOR_PERCENTILE": "Fewest peers needed to rank within the group; below this, scoring falls back to the whole universe.",
+    "MIN_PEERS_FOR_PERCENTILE": "Fewest reference peers needed to rank within the industry / sector; below this, scoring falls back to the whole ranking pool.",
+    "SCORE_MIN_INPUT_SHARE": "Share of a score's input weight that must be present; below it the category / overall score is left blank (0.5 = half).",
     "RECONCILE_TOLERANCE_PCT": "Max fractional gap between a computed ratio and yfinance's before a divergence WARNING is logged (0.10 = 10%).",
 }
 
@@ -244,6 +245,7 @@ def sections() -> list[dict[str, Any]]:
             "fields": [
                 _field("MIN_PEERS_FOR_MEDIAN", "Min peers for median", "int", lo=1, hi=50, group="Peer comparison"),
                 _field("MIN_PEERS_FOR_PERCENTILE", "Min peers for percentile", "int", lo=1, hi=50, group="Peer comparison"),
+                _field("SCORE_MIN_INPUT_SHARE", "Min score inputs (fraction)", "float", lo=0.0, hi=1.0, step=0.05, group="Scores"),
                 _field("RECONCILE_TOLERANCE_PCT", "Tolerance (fraction)", "float", lo=0.0, hi=1.0, step=0.01, group="Reconcile"),
             ],
         },

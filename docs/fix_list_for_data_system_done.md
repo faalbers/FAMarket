@@ -462,9 +462,59 @@ The review points to §21 for it; it needs the industry benchmark map, so it is 
 - **Saved filters:** Quality / Buyback Compounders, Defensive Anchors and Financial Compounders pass `validate_filt`.
 - **Sector indices and FAPortfolio push:** built as before (4,326 constituents); `indices.db.gz` pushed and read back OK.
 
+## Round 9 — Group G, part 3: scores, §18 (2026-11-15)
+
+**Approach:** measured on the stored 2026-11-15 analysis first, then re-scored that same data with the new code (read-only). After the 2026-11-15 analysis run the stored scores match that test exactly (see "Checked after the run"). Steps 1-4 are done; step 5 is started.
+
+### Step 1 — Count the inputs: Fixed
+
+- **`<category>_inputs`** (% of the category's weight present) next to each score, and `overall_inputs`.
+- **A score is NULL below 50%** of its weight (`SCORE_MIN_INPUT_SHARE`, adjustable in Settings). The same rule applies to `overall_score` over the category weights.
+- **Found:** half of the stocks' value scores rested on less than half of their weight. Loss-makers had only P/S and P/B, and scored *cheaper* than profitable companies (median 55 vs 49). Value scores of listed loss-makers: 2,000 → 426.
+- **Effect:** stocks with a value score 93% → 47%, quality 100% → 60%, growth 92% → 59%, overall 100% → 61%. Funds have only momentum and income (35% of the overall weight), so **funds no longer get an overall score**. Non-payers no longer get an income score (their two zeros were 26% of its weight).
+
+### Step 2 — A fixed, documented universe: Fixed
+
+- **Ranking pools** (`rank_pool`): companies (stocks + ADRs), funds (ETFs, mutual funds, closed-end funds), and each other type on its own.
+- **Reference set** (`rank_universe`): listed companies with their own market cap (`peer_universe`, §19, so live, no OTC, one ticker per company); one share class per mutual fund (SEC series id); every row of the other types. Every percentile, including `rs_rank`, is taken against it. Rows outside it are still scored, placed in that distribution.
+- **Universe size stored** in `analysis_meta` per run: 5,551 companies, 12,246 funds (6,104 mutual-fund series, 5,812 ETFs, 330 CEFs).
+- **Found:** a stock's dividend-streak rank moved ~21 points (median) because 22,000 fund rows were in the ranking. `rs_rank` of listed companies moved only ~1 point.
+- The absolute rules' fade-out reach is now measured on the reference set too; that moved momentum scores most (median 10 points), since funds' price moves are smaller than stocks'.
+
+### Step 3 — Rebuild on the fixed inputs: Fixed
+
+- **Growth score** uses the robust trends (§16) for revenue, EPS and FCF instead of the 3- and 5-year endpoint CAGRs.
+- **Margin of safety** earns no score when `fair_value_tail` = 1 (§17).
+  - **Where it ends:** tails' value score 77 → 72 (others 48). The rest is real: tails are cheap on P/E, P/B and P/FCF too (goodness 75-89).
+
+### Step 4 — Forecasts one way only: Fixed
+
+- **New `revenue_growth_checked` / `eps_growth_checked`:** the trend growth, pulled halfway to the next-year forecast when the forecast is lower; a higher forecast adds nothing. Revenue uses the revenue forecast, EPS the EPS forecast. Pulled down: 2,195 revenue and 622 EPS rows.
+- `forward_eps_growth` is no longer a growth-score input; `forward_pe` left the value score.
+- **Check:** the top decile by forecast EPS growth: growth score median 52 → 46.
+- **Where we differ:** the 1-2 year horizon is the only one Yahoo gives us per stock (its long-term growth field is unusable), so no horizon choice was needed.
+
+### Step 5 — Validate before treating scores as signals: Started, not done
+
+- **Not possible yet:** no past scores were kept. Only 5 backups exist, all from the last 6 weeks.
+- **New `score_history.db`:** one snapshot per full run (symbol, price, the six scores, `rank_universe`), ~3 MB per run. Later returns per score decile can be measured once there are a few months of runs.
+
+### Checks
+
+- **Saved filters:** result counts before / after, on the same data: 11 of 13 within ±3 names (Emerging Dominators 85 → 83, Quality Compounders 60 → 57, GARP Movers 114 → 118, Trend Leaders 300 → 310); none emptied.
+- **Examples (overall):** AAPL 60 → 58, MSFT 61 → 59, NVDA 63 → 67, KO 62 → 60, TSLA 41 → 53 (no longer pulled down by a 3 income score for not paying a dividend).
+- **Hints:** 133 filter bases, 0 without a hint. **Type check:** no new errors. **Run time:** scoring ~4.5 s.
+
+### Checked after the run
+
+- **Stored = test:** all 35,701 rows match on every category score, `overall_score`, the `_inputs` columns, `rs_rank`, the `_growth_checked` columns, `rank_pool` / `rank_universe`.
+- **Universe sizes in `analysis_meta`:** 5,551 companies, 12,246 funds, 530 preferreds, 633 warrants, 340 units, 161 SPACs.
+- **`score_history.db`:** the first snapshot is written, 32,482 rows for 2026-11-13 (2.8 MB).
+- **Run:** 0 errors, 0 warnings; ~10 minutes; peak RAM 8.3 GB. All 13 saved filters pass `validate_filt`. `indices.db.gz` pushed to FAPortfolio and read back OK.
+
 ## Not yet reviewed
 
-§8, §18, §21 (other than its dividend methods), and the open parts of §20 not covered above. Grouped as above.
+§8, §21 (other than its dividend methods), and the open parts of §20 not covered above. Grouped as above.
 
 ## Known gaps / limitations
 

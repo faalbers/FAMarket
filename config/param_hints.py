@@ -596,6 +596,7 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "%",
         "what_it_is": "Growth of split-adjusted diluted EPS. Same windows as revenue growth (CAGR 1/3/5y, YoY quarter, trend stats).",
         "how_to_use": [
+            "Trend, forecast-checked (revenue / EPS only): the trend growth, pulled halfway down to the analysts' next-year forecast when the forecast is lower; a higher forecast adds nothing. This is what the Growth score uses (since 2026-11-15).",
             "EPS growing faster than revenue = margin expansion or buybacks.",
             "Erratic EPS (wide steadiness spread, low direction tau) makes P/E and PEG less trustworthy.",
             "Steadiness spread % low + direction (tau) near 1 = steady earner; high vol = one-off gains/charges distorting the trend.",
@@ -633,6 +634,7 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "%",
         "what_it_is": "Growth of annual total revenue. Windows: 1/3/5-year CAGR, latest quarter vs the same quarter last year (YoY), plus trend quality over ~5 years.",
         "how_to_use": [
+            "Trend, forecast-checked (revenue / EPS only): the trend growth, pulled halfway down to the analysts' next-year forecast when the forecast is lower; a higher forecast adds nothing. This is what the Growth score uses (since 2026-11-15).",
             "CAGR = smoothed yearly pace; YoY quarter = what's happening right now.",
             "Steadiness spread % low + direction (tau) near 1 = steady grower; high vol = lumpy or cyclical.",
             "Direction (tau) runs -1 to 1 (+1 = up every year), not a percent.",
@@ -1730,6 +1732,24 @@ PARAM_HINTS: dict[str, dict] = {
         "vs_peers": "No — it is the grouping label itself, not a value to compare.",
     },
 }
+
+# `<category>_inputs` (fix list §18): one hint shape for the six score-input shares.
+for _cat, _label in (("overall", "Overall"), ("value", "Value"), ("quality", "Quality"),
+                     ("growth", "Growth"), ("momentum", "Momentum"), ("income", "Income")):
+    PARAM_HINTS[f"{_cat}_inputs"] = {
+        "name": f"{_label} inputs",
+        "category": "Score",
+        "unit": "%",
+        "what_it_is": (f"Share of the {_label} score's input weight this symbol has data for "
+                       + ("(the category scores, by their Overall weights)."
+                          if _cat == "overall" else "(its metrics, by their weights).")),
+        "how_to_use": [
+            "Below 50% the score is left empty (since 2026-11-15): too few inputs to trust it.",
+            "Filter it >= 75 to keep only scores built on most of their inputs.",
+        ],
+        "vs_peers": "No — a coverage measure.",
+    }
+
 
 
 def get_hint(param_key: str) -> dict | None:

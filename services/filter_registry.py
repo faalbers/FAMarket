@@ -122,6 +122,7 @@ GROWTH_WINDOWS: dict[str, str] = {
     "cagr_3y": "3Y CAGR",
     "cagr_5y": "5Y CAGR",
     "growth_trend": "Trend growth (robust)",
+    "growth_checked": "Trend, forecast-checked",
     "yoy_q": "YoY (latest quarter)",
     "growth_vol": "Growth steadiness (spread)",
     "growth_tau": "Growth direction (tau)",
@@ -293,6 +294,13 @@ BASES: list[Base] = [
     _b("orphan_score", "Orphan", "Score", frozenset({STANDARD, REIT})),
     _b("momentum_score", "Momentum", "Score", ALL_TRADED),
     _b("income_score", "Income", "Score", DIVIDEND_PAYERS),
+    # share of each score's input weight present (§18); the score is NULL below 50%
+    _b("overall_inputs", "Overall inputs", "Score", ALL_TRADED),
+    _b("value_inputs", "Value inputs", "Score", COMPANY),
+    _b("quality_inputs", "Quality inputs", "Score", COMPANY),
+    _b("growth_inputs", "Growth inputs", "Score", COMPANY),
+    _b("momentum_inputs", "Momentum inputs", "Score", ALL_TRADED),
+    _b("income_inputs", "Income inputs", "Score", DIVIDEND_PAYERS),
     # -- Classification (text labels; filtered via the multi-pick value list) - #
     _b("sector", "Sector", "Classification", COMPANY),
     _b("industry", "Industry", "Classification", COMPANY),

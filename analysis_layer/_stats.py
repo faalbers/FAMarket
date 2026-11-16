@@ -78,3 +78,53 @@ def percentile_rank_tiered(
             if len(idx) >= min_n:
                 out.loc[idx] = percentile_rank(s.loc[idx], ascending)
     return out
+
+
+def percentile_vs_ref(values: pd.Series, ref: pd.Series | None,
+                      ascending: bool = True) -> pd.Series:
+    """0-100 percentile of every value against the REFERENCE rows' values only.
+
+    `ref` (bool, same index) is the fixed ranking universe (fix list §18): live,
+    listed companies one line each, or one share class per fund. Rows outside it
+    (an OTC stock, a second fund class) are still placed in that distribution.
+    Same tie handling as `percentile_rank` (average rank / n), so with `ref` =
+    every row the result is identical; a value beyond the reference range is
+    clipped to 0-100. No reference values -> falls back to all rows. NaN kept.
+    """
+    s = pd.to_numeric(values, errors="coerce")
+    if ref is None:
+        return percentile_rank(s, ascending)
+    r = s[ref.reindex(s.index).fillna(False).astype(bool) & s.notna()]
+    if r.empty:
+        return percentile_rank(s, ascending)
+    sign = 1.0 if ascending else -1.0
+    v = np.sort(r.to_numpy(dtype="float64") * sign)
+    x = s.to_numpy(dtype="float64") * sign
+    lo = np.searchsorted(v, x, side="left")
+    hi = np.searchsorted(v, x, side="right")
+    pct = (lo + (hi - lo + 1) / 2) / len(v) * 100
+    out = pd.Series(np.clip(pct, 0.0, 100.0), index=s.index)
+    return out.where(s.notna())
+
+
+def percentile_vs_ref_tiered(
+    values: pd.Series, tiers: list[pd.Series], ref: pd.Series | None,
+    ascending: bool = True, min_n: int = 5,
+) -> pd.Series:
+    """`percentile_rank_tiered` against the reference rows: each row is ranked in
+    the narrowest tier group holding >= `min_n` REFERENCE values (industry, then
+    sector), else against the whole reference set."""
+    if ref is None:
+        return percentile_rank_tiered(values, tiers, ascending, min_n)
+    s = pd.to_numeric(values, errors="coerce")
+    refb = ref.reindex(s.index).fillna(False).astype(bool)
+    out = percentile_vs_ref(s, refb, ascending)
+    for groups in reversed(tiers):  # broadest first so the narrowest tier wins
+        frame = pd.DataFrame({"v": s, "g": groups, "r": refb})
+        frame = frame.dropna(subset=["v", "g"])
+        n_ref = frame[frame["r"]].groupby("g").size()
+        ok = set(n_ref.index[n_ref >= min_n])
+        for g, idx in frame.groupby("g").groups.items():
+            if g in ok:
+                out.loc[idx] = percentile_vs_ref(s.loc[idx], refb.loc[idx], ascending)
+    return out

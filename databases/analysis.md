@@ -8,6 +8,7 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
 ## Table `analysis_meta` — one row
 
 - **`analyzed_at`** (UTC build time), **`prices_as_of`** (the price date every metric uses), **`n_symbols`**.
+- **`rank_universe_<pool>`** (since 2026-11-15) — size of each ranking pool's reference set (see 11): `rank_universe_company`, `rank_universe_fund`, `rank_universe_preferred`, …
 
 ## Table `analysis` — one row per symbol
 
@@ -152,25 +153,34 @@ Since 2026-11-15 every metric except the two `_ttm` ones is on **regular** payme
 
 ## 11. Rankings and scores (0-100, higher = better)
 
-- **`rs_rank`** (0-99) — IBD-style relative strength. `rs_raw` = 0.4·r(Q1) + 0.2·r(Q2) + 0.2·r(Q3) + 0.2·r(Q4), where r = price ratio over each of the last four 63-trading-day quarters (newest first). Ranked as a percentile **within the same `security_type`** (types with < 30 members ranked across all). Needs 252+ days of history.
+- **Fixed ranking universe** (since 2026-11-15; before, every row in the table):
+  - **`rank_pool`** — `company` (stock, ADR), `fund` (ETF, mutual fund, closed-end fund), else the security type (`preferred`, `unit`, …). Rows are only ranked within their pool.
+  - **`rank_universe`** (0/1) — the pool's reference rows, the distribution every percentile is taken against: companies with `peer_universe` = 1 (listed, own market cap), one share class per mutual fund (SEC series; the class with a return history first, then alphabetical), every row of the other pools. Rows outside it (OTC stocks, extra fund classes) are placed in that distribution.
+  - The absolute rules' fade-out reach is also measured on the reference rows.
+- **`rs_rank`** (0-99) — IBD-style relative strength. `rs_raw` = 0.4·r(Q1) + 0.2·r(Q2) + 0.2·r(Q3) + 0.2·r(Q4), where r = price ratio over each of the last four 63-trading-day quarters (newest first). Percentile **within the ranking pool**, against its reference rows (pools with < 30 reference values ranked across all). Needs 252+ days of history.
 - **`<metric>_goodness`** — each metric turned into a 0-100 "how good is this value" score by a per-metric rule:
-  - **peer** rules: percentile within industry (≥ 5 members), else sector, else whole table — e.g. P/E (lower better), margins, ROE (higher better).
-  - **universe** rules: percentile across the whole table — e.g. CAGRs, growth steadiness.
+  - **peer** rules: percentile within industry (≥ 5 reference members), else sector, else the pool — e.g. P/E (lower better), margins, ROE (higher better).
+  - **universe** rules: percentile across the pool — e.g. growth trends, CAGRs, growth steadiness.
   - **absolute** rules: 50 at a fixed line (e.g. PEG 1.0, margin of safety 0, Altman 3.0, Beneish −1.78, revisions 0), or 100 inside a sweet-spot band (current ratio 1.5-3, quick ratio 1-2, cash ratio 0.2-0.75, RSI 40-70, `bb_pct` 0.3-0.7, dividend yield 2-6% (REIT 4-10%), payout 30-60% (REIT 80-95%)), fading to 0 toward the data's outlier fence.
   - Columns ending in `_score` (`beneish_m_score`, `quick_health_score`) have no goodness twin.
-- **Category scores** — weighted average of the available goodness values in the category (missing metrics drop out, weights renormalize; NULL if none):
-  - **`value_score`** — ev_ebitda, p_fcf, margin_of_safety (1.0), pe (0.75), peg, pb, ps (0.5), ev_revenue, forward_pe (0.25).
+  - **`margin_of_safety_goodness`** is NULL when `fair_value_tail` = 1 (a model tail is not a bargain).
+- **Category scores** — weighted average of the available goodness values in the category (missing metrics drop out, weights renormalize). **NULL when less than half of the category's weight is present** (since 2026-11-15; before, any one input gave a score):
+  - **`<category>_inputs`** (%) — the share of the weight present, stored next to each score.
+  - **`value_score`** — ev_ebitda, p_fcf, margin_of_safety (1.0), pe (0.75), peg, pb, ps (0.5), ev_revenue (0.25). `forward_pe` left out since 2026-11-15.
   - **`quality_score`** — roic, gross_margin (1.0), roe, altman_z, fcf_margin (0.75), net_margin, debt_to_equity, current_ratio, interest_coverage (0.5), operating_margin, roa, debt_to_ebitda (0.25).
-  - **`growth_score`** — eps_cagr_3y, revenue_cagr_3y (1.0), eps_yoy_q, revenue_yoy_q (0.75), fcf_cagr_3y, eps_growth_tau, eps_cagr_5y, revenue_cagr_5y, forward_eps_growth, eps_revision_1m, revenue_accel, earnings_surprise_avg (0.5).
+  - **`growth_score`** — eps_growth_checked, revenue_growth_checked (1.0), eps_yoy_q, revenue_yoy_q (0.75), fcf_growth_trend, eps_growth_tau, eps_revision_1m, revenue_accel, earnings_surprise_avg (0.5). Since 2026-11-15; before, the 3- and 5-year CAGRs and `forward_eps_growth`.
+  - **`revenue_growth_checked`**, **`eps_growth_checked`** (%) — the trend growth, pulled halfway toward the analysts' next-year forecast (`forward_rev_growth`, `forward_eps_growth`) when the forecast is lower; a higher forecast adds nothing. Forecasts for fast growers run high and get cut later (La Porta 1996; Bordalo, Gennaioli, La Porta & Shleifer 2019).
   - **`momentum_score`** — rs_rank (1.0), pct_from_52w_high (0.75), price_vs_ma_50, price_vs_ma_200 (0.5), price_vs_ma_150, insider_net_buy_pct (0.25).
   - **`income_score`** — div_yield (1.0), div_cagr_3y, div_coverage, div_consistency (0.75), div_payout_ratio, div_consecutive_years (0.5), div_cagr_5y (0.375), div_years_paid (0.25).
-- **`overall_score`** — quality 25%, value 22%, momentum 20%, growth 18%, income 15%, renormalized over the categories present (funds usually only have momentum and income).
+- **`overall_score`** — quality 25%, value 22%, momentum 20%, growth 18%, income 15%, renormalized over the categories present; NULL below half of that weight (`overall_inputs`). Funds have only momentum and income (35%), so they have no overall score since 2026-11-15.
+- **Non-payers** have no `income_score` (only the yield and years-paid zeros are inputs, ~26% of the weight); their overall score is over the other four categories.
 - **`orphan_score`** — `growth_score`, kept only for standard/REIT stocks with below-median (or no) analyst coverage and current ratio ≥ 1.1 ("neglected firm" candidates); else NULL.
 - **`<score>_vs_type`** — each category score and `overall_score` as % above/below the median of the same `screen_type`.
 
 ## Known limitations
 
-- **Percentiles depend on the universe**: goodness, scores and `rs_rank` are relative to whatever is in the table on that run. They are not comparable across runs.
+- **Percentiles are relative to the run's reference set**: since 2026-11-15 that set is fixed by rule (listed companies, one class per fund) and its size is stored in `analysis_meta`, but the companies in it still change between runs, so scores are comparable across runs only roughly.
+- **Score accuracy is not validated yet**: whether higher scores lead to better later returns is unknown. `score_history.db` keeps one snapshot per full run (since 2026-11-15) so it can be tested once enough runs exist.
 - Scoring rules and weights can be changed locally; scores reflect the rules in force at build time.
 - Funds dominate the row count; filter by `security_type` / `screen_type` before computing statistics.
 - Fundamental metrics inherit `financials.db` gaps: a missing quarter makes every TTM metric NULL. Many stocks lack TTM P/E for this reason.

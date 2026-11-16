@@ -26,6 +26,18 @@ Design (see [[analysis-layer-design-decisions]], [[scoring-rules-system]]):
     (e.g. a fund has no valuation ratios) scores NaN, and overall_score
     renormalizes over whichever categories are present.
 
+Fixed ranking universe (fix list §18, 2026-11-15):
+  * Every row belongs to a ranking POOL (`rank_pool`): "company" (stock, ADR),
+    "fund" (ETF, mutual fund, closed-end fund), else its own security_type.
+  * Percentiles are taken against the pool's REFERENCE rows (`rank_universe` = 1):
+    listed companies with their own market cap (`peer_universe`), one share class
+    per mutual fund, every row of the other types. Rows outside it (OTC stocks,
+    extra fund classes) are placed in that distribution, so a score no longer
+    moves because OTC lines or 20,000 funds came or went.
+  * A category score needs at least SCORE_MIN_INPUT_SHARE of its metric weight
+    present, else NULL; `<category>_inputs` stores the share (%). Same for
+    overall_score over the category weights (`overall_inputs`).
+
 Scores are RESULTS, not rules — they get no rule of their own (the rewire DERIVES
 them from the parameter rules). Stored as a plain 0-100 index (unit "" in param_hints).
 """
@@ -44,7 +56,44 @@ log = get_logger("analysis")
 
 # Column suffixes that are NOT scorable base metrics: results (category/overall
 # scores), peer-relative variants, and the goodness columns themselves.
-_NON_SCORABLE_SUFFIXES = ("_score", "_vs_sector", "_vs_industry", "_vs_type", "_goodness")
+_NON_SCORABLE_SUFFIXES = ("_score", "_vs_sector", "_vs_industry", "_vs_type", "_goodness",
+                          "_inputs")
+
+
+def assign_rank_universe(df: pd.DataFrame, series_ids: pd.Series | None = None) -> pd.DataFrame:
+    """Add `rank_pool` and `rank_universe` (0/1), the fixed ranking universe (§18).
+
+    `series_ids` maps symbol -> SEC fund series id: a mutual fund's share classes
+    share one series and count once (the class with a return history first, then
+    alphabetical). Needs `security_type`, `symbol` and (for companies) `peer_universe`.
+    """
+    st = df["security_type"]
+    pool = st.map(settings.RANK_POOL_BY_TYPE).fillna(st).fillna("other")
+    ref = pd.Series(True, index=df.index)
+    company = pool == "company"
+    peer = (pd.to_numeric(df["peer_universe"], errors="coerce") == 1
+            if "peer_universe" in df.columns else pd.Series(False, index=df.index))
+    ref[company] = peer[company]
+    mf = st == "mutual_fund"
+    if series_ids is not None and mf.any():
+        sid = df.loc[mf, "symbol"].map(series_ids)
+        has_rs = (pd.to_numeric(df.loc[mf, "rs_raw"], errors="coerce").notna()
+                  if "rs_raw" in df.columns else pd.Series(True, index=sid.index))
+        order = pd.DataFrame({"sid": sid, "no_rs": ~has_rs, "sym": df.loc[mf, "symbol"]})
+        order = order[order["sid"].notna()].sort_values(["no_rs", "sym"])
+        extra = order.index[order.duplicated("sid", keep="first")]
+        ref[extra] = False
+    df["rank_pool"] = pool
+    df["rank_universe"] = ref.astype(int)
+    return df
+
+
+def universe_sizes(df: pd.DataFrame) -> dict[str, int]:
+    """Reference rows per ranking pool, stored with each run (analysis_meta)."""
+    if "rank_pool" not in df.columns:
+        return {}
+    ref = pd.to_numeric(df["rank_universe"], errors="coerce") == 1
+    return {f"rank_universe_{k}": int(v) for k, v in df[ref].groupby("rank_pool").size().items()}
 
 
 def compute(df: pd.DataFrame) -> pd.DataFrame:
@@ -71,12 +120,32 @@ def _apply_rule_scores(df: pd.DataFrame, rules: dict[str, dict] | None = None) -
     anchor lives in the rules, loaded once.
     """
     rules = rules if rules is not None else scoring_rules.load_rules()
+    df = _forecast_checked_growth(df)                       # 0. growth inputs (§18)
     df = _goodness_columns(df, rules)                       # 1. per-parameter Score
-    for category, weights in settings.CATEGORY_METRIC_WEIGHTS.items():
-        df[f"{category}_score"] = _category_score(df, weights, rules)  # 2. categories
+    for category, weights in settings.CATEGORY_METRIC_WEIGHTS.items():   # 2. categories
+        df[f"{category}_score"], df[f"{category}_inputs"] = _category_score(df, weights, rules)
     df["orphan_score"] = _orphan_score(df)                  # 3. orphan (growth-derived)
-    df["overall_score"] = _overall_score(df)               # 4. overall
+    df["overall_score"], df["overall_inputs"] = _overall_score(df)  # 4. overall
     return _type_relative_scores(df)                        # 5. vs_type (needs 2+4 done)
+
+
+def _forecast_checked_growth(df: pd.DataFrame) -> pd.DataFrame:
+    """`<x>_growth_checked`: the robust trend growth (§16), pulled halfway toward the
+    analysts' next-year forecast when the forecast is LOWER; a higher forecast adds
+    nothing (fix list §18). Forecasts for fast growers run too high and get cut
+    later (La Porta 1996; Bordalo, Gennaioli, La Porta & Shleifer 2019), so they
+    can only lower the score's growth input. Revenue uses the revenue forecast,
+    EPS the EPS forecast. No forecast -> the trend itself."""
+    for base, fwd in (("revenue", "forward_rev_growth"), ("eps", "forward_eps_growth")):
+        trend_col = f"{base}_growth_trend"
+        if trend_col not in df.columns:
+            continue
+        trend = pd.to_numeric(df[trend_col], errors="coerce")
+        f = (pd.to_numeric(df[fwd], errors="coerce") if fwd in df.columns
+             else pd.Series(np.nan, index=df.index))
+        lower = f.notna() & trend.notna() & (f < trend)
+        df[f"{base}_growth_checked"] = trend.where(~lower, (trend + f) / 2)
+    return df
 
 
 def _type_relative_scores(df: pd.DataFrame) -> pd.DataFrame:
@@ -197,19 +266,27 @@ def _rs_rank(df: pd.DataFrame) -> pd.Series:
     if "rs_raw" not in df.columns:
         return pd.Series(np.nan, index=df.index, dtype="float64")
     raw = pd.to_numeric(df["rs_raw"], errors="coerce")  # higher return = stronger
-    if "security_type" in df.columns:
+    pct = _stats.percentile_rank(raw, ascending=True)   # universe: the thin-pool fallback
+    if "rank_pool" in df.columns:  # ranked within its pool, against the fixed universe (§18)
+        ref = pd.to_numeric(df["rank_universe"], errors="coerce") == 1
+        for idx in df.groupby("rank_pool", dropna=False).groups.values():
+            r = ref.loc[idx] & raw.loc[idx].notna()
+            if r.sum() >= settings.RS_RANK_MIN_PER_TYPE:
+                pct.loc[idx] = _stats.percentile_vs_ref(raw.loc[idx], ref.loc[idx])
+    elif "security_type" in df.columns:  # frame without the pool columns: old behaviour
         pct = _stats.percentile_rank_tiered(
             raw, [df["security_type"]], ascending=True,
             min_n=settings.RS_RANK_MIN_PER_TYPE,
         )
-    else:  # safety net: no type column -> old universe-wide behaviour
-        pct = _stats.percentile_rank(raw, ascending=True)
     return (pct * 0.99).round()  # 0-100 percentile -> IBD 0-99 integer scale
 
 
 def _category_score(df: pd.DataFrame, weights: dict[str, float],
-                    rules: dict[str, dict]) -> pd.Series:
-    """Weight-averaged per-metric GOODNESS of the available metrics; NaN if none.
+                    rules: dict[str, dict]) -> tuple[pd.Series, pd.Series]:
+    """(score, inputs): the weight-averaged per-metric GOODNESS of the available
+    metrics, and the share of the category's weight present (%). The score is NaN
+    below SCORE_MIN_INPUT_SHARE (§18): a loss-maker's value score from P/S and P/B
+    alone (22% of the weight) ranked it cheaper than profitable companies.
 
     Reuses the `<metric>_goodness` columns already computed by `_goodness_columns`
     (one goodness per metric, never recomputed). The only weighted metric without a
@@ -228,11 +305,20 @@ def _category_score(df: pd.DataFrame, weights: dict[str, float],
         present = g.notna()
         total[present] += g[present] * w
         wsum[present] += w
-    return (total / wsum).where(wsum > 0)
+    return _gated(total, wsum, sum(weights.values()))
 
 
-def _overall_score(df: pd.DataFrame) -> pd.Series:
-    """Category scores combined per OVERALL_SCORE_WEIGHTS, renormalized to present."""
+def _gated(total: pd.Series, wsum: pd.Series, possible: float) -> tuple[pd.Series, pd.Series]:
+    """Weighted mean and inputs share (%), the mean NaN below the minimum share."""
+    share = wsum / possible * 100 if possible > 0 else wsum * 0
+    ok = (wsum > 0) & (share >= settings.SCORE_MIN_INPUT_SHARE * 100)
+    return (total / wsum).where(ok), share.round(1)
+
+
+def _overall_score(df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
+    """Category scores combined per OVERALL_SCORE_WEIGHTS, renormalized to present;
+    NaN below SCORE_MIN_INPUT_SHARE of the category weight (funds: momentum +
+    income only, 35%)."""
     total = pd.Series(0.0, index=df.index)
     wsum = pd.Series(0.0, index=df.index)
     for category, w in settings.OVERALL_SCORE_WEIGHTS.items():
@@ -243,4 +329,4 @@ def _overall_score(df: pd.DataFrame) -> pd.Series:
         present = score.notna()
         total[present] += score[present] * w
         wsum[present] += w
-    return (total / wsum).where(wsum > 0)
+    return _gated(total, wsum, sum(settings.OVERALL_SCORE_WEIGHTS.values()))

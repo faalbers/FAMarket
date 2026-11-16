@@ -2,7 +2,7 @@
 Scoring-rule editing support: which metrics are editable, and the histogram
 preview that shows what a candidate rule would do to the real universe.
 
-Colouring goes through `scoring_rules.goodness`, the same function the heat map
+Colouring goes through `scoring_rules.frame_goodness`, the same function the heat map
 and the stored `*_goodness` columns use — a rule is never scored twice by two
 different implementations.
 """
@@ -114,12 +114,7 @@ def preview(metric: str, rule: dict) -> dict[str, Any]:
         return {"bins": [], "hint": rule_hints.rule_hint_markdown(metric, rule),
                 "message": "No data for this metric in analysis.db."}
 
-    tiers = (
-        [frame["industry"], frame["sector"]]
-        if rule.get("anchor") == "peer" and {"industry", "sector"} <= set(frame.columns)
-        else None
-    )
-    good = SR.goodness(frame[metric], rule, tiers)
+    good = SR.frame_goodness(frame, metric, rule)  # same pooled ranking as the stored scores
 
     q1, q3 = float(clean.quantile(0.25)), float(clean.quantile(0.75))
     iqr = q3 - q1
