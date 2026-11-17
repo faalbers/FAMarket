@@ -76,6 +76,8 @@ HELP: dict[str, str] = {
     "PEAK_MARGIN_GAP_PP": "Cyclical peak: points the latest operating margin must sit above both its normal and its trend line.",
     "DIV_OUTGROW_GAP_PP": "Dividend warning: points per year the regular dividend must grow faster than net income.",
     "DIV_OUTGROW_PAYOUT": "Dividend warning: minimum payout ratio (%) for the warning, unless the latest year was a loss.",
+    "PEER_STRENGTH_MIN_CAP": "Peer Strength: market cap ($) of the listed companies the measures are ranked against.",
+    "PEER_STRENGTH_MIN_PEERS": "Peer Strength: reference companies an industry needs to be the peer group (else the sector / type).",
     "RECONCILE_TOLERANCE_PCT": "Max fractional gap between a computed ratio and yfinance's before a divergence WARNING is logged (0.10 = 10%).",
 }
 
@@ -254,6 +256,8 @@ def sections() -> list[dict[str, Any]]:
                 _field("PEAK_MARGIN_GAP_PP", "Peak: margin gap (points)", "float", lo=0.0, hi=100.0, step=1.0, group="Health check"),
                 _field("DIV_OUTGROW_GAP_PP", "Dividend warning: growth gap (points)", "float", lo=0.0, hi=50.0, step=0.5, group="Health check"),
                 _field("DIV_OUTGROW_PAYOUT", "Dividend warning: min payout (%)", "float", lo=0.0, hi=200.0, step=5.0, group="Health check"),
+                _field("PEER_STRENGTH_MIN_CAP", "Peer Strength: min market cap ($)", "float", lo=0.0, hi=1e12, step=1e8, group="Peer Strength"),
+                _field("PEER_STRENGTH_MIN_PEERS", "Peer Strength: min industry peers", "int", lo=2, hi=50, group="Peer Strength"),
                 _field("RECONCILE_TOLERANCE_PCT", "Tolerance (fraction)", "float", lo=0.0, hi=1.0, step=0.01, group="Reconcile"),
             ],
         },

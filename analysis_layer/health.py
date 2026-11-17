@@ -41,7 +41,7 @@ _BROKER_INDUSTRIES = ("Capital Markets", "Financial Conglomerates", "Mortgage Fi
 _UTILITY_INDUSTRIES = ("Utilities - Regulated Electric", "Utilities - Regulated Gas",
                        "Utilities - Regulated Water", "Utilities - Diversified")
 
-_FIELDS = ("total_revenue", "operating_income", "pretax_income", "net_income",
+FIELDS = ("total_revenue", "operating_income", "pretax_income", "net_income",
            "normalized_ebitda", "ebitda", "total_debt", "interest_expense",
            "stockholders_equity", "common_stock_equity", "total_assets",
            "tangible_book_value", "goodwill_and_other_intangible_assets",
@@ -362,16 +362,19 @@ def _div_outgrowing(tab: pd.DataFrame, m: dict) -> float:
 
 
 def assess(fin, ctype: str | None, m: dict, dividends: pd.Series | None = None,
-           splits: pd.Series | None = None) -> tuple[dict, Pending | None]:
+           splits: pd.Series | None = None,
+           table: pd.DataFrame | None = None) -> tuple[dict, Pending | None]:
     """Per-symbol columns, plus the inputs an ordinary company / utility / telecom
-    still needs its industry's line for (see `finalize`)."""
+    still needs its industry's line for (see `finalize`). `table` = a prebuilt
+    `P.annual_table` holding at least FIELDS (the pipeline builds one per symbol
+    for this module and `strength`)."""
     out: dict = {"company_type": ctype, "health_check": None, "health_reason": None,
                  "op_margin_std": float("nan"), "margin_peak": float("nan"),
                  "margin_vs_normal": float("nan"), "div_outgrowing_earnings": float("nan"),
                  "economic_return_3y": float("nan")}
     if ctype is None:
         return out, None
-    tab = P.annual_table(fin, _FIELDS)
+    tab: pd.DataFrame = table if table is not None else P.annual_table(fin, FIELDS)
     if tab.empty:
         return out, None
     op = _margins(tab, "operating_income")

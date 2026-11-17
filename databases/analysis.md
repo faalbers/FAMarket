@@ -86,6 +86,12 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
   - **Broker:** fail when equity ≤ 0 or a net loss in 2 of the last 3 years; warn when the latest year is a loss.
   - **Mortgage REIT:** fail when `economic_return_3y` < −20%; warn when it is < 0% or dividends paid exceed net income over the period.
 - **`economic_return_3y`** (%, mortgage REITs) — (change in book value per share + dividends per share paid in between) / starting book value per share, over up to 3 fiscal years. Book value per share = `common_stock_equity` / year-end `ordinary_shares_number`, each year's count put on today's split basis; dividends from `ohlcv` (Annaly 2022-2024: 20.79 / 19.44 / 19.15, as reported).
+- **Peer Strength measures** (since 2026-11-16, `analysis_layer/strength.py`; only for the types that use them):
+  - **`roa_3y`**, **`rotce_3y`** (net income / tangible book), **`pretax_margin_3y`**, **`ebitda_margin_3y`** (%) — medians of the newest 3 fiscal years (≥ 2).
+  - **`tangible_equity_ratio`** (%) — tangible book / (total assets − goodwill and intangibles). **`debt_to_capital`** (%) — debt / (debt + equity).
+  - **`pretax_interest_cover`** (x) — (pre-tax income + interest) / interest; **`ebitda_interest_cover`** (x) — EBITDA / interest, 0 when EBITDA ≤ 0. Both 999 = no interest to pay (the insurer one only when profitable).
+  - **`roe_std`** (points) — standard deviation of the yearly ROE over 5-10 years.
+  - **`tbv_ps_growth`**, **`bvps_growth`**, **`ocf_ps_growth`** (%/yr) — robust growth (§5) of tangible book / book value / operating cash flow per diluted share over ~6 years; share counts put on the newest year's split basis when a split falls in the window (NULL if even the best basis is > 2.5x off).
 
 ## 5. Growth
 
@@ -189,6 +195,11 @@ Since 2026-11-15 every metric except the two `_ttm` ones is on **regular** payme
 - **`overall_score`** — quality 25%, value 22%, momentum 20%, growth 18%, income 15%, renormalized over the categories present; NULL below half of that weight (`overall_inputs`). Funds have only momentum and income (35%), so they have no overall score since 2026-11-15.
 - **Non-payers** have no `income_score` (only the yield and years-paid zeros are inputs, ~26% of the weight); their overall score is over the other four categories.
 - **`orphan_score`** — `growth_score`, kept only for standard/REIT stocks with below-median (or no) analyst coverage and current ratio ≥ 1.1 ("neglected firm" candidates); else NULL.
+- **`peer_strength`** (0-100, since 2026-11-16) — the company's strength against its peers on its type's measures: each measure's percentile (flipped where lower is better), averaged.
+  - **Measures:** bank — `roa_3y`, `rotce_3y`, `pretax_margin_3y`, `tangible_equity_ratio`, `tbv_ps_growth`; insurer — `pretax_margin_3y`, `debt_to_capital` (lower), `pretax_interest_cover`, `roe_std` (lower), `bvps_growth`; REIT — `ebitda_margin_3y`, `debt_to_ebitda` (lower; EBITDA ≤ 0 = worst), `ebitda_interest_cover`, `ocf_ps_growth`; broker — `rotce_3y`, `pretax_margin_3y`, `roe_std` (lower), `tbv_ps_growth`; ordinary / utility / telecom — `roic`, `ocf_to_ni_3y`, `op_margin_std` (lower), `debt_to_ebitda` (lower; EBITDA ≤ 0 = worst), `interest_coverage`, `piotroski_f`.
+  - **Peers:** the industry when it holds ≥ 8 reference companies of the type family, else the sector (ordinary family) or the whole type. **Reference** = listed (`peer_universe`) companies ≥ $2B; smaller / OTC companies are scored against them.
+  - NULL with fewer than 2/3 of the type's measures (ordinary: 4 of 6), for mortgage REITs (gated by `health_check` instead) and shells. **`peer_strength_measures`** = how many it rests on.
+  - The review's test: the weaker score went to the riskier stock (later peer-adjusted volatility) in ~70% of pairs.
 - **`<score>_vs_type`** — each category score and `overall_score` as % above/below the median of the same `screen_type`.
 
 ## Known limitations

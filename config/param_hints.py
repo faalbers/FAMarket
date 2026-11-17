@@ -1944,3 +1944,119 @@ def hint_html(
     if "vs_peers" in sections and h.get("vs_peers"):
         parts.append(f"<div class='fam-h-s'><i>Peers:</i> {e(h['vs_peers'])}</div>")
     return "".join(parts)
+
+# Peer Strength and its type-specific measures (fix list §21, Group H part 2).
+PARAM_HINTS.update(
+{'peer_strength': {'name': 'Peer Strength',
+                   'category': 'Score',
+                   'unit': '',
+                   'what_it_is': '0-100: how strong the company is against its peers on the '
+                                 'measures that fit its type (banks: ROA, ROTCE, pre-tax margin, '
+                                 'tangible equity, tangible book growth; insurers, REITs, brokers: '
+                                 'their own sets; ordinary companies / utilities / telecoms: ROIC, '
+                                 'cash conversion, margin steadiness, debt/EBITDA, interest cover, '
+                                 "Piotroski). The mean of the measures' percentiles within the "
+                                 'industry (>= 8 peers) or the sector / type.',
+                   'how_to_use': ['Peers are listed companies of $2B+; smaller and OTC companies '
+                                  'are placed in that distribution.',
+                                  'Unlike the category scores it uses type-specific measures, so a '
+                                  'bank is judged as a bank.',
+                                  "In the review's test the weaker score went to the riskier stock "
+                                  'in ~70% of pairs.',
+                                  "Empty with too few measures (2/3 of the type's; ordinary 4 of "
+                                  '6), for mortgage REITs and shells.'],
+                   'vs_peers': 'Yes — it IS a peer ranking.'},
+ 'peer_strength_measures': {'name': 'Peer Strength measures',
+                            'category': 'Score',
+                            'unit': '',
+                            'what_it_is': "How many of its type's measures the Peer Strength rests "
+                                          'on (banks / insurers 5, REITs / brokers 4, ordinary '
+                                          'companies 6).',
+                            'how_to_use': ['Filter it high to keep only strengths built on '
+                                           '(almost) all measures.'],
+                            'vs_peers': 'No — a count.'},
+ 'roa_3y': {'name': 'ROA (3y median)',
+            'category': 'Profitability',
+            'unit': '%',
+            'what_it_is': 'Net income / total assets, median of the newest 3 fiscal years. A bank '
+                          'measure.',
+            'how_to_use': ['Banks: ~1% is solid, under 0.5% weak.'],
+            'vs_peers': 'Yes.'},
+ 'rotce_3y': {'name': 'ROTCE (3y median)',
+              'category': 'Profitability',
+              'unit': '%',
+              'what_it_is': 'Net income / tangible book value (equity minus goodwill and '
+                            'intangibles), median of the newest 3 fiscal years. Banks and brokers.',
+              'how_to_use': ['Banks: 12-15%+ is strong. Empty when tangible book is negative.'],
+              'vs_peers': 'Yes.'},
+ 'pretax_margin_3y': {'name': 'Pre-tax margin (3y median)',
+                      'category': 'Profitability',
+                      'unit': '%',
+                      'what_it_is': 'Pre-tax income / revenue, median of the newest 3 fiscal '
+                                    'years. Banks, insurers, brokers.',
+                      'how_to_use': ['Compare within the same type only.'],
+                      'vs_peers': 'Yes.'},
+ 'ebitda_margin_3y': {'name': 'EBITDA margin (3y median)',
+                      'category': 'Profitability',
+                      'unit': '%',
+                      'what_it_is': 'EBITDA / revenue, median of the newest 3 fiscal years. REITs.',
+                      'how_to_use': ['REITs typically 50-70%.'],
+                      'vs_peers': 'Yes.'},
+ 'roe_std': {'name': 'ROE steadiness',
+             'category': 'Profitability',
+             'unit': '%',
+             'what_it_is': 'Standard deviation of the yearly ROE over 5-10 fiscal years, in '
+                           'points. Insurers and brokers. Lower = steadier.',
+             'how_to_use': ['High = earnings swing with markets or catastrophe years.'],
+             'vs_peers': 'Yes.'},
+ 'tangible_equity_ratio': {'name': 'Tangible equity ratio',
+                           'category': 'Balance Sheet',
+                           'unit': '%',
+                           'what_it_is': 'Tangible book value / (total assets - goodwill and '
+                                         'intangibles), latest fiscal year. Banks.',
+                           'how_to_use': ['Under 4% is thin capital (the health check warns); '
+                                          '8-10% is typical.'],
+                           'vs_peers': 'Yes.'},
+ 'debt_to_capital': {'name': 'Debt / capital',
+                     'category': 'Balance Sheet',
+                     'unit': '%',
+                     'what_it_is': 'Total debt / (debt + equity), latest fiscal year. Insurers.',
+                     'how_to_use': ['Above 35% the health check warns.'],
+                     'vs_peers': 'Yes.'},
+ 'pretax_interest_cover': {'name': 'Interest cover (pre-tax)',
+                           'category': 'Balance Sheet',
+                           'unit': 'x',
+                           'what_it_is': '(Pre-tax income + interest) / interest, latest fiscal '
+                                         'year. Insurers. 999 = no interest to pay (only when '
+                                         'profitable).',
+                           'how_to_use': ['Below 2x fails the health check, below 4x warns.'],
+                           'vs_peers': 'Yes.'},
+ 'ebitda_interest_cover': {'name': 'EBITDA / interest',
+                           'category': 'Balance Sheet',
+                           'unit': 'x',
+                           'what_it_is': 'EBITDA / interest, latest fiscal year. REITs. 0 when '
+                                         'EBITDA <= 0; 999 = no interest.',
+                           'how_to_use': ['Below 2x fails the health check, below 3x warns.'],
+                           'vs_peers': 'Yes.'},
+ 'tbv_ps_growth': {'name': 'Tangible book / share growth',
+                   'category': 'Growth',
+                   'unit': '%',
+                   'what_it_is': 'Robust growth (%/yr) of tangible book value per diluted share '
+                                 'over ~6 years. Banks, brokers.',
+                   'how_to_use': ['The compounding of shareholder value a bank is judged on.'],
+                   'vs_peers': 'Yes.'},
+ 'bvps_growth': {'name': 'Book value / share growth',
+                 'category': 'Growth',
+                 'unit': '%',
+                 'what_it_is': 'Robust growth (%/yr) of book value per diluted share over ~6 '
+                               'years. Insurers.',
+                 'how_to_use': ["Book value growth plus dividends is an insurer's real return."],
+                 'vs_peers': 'Yes.'},
+ 'ocf_ps_growth': {'name': 'Operating cash flow / share growth',
+                   'category': 'Growth',
+                   'unit': '%',
+                   'what_it_is': 'Robust growth (%/yr) of operating cash flow per diluted share '
+                                 'over ~6 years. REITs (a steadier stand-in for FFO growth).',
+                   'how_to_use': ['REITs issue shares often, so per-share growth is what counts.'],
+                   'vs_peers': 'Yes.'}}
+)

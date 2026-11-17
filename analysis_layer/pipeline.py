@@ -42,7 +42,7 @@ from analysis_layer import _periods as P
 from analysis_layer import metrics, technical, intrinsic_value, valuation_scenarios, peers, scoring
 from analysis_layer import estimates as estimates_metrics
 from analysis_layer import signals as signals_metrics
-from analysis_layer import benchmark_push, health, price_quality, sector_index
+from analysis_layer import benchmark_push, health, price_quality, sector_index, strength
 from config.industry_overrides import INDUSTRY_OVERRIDES
 from data_layer import price_checks
 from core.market_calendar import last_completed_session
@@ -204,6 +204,10 @@ def _secondary_lines(universe: pd.DataFrame, quotes: pd.DataFrame) -> set[str]:
     return set(sec["symbol"])
 
 
+# Annual fields the health check and Peer Strength read (one table per symbol).
+_ANNUAL_FIELDS = tuple(dict.fromkeys(health.FIELDS + strength.FIELDS))
+
+
 def _in_peer_universe(security_type, quote, market_cap) -> bool:
     """The fixed set peer medians are taken over (fix list §19): a stock or ADR,
     listed on an exchange (Yahoo's exchange name is not "OTC Markets ..."), with a
@@ -361,10 +365,14 @@ def run_analysis(subset: list[str] | None = None) -> dict:
                             risk_free=risk_free,
                             secondary_line=sym in secondary)
         # health check / peak check / dividend warning (fix list §21, Group H part 1)
-        hc, hp = health.assess(fsym, health.company_type(sec_type, ind), m,
-                               div_by.get(sym), split_by.get(sym))
+        ctype = health.company_type(sec_type, ind)
+        # one row per fiscal year, built once for the health check and Peer Strength
+        ann = P.annual_table(fsym, _ANNUAL_FIELDS) if ctype else None
+        hc, hp = health.assess(fsym, ctype, m, div_by.get(sym), split_by.get(sym), table=ann)
         if hp is not None:
             health_pending[sym] = hp
+        hc.update(strength.measures(ann if ann is not None else pd.DataFrame(), ctype,
+                                    split_by.get(sym)))
         t = technical.compute(sym, osym, first_date=first_date_by.get(sym))
         iv = intrinsic_value.compute(sym, fsym, quote, price, m, risk_free,
                                       screen_type=screen_type, regulated=regulated)
@@ -411,6 +419,7 @@ def run_analysis(subset: list[str] | None = None) -> dict:
 
     # -- cross-symbol stages --------------------------------------------------- #
     df = health.finalize(df, health_pending)  # industry debt lines for ordinary companies
+    df = strength.compute(df)                 # Peer Strength (needs peer_universe, piotroski)
     log.info("Analysis — peer comparisons across %d symbols…", len(df))
     df = peers.compute(df)
     log.info("Analysis — scoring (ranks + category scores)…")

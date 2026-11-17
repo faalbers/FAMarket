@@ -615,6 +615,10 @@ PEAK_MIN_EARLIER_YEARS: int = 5
 # with a payout of at least DIV_OUTGROW_PAYOUT % or shrinking earnings.
 DIV_OUTGROW_GAP_PP: float = 5.0
 DIV_OUTGROW_PAYOUT: float = 50.0
+# Peer Strength (fix list §21, Group H part 2): ranked against listed companies of at
+# least this size; the industry is the peer group when it holds this many of them.
+PEER_STRENGTH_MIN_CAP: float = 2e9
+PEER_STRENGTH_MIN_PEERS: int = 8
 
 # --------------------------------------------------------------------------- #
 # Scoring & ranking (Topic 4.4) — all adjustable from the Settings page

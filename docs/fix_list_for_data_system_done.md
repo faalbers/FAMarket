@@ -549,9 +549,46 @@ The review points to §21 for it; it needs the industry benchmark map, so it is 
 - **Listed, ≥ $2B:** 1,249 ok, 367 warn, 372 fail; 9 margin peaks and 190 dividend warnings among all listed companies.
 - **Run:** 0 errors, 0 warnings; ~10 minutes; peak RAM 8.4 GB. All 13 saved filters pass `validate_filt`. `indices.db.gz` pushed to FAPortfolio and read back OK.
 
+## Round 11 — Group H, part 2: §21 Peer Strength (2026-11-16)
+
+**Approach:** the review's scoring and measures per type, in a new module `analysis_layer/strength.py`. The one-row-per-year table is now built once per company and shared by the health check and Peer Strength. Tested with a read-only build over all 7,561 stocks and ADRs; after the 2026-11-16 analysis run the stored values match it exactly (see "Checked after the run").
+
+### Peer Strength for banks, insurers, REITs, brokers — Built
+
+- **New column `peer_strength`** (0-100) and **`peer_strength_measures`** (how many measures it rests on).
+- **New measure columns:** `roa_3y`, `rotce_3y`, `pretax_margin_3y`, `ebitda_margin_3y` (3-year medians), `tangible_equity_ratio`, `debt_to_capital`, `pretax_interest_cover`, `ebitda_interest_cover` (999 = no interest), `roe_std`, `tbv_ps_growth`, `bvps_growth`, `ocf_ps_growth`.
+- **Scoring as the review:** percentile per measure (flipped where lower is better) within the industry when it holds ≥ 8 reference companies of the type, else the whole type; the mean; NULL below 2/3 of the measures. Mortgage REITs keep their gate (round 10), no score.
+- **Coverage, listed ≥ $2B:** banks 127 / 128, insurers 62 / 64, REITs 82 / 84, brokers 29 / 38 (the rest are recent listings — Circle, Figure, Galaxy, MIAX — or have negative tangible book — LPL, Virtu, Rocket).
+- **Examples:** banks JPMorgan 90, Wells Fargo 58, Bank of America 57, Citi 32, Flagstar 9; brokers Schwab 83, Morgan Stanley 66, Goldman 50, Jefferies 32; REITs Host 92, Prologis 63, Realty Income 66, Macerich 5; insurers Kinsale 83, Progressive 62, MetLife 40.
+- **Where we differ from the review:**
+  - **Bank pre-tax margin, not the efficiency ratio.** The review swaps in the efficiency ratio once §23 is fixed; it is, but it covers 62% of banks against 100% for the pre-tax margin, and mixing the two would make banks incomparable.
+  - **Per-share growth** uses the years the trend uses (~6) and tests the share-count basis only when a split falls inside them. A full-history closeness test read REITs' steady share issuance as a change of basis (Agree Realty 12x the shares in 16 years): REIT cash-flow-per-share growth was missing for 48 of 84 large REITs, now 10.
+  - **Insurer "no interest"**: a missing interest line counts as none (best, when profitable) — Yahoo leaves the line out rather than reporting 0.
+
+### Peer Strength for ordinary companies, utilities, telecoms — Built
+
+- **Measures:** `roic`, `ocf_to_ni_3y`, `op_margin_std` (lower), `debt_to_ebitda` (lower; EBITDA ≤ 0 = worst), `interest_coverage`, `piotroski_f`. Peers: the industry (≥ 8), else the sector, else all three types. Needs 4 of 6.
+- **Coverage, listed ≥ $2B:** 1,375 / 1,606 ordinary, 54 / 60 utilities, 30 / 33 telecoms.
+- **Examples:** Apple 73, Microsoft 65, Coca-Cola 58, Intel 27, Boeing 19; NextEra 27 (the weakest large utility on cover and debt); Lumen 12.
+- **Where we differ:** interest cover with no interest line stays missing ("no interest = best" in the review). Yahoo's missing line can't be told from a missing figure for ordinary companies, so it isn't rewarded.
+
+### Checks
+
+- **Agreement with the health check (round 10):** median Peer Strength of listed ≥ $2B companies 59 for ok, 47 for warn, 26 for fail.
+- **The universe is the review's:** reference = listed ≥ $2B (`PEER_STRENGTH_MIN_CAP`). Smaller and OTC companies get a strength too, placed in that distribution.
+- **Health-check columns unchanged** by the shared-table refactor (all 7,561 identical).
+- **Hints:** 155 filter bases, 0 without a hint. **Type check:** `strength.py` 0 errors. **Run time:** ~3.5 s per full run (the measures 2.8 s, the ranking 0.4 s).
+
+### Checked after the run
+
+- **Stored = test build:** all 7,561 stocks / ADRs match on `company_type`, `health_check`, `health_reason` and all 130 numeric columns of the test build (every Peer Strength measure, `peer_strength`, `peer_strength_measures`, the round 10 columns). No fund or other non-company row has a `peer_strength`.
+- **Examples re-checked** on the stored data; all as above.
+- **Infinities:** none in the new columns; the only ones in `analysis.db` are 2 in `ps` (an older issue, on the follow-up list in the triage).
+- **Run:** 0 errors, 0 warnings; ~12 minutes; peak RAM 8.4 GB; 334 columns. All 13 saved filters pass `validate_filt`. `indices.db.gz` pushed to FAPortfolio and read back OK.
+
 ## Not yet reviewed
 
-§8, §21 parts 2-4 (Peer Strength, labels and REIT FFO payout, relative strength vs the industry), and the open parts of §20 not covered above. Grouped as above.
+§8, §21 parts 3-4 (labels and REIT FFO payout, relative strength vs the industry), and the open parts of §20 not covered above. Grouped as above.
 
 ## Known gaps / limitations
 

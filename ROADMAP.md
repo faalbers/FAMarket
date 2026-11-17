@@ -1128,6 +1128,11 @@ needs.
      `op_margin_std` (positive normal only), `div_outgrowing_earnings` (rising dividend, payout ≥ 50% or
      a loss — narrowed from the review), `economic_return_3y` (mortgage REITs). Parts 2-4: Peer
      Strength, labels + REIT FFO payout, relative strength vs the industry.
+   - ✅ Group H, part 2 — Peer Strength (2026-11-16, §21), analysis run checked: new
+     `analysis_layer/strength.py` — `peer_strength` (0-100) + `peer_strength_measures`, type-specific
+     measures ranked within the industry (≥ 8 reference companies) else sector / type, against listed
+     $2B+ companies (`PEER_STRENGTH_MIN_CAP`); 12 new measure columns for banks / insurers / REITs /
+     brokers; one annual table per company shared with the health check.
    - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
      `core/backup.fix_backup`).
 
