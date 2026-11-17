@@ -104,6 +104,9 @@ Rule = default scoring-rule shape/anchor from `scoring_rules.DEFAULT_RULES` (dri
 - `debt_to_ebitda` (x; standard/reit) — lender yardstick: <2 comfortable, 2-4 manageable, >4-5 strained. NULL when EBITDA ≤ 0.
 - `ebitda_negative` (0/1; standard/reit) — 1 = EBITDA ≤ 0. **A `debt_to_ebitda … OR is null` block must be paired with `ebitda_negative = 0 OR is null`**, or loss-makers pass as debt-free.
 - `piotroski_f` (0-9; standard) — the real Piotroski F-score (2000): profitability, cash flow, leverage, liquidity, dilution, margin, turnover, this year vs last. 8-9 strong, 0-2 weak; pair with a cheapness filter (that's how Piotroski used it). NULL for most banks / insurers.
+- `health_check` (text ok/warn/fail; companies) + `health_reason` — danger gate by `company_type` (ordinary / utility / telecom / bank / insurer / reit / mortgage_reit / broker / shell). Ordinary: fail = operating loss or interest cover < 1.5x; warn = debt/EBITDA or cover outside its industry's line (steady / normal / swinging by margin steadiness). **Use `health_check is none of fail` in long-term screens** (a NULL = can't judge, so pick "is none of" semantics with care: NULL fails `is none of` — add an `is null` OR child to keep unjudged names). ~22% of ordinary companies ≥ $2B fail, mostly operating losses.
+- `op_margin_std` (pp; companies) — operating-margin steadiness over 5-10 years, lower = steadier. `margin_peak` (0/1; standard) — margin far above its own positive normal (cyclical peak; profits that may not last — few names, e.g. MU, NEM). `margin_vs_normal` (pp).
+- `economic_return_3y` (%; mortgage REITs) — book value per share change + dividends over ~3 years: the real return of an mREIT; < 0 = the dividend ate book value.
 - `interest_coverage` (x; standard/reit) — EBIT/interest: >5 comfortable, <2 danger (absolute zone matters more than peers).
 - `current_ratio` (x; standard) — sweet spot 1.5-3; **calibrated floor for broad screens: 1.1** (retail/e-commerce run structurally below textbook 1.2 — that's model strength, not risk).
 - `quick_ratio` (x; standard) — sweet spot 1.0-2.0. `cash_ratio` (x; standard) — sweet spot 0.2-0.75; 0.2-0.5 is normal, use to find fortress balance sheets.
@@ -143,6 +146,7 @@ Not every base has every window (dividends have no `yoy_q`); `filter_registry.gr
 - `div_yield_ttm` / `div_rate_ttm` — everything paid in the last 12 months, **specials included** (Dillard's 5.0% vs 0.19% regular). Not for income screens.
 - `div_years_paid` (yr) — unbroken calendar years with any dividend; cuts don't end it. The "reliable payer" question.
 - `div_recent_cut` (0/1) — a regular-dividend cut in the last ~2 years; `= 0` drops recent cutters (NULL = too few payments to judge — add an `is null` OR child to keep those).
+- `div_outgrowing_earnings` (0/1) — rising dividend growing 5+ pts/yr faster than net income with payout ≥ 50% or a loss (AbbVie, Pfizer, UPS). `= 0` (plus an `is null` OR child for payers without enough history) in dividend-growth screens.
 - `div` growth base (%; FUND_DIV) — windows like revenue minus `yoy_q`. 5-10%+ CAGR with safe payout = dividend-growth sweet spot.
 - `div_consecutive_years` (yr) — years WITHOUT A CUT in the regular rate (a flat year keeps it; not years-paid); 0 after a recent cut; foreign companies tolerate a 10% currency dip. 10/25+ = achiever/aristocrat territory; capped by our ~30-year price history ("at least this many").
 - `div_consistency` (%) — share of YoY steps held-or-grew; softer than streak (one old cut doesn't zero it).

@@ -191,6 +191,9 @@ BASES: list[Base] = [
     _b("ocf_to_ni_3y", "Cash conversion (3y)", "Profitability", frozenset({STANDARD})),
     _b("ocf_to_ni_5y", "Cash conversion (5y)", "Profitability", frozenset({STANDARD})),
     _b("gross_margin_trend_3y", "Gross margin trend (3y)", "Profitability", frozenset({STANDARD})),
+    _b("op_margin_std", "Margin steadiness", "Profitability", COMPANY),
+    _b("margin_peak", "Margin at a cyclical peak", "Profitability", frozenset({STANDARD})),
+    _b("margin_vs_normal", "Margin vs its normal", "Profitability", frozenset({STANDARD})),
     _b("operating_margin_trend_3y", "Operating margin trend (3y)", "Profitability", frozenset({STANDARD})),
     # -- Balance sheet ------------------------------------------------------ #
     _b("debt_to_equity", "Debt/Equity", "Balance Sheet", frozenset({STANDARD, REIT})),
@@ -204,6 +207,9 @@ BASES: list[Base] = [
     _b("quick_health_score", "Quick health", "Balance Sheet", frozenset({STANDARD})),
     _b("piotroski_f", "Piotroski F-score", "Balance Sheet", frozenset({STANDARD})),
     _b("ebitda_negative", "EBITDA negative", "Balance Sheet", frozenset({STANDARD, REIT})),
+    _b("health_check", "Health check", "Balance Sheet", COMPANY),
+    _b("health_reason", "Health check reason", "Balance Sheet", COMPANY),
+    _b("economic_return_3y", "Economic return 3y (mREIT)", "Balance Sheet", frozenset({REIT})),
     _b("efficiency_ratio", "Efficiency ratio", "Balance Sheet", frozenset({BANK})),
     # -- Growth (base + window) --------------------------------------------- #
     _b("revenue", "Revenue growth", "Growth", frozenset({STANDARD, BANK, INSURANCE, REIT}), growth=True),
@@ -238,6 +244,8 @@ BASES: list[Base] = [
     _b("div_consecutive_years", "Years without a cut", "Income", FUND_DIV),
     _b("div_years_paid", "Years paid", "Income", FUND_DIV),
     _b("div_recent_cut", "Recent dividend cut", "Income", FUND_DIV),
+    _b("div_outgrowing_earnings", "Dividend outgrowing earnings", "Income",
+       frozenset({STANDARD, BANK, INSURANCE, REIT})),
     _b("div_consistency", "Dividend consistency", "Income", FUND_DIV),
     _b("div_payout_ratio", "Payout ratio", "Income", frozenset({STANDARD, BANK, INSURANCE})),
     _b("div_coverage", "Dividend coverage", "Income", frozenset({STANDARD, BANK, INSURANCE})),
@@ -304,6 +312,7 @@ BASES: list[Base] = [
     # -- Classification (text labels; filtered via the multi-pick value list) - #
     _b("sector", "Sector", "Classification", COMPANY),
     _b("industry", "Industry", "Classification", COMPANY),
+    _b("company_type", "Company type", "Classification", COMPANY),
     _b("country", "Country", "Classification", COMPANY),
     _b("fund_family", "Fund family", "Classification", FUNDS),
     _b("price_issues", "Price issues", "Classification", ALL_TRADED),

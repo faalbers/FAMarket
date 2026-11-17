@@ -72,6 +72,10 @@ HELP: dict[str, str] = {
     "MIN_PEERS_FOR_MEDIAN": "Fewest peers needed before a sector/industry median is trusted.",
     "MIN_PEERS_FOR_PERCENTILE": "Fewest reference peers needed to rank within the industry / sector; below this, scoring falls back to the whole ranking pool.",
     "SCORE_MIN_INPUT_SHARE": "Share of a score's input weight that must be present; below it the category / overall score is left blank (0.5 = half).",
+    "HEALTH_COVER_FAIL": "Health check: interest cover (operating income / interest) below which an ordinary company, utility or telecom FAILS; between this and its industry line it only warns.",
+    "PEAK_MARGIN_GAP_PP": "Cyclical peak: points the latest operating margin must sit above both its normal and its trend line.",
+    "DIV_OUTGROW_GAP_PP": "Dividend warning: points per year the regular dividend must grow faster than net income.",
+    "DIV_OUTGROW_PAYOUT": "Dividend warning: minimum payout ratio (%) for the warning, unless the latest year was a loss.",
     "RECONCILE_TOLERANCE_PCT": "Max fractional gap between a computed ratio and yfinance's before a divergence WARNING is logged (0.10 = 10%).",
 }
 
@@ -246,6 +250,10 @@ def sections() -> list[dict[str, Any]]:
                 _field("MIN_PEERS_FOR_MEDIAN", "Min peers for median", "int", lo=1, hi=50, group="Peer comparison"),
                 _field("MIN_PEERS_FOR_PERCENTILE", "Min peers for percentile", "int", lo=1, hi=50, group="Peer comparison"),
                 _field("SCORE_MIN_INPUT_SHARE", "Min score inputs (fraction)", "float", lo=0.0, hi=1.0, step=0.05, group="Scores"),
+                _field("HEALTH_COVER_FAIL", "Fail below interest cover (x)", "float", lo=0.0, hi=10.0, step=0.1, group="Health check"),
+                _field("PEAK_MARGIN_GAP_PP", "Peak: margin gap (points)", "float", lo=0.0, hi=100.0, step=1.0, group="Health check"),
+                _field("DIV_OUTGROW_GAP_PP", "Dividend warning: growth gap (points)", "float", lo=0.0, hi=50.0, step=0.5, group="Health check"),
+                _field("DIV_OUTGROW_PAYOUT", "Dividend warning: min payout (%)", "float", lo=0.0, hi=200.0, step=5.0, group="Health check"),
                 _field("RECONCILE_TOLERANCE_PCT", "Tolerance (fraction)", "float", lo=0.0, hi=1.0, step=0.01, group="Reconcile"),
             ],
         },

@@ -577,6 +577,46 @@ RS_RANK_MIN_PER_TYPE: int = 30      # min members for a security_type to rank RS
                                     # (else fall back to universe — funds vs stocks don't distort)
 
 # --------------------------------------------------------------------------- #
+# Health check, peak check, dividend warning (fix list §21, Group H part 1)
+# --------------------------------------------------------------------------- #
+# Ordinary companies / utilities / telecoms: (max debt / EBITDA, min interest cover).
+# Ordinary lines follow how steady the industry's operating margin is (the S&P
+# business-risk idea); utility / telecom lines from rating-agency benchmarks.
+HEALTH_LINES: dict[str, tuple[float, float]] = {
+    "steady": (5.0, 2.0), "normal": (3.5, 3.0), "swinging": (2.5, 4.0),
+    "utility": (6.5, 2.0), "telecom": (4.0, 2.5),
+}
+# Below its line the interest cover is a warn; below this it fails (2026-11-15: the
+# line alone failed 31% of companies >= $2B — Amgen 3.3x vs 4x — this gives ~21%).
+HEALTH_COVER_FAIL: float = 1.5
+HEALTH_STEADINESS_YEARS: int = 10      # yearly operating margins for `op_margin_std` (max)
+HEALTH_STEADINESS_MIN_YEARS: int = 5   # ... and at least this many
+HEALTH_STEADINESS_MIN_PEERS: int = 5   # listed companies an industry needs for its own class
+# REITs (Moody's downgrade triggers): fail below 2x EBITDA / interest or EBITDA <= 0;
+# warn above 6.5x debt / EBITDA or below 3x cover.
+HEALTH_REIT_DEBT_EBITDA_WARN: float = 6.5
+HEALTH_REIT_COVER_FAIL: float = 2.0
+HEALTH_REIT_COVER_WARN: float = 3.0
+# Insurers: fail below 2x (pre-tax + interest) / interest, warn below 4x or debt > 35% of capital.
+HEALTH_INSURER_COVER_FAIL: float = 2.0
+HEALTH_INSURER_COVER_WARN: float = 4.0
+HEALTH_INSURER_DEBT_CAPITAL_WARN: float = 35.0
+# Banks (warn only): tangible equity < 4% of tangible assets, ROA < 0.5%.
+HEALTH_BANK_TCE_WARN: float = 4.0
+HEALTH_BANK_ROA_WARN: float = 0.5
+# Mortgage REITs: economic return over up to 3 years; fail below -20%, warn below 0%.
+HEALTH_MREIT_ECON_FAIL: float = -20.0
+# Cyclical peak: margin above its own normal by > 15 points, > 1.5x normal, and
+# > 15 points above the trend line through the earlier years.
+PEAK_MARGIN_GAP_PP: float = 15.0
+PEAK_MARGIN_RATIO: float = 1.5
+PEAK_MIN_EARLIER_YEARS: int = 5
+# Dividend outgrowing earnings: dividend growth > net-income growth + this (pp/yr),
+# with a payout of at least DIV_OUTGROW_PAYOUT % or shrinking earnings.
+DIV_OUTGROW_GAP_PP: float = 5.0
+DIV_OUTGROW_PAYOUT: float = 50.0
+
+# --------------------------------------------------------------------------- #
 # Scoring & ranking (Topic 4.4) — all adjustable from the Settings page
 # --------------------------------------------------------------------------- #
 # Fixed ranking universe (fix list §18, 2026-11-15): percentiles are taken within a

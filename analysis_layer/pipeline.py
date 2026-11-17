@@ -42,7 +42,7 @@ from analysis_layer import _periods as P
 from analysis_layer import metrics, technical, intrinsic_value, valuation_scenarios, peers, scoring
 from analysis_layer import estimates as estimates_metrics
 from analysis_layer import signals as signals_metrics
-from analysis_layer import benchmark_push, price_quality, sector_index
+from analysis_layer import benchmark_push, health, price_quality, sector_index
 from config.industry_overrides import INDUSTRY_OVERRIDES
 from data_layer import price_checks
 from core.market_calendar import last_completed_session
@@ -332,6 +332,7 @@ def run_analysis(subset: list[str] | None = None) -> dict:
 
     reconcile: list = []
     rows: list[dict] = []
+    health_pending: dict[str, health.Pending] = {}  # ordinary cos. waiting for their industry line
     n_universe = len(universe)
     for i, rec in enumerate(universe.itertuples(index=False), start=1):
         sym = rec.symbol
@@ -359,6 +360,11 @@ def run_analysis(subset: list[str] | None = None) -> dict:
                             reconcile=reconcile,
                             risk_free=risk_free,
                             secondary_line=sym in secondary)
+        # health check / peak check / dividend warning (fix list §21, Group H part 1)
+        hc, hp = health.assess(fsym, health.company_type(sec_type, ind), m,
+                               div_by.get(sym), split_by.get(sym))
+        if hp is not None:
+            health_pending[sym] = hp
         t = technical.compute(sym, osym, first_date=first_date_by.get(sym))
         iv = intrinsic_value.compute(sym, fsym, quote, price, m, risk_free,
                                       screen_type=screen_type, regulated=regulated)
@@ -391,7 +397,7 @@ def run_analysis(subset: list[str] | None = None) -> dict:
             # peer-median reference set (§19), stored so subset runs keep it
             "peer_universe": int(_in_peer_universe(sec_type, quote, m.get("market_cap"))),
             **{k: v for k, v in m.items() if not k.startswith("_")},  # private keys stay in memory
-            **t, **iv, **vs, **est_m, **sig_m,
+            **hc, **t, **iv, **vs, **est_m, **sig_m,
         })
         if i % _PROGRESS_EVERY == 0:
             log.info("Analysis — per-symbol metrics %d/%d (%d to go)…",
@@ -404,6 +410,7 @@ def run_analysis(subset: list[str] | None = None) -> dict:
     df = _order_columns(df)
 
     # -- cross-symbol stages --------------------------------------------------- #
+    df = health.finalize(df, health_pending)  # industry debt lines for ordinary companies
     log.info("Analysis — peer comparisons across %d symbols…", len(df))
     df = peers.compute(df)
     log.info("Analysis — scoring (ranks + category scores)…")

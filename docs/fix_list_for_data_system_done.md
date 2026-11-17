@@ -512,9 +512,46 @@ The review points to §21 for it; it needs the industry benchmark map, so it is 
 - **`score_history.db`:** the first snapshot is written, 32,482 rows for 2026-11-13 (2.8 MB).
 - **Run:** 0 errors, 0 warnings; ~10 minutes; peak RAM 8.3 GB. All 13 saved filters pass `validate_filt`. `indices.db.gz` pushed to FAPortfolio and read back OK.
 
+## Round 10 — Group H, part 1: §21 health check, peak check, dividend warning (2026-11-15)
+
+**Approach:** §21's remaining items are done in four parts: (1) these three warnings, (2) Peer Strength, (3) category / growth-phase labels and REIT payout on FFO, (4) relative strength vs the industry. Already done earlier: regular dividends, `div_years_paid`, `div_recent_cut` (§9), robust trends (§16), Piotroski (§19), the delisted flag (§15). New module `analysis_layer/health.py`. Tested with a read-only build over all 7,561 stocks and ADRs; after the 2026-11-16 analysis run the stored values match it exactly (see "Checked after the run").
+
+### Health check (danger gate) — Built, one rule softened
+
+- **New columns:** `company_type` (the review's types from the Yahoo industry), `health_check` (ok / warn / fail), `health_reason` (the failed tests, e.g. "debt/EBITDA 4.5x > 4x").
+- **The review's tests** for every type, including the broker gate and the mortgage-REIT gate (`economic_return_3y`). Industry steadiness = median `op_margin_std` of the listed ordinary companies (≥ 5), split into thirds: 35 steady, 34 normal, 34 swinging industries. A missing figure = that test can't be judged.
+- **Check:** Annaly's book value per share 20.79 / 19.44 / 19.15 for 2022-2024, as the review and the company report. Boeing, Intel, Ford fail on an operating loss; Charter warns on debt/EBITDA 4.5x > 4x; NextEra warns on interest cover 1.8x < 2x; MetLife warns on debt 42% of capital.
+- **Where we differ from the review:**
+  - **Interest cover below the industry line is a warn, not a fail;** it fails below 1.5x (`HEALTH_COVER_FAIL`). With the review's rule 31% of ordinary companies ≥ $2B failed, half of them only on cover (Amgen 3.3x vs 4x, Synopsys, BP, Enbridge). Now 22% (354 of 1,606), most of them operating losses.
+  - **EBITDA below operating income** is replaced by operating income + depreciation in the health check. Yahoo's EBITDA starts from pre-tax income + interest, so a non-operating loss can drag it under operating income (210 listed companies; Carvana FY2025 −$0.11B vs +$1.88B operating income, read as "EBITDA ≤ 0 with debt").
+- **Universe (listed, ≥ $2B, 2,019):** 1,249 ok, 367 warn, 372 fail, 31 can't judge. Banks 114 ok / 14 warn; mortgage REITs: 4 of 5 warn (dividends paid above net income over 3 years).
+
+### Cyclical peak check — Built, one guard added
+
+- **New columns:** `margin_peak` (0/1), `margin_vs_normal` (points), and `op_margin_std` (margin steadiness, also the industry-class input).
+- **Where we differ:** only a **positive** normal margin can be peaked. 166 of the first 203 flags were loss-makers turning profitable (normal margin negative, so "1.5x normal" means nothing; one biotech showed +52,000 points).
+- **Result:** 9 listed companies, e.g. Micron (74.6% vs a normal of 24%), AppLovin, Seagate, Newmont and Hecla (gold price), Iridium.
+
+### Dividend outgrowing earnings — Built, narrowed
+
+- **New column:** `div_outgrowing_earnings` (0/1). Net-income growth = the robust trend (§16).
+- **Where we differ:** the review flags "payout ≥ 50% **or shrinking earnings**". The shrinking-earnings branch flagged low-payout companies whose earnings dipped (Thermo Fisher, 9% payout; Danaher) — 262 of its 427 flags — and companies whose dividend was falling too (GSK). Now: the dividend must be rising, and the payout ≥ 50% or the latest year a loss.
+- **Result:** 190 listed companies, e.g. AbbVie (114% payout), Pfizer (242%), UPS, Starbucks, Verizon, Home Depot. HP Inc. (the review's example) is no longer flagged: its payout is below 50%.
+
+### Checks
+
+- **Hints:** 141 filter bases, 0 without a hint. **Type check:** `health.py` 0 errors; no new ones elsewhere.
+- **Run time:** the health module costs ~10 s per full run (1.3 ms a stock). The first version took 24 s; the margins are now computed once per company with numpy. A shared one-row-per-year table (`_periods.annual_table`) also serves Piotroski (identical results).
+
+### Checked after the run
+
+- **Stored = test build:** all 7,561 stocks / ADRs match on `company_type`, `health_check`, `health_reason`, `op_margin_std`, `margin_peak`, `margin_vs_normal`, `div_outgrowing_earnings`, `economic_return_3y` and `piotroski_f`. No fund or other non-company row has a `company_type`.
+- **Listed, ≥ $2B:** 1,249 ok, 367 warn, 372 fail; 9 margin peaks and 190 dividend warnings among all listed companies.
+- **Run:** 0 errors, 0 warnings; ~10 minutes; peak RAM 8.4 GB. All 13 saved filters pass `validate_filt`. `indices.db.gz` pushed to FAPortfolio and read back OK.
+
 ## Not yet reviewed
 
-§8, §21 (other than its dividend methods), and the open parts of §20 not covered above. Grouped as above.
+§8, §21 parts 2-4 (Peer Strength, labels and REIT FFO payout, relative strength vs the industry), and the open parts of §20 not covered above. Grouped as above.
 
 ## Known gaps / limitations
 

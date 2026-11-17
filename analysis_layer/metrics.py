@@ -358,14 +358,14 @@ _MAD_SCALE = 1.4826
 _TREND_MAX_EDGE_DROPS = 1
 
 
-def _fractional_years(idx) -> np.ndarray:
+def fractional_years(idx) -> np.ndarray:
     """A period_end index (dates, or plain calendar years) as fractional years."""
     if isinstance(idx, pd.DatetimeIndex):
         return (idx.year + (idx.dayofyear - 1) / 365.25).to_numpy(dtype=float)
     return np.asarray(idx, dtype=float) + 0.997  # a calendar year ends ~Dec 31
 
 
-def _robust_trend(s: pd.Series) -> tuple[float, float, float, float, float]:
+def robust_trend(s: pd.Series) -> tuple[float, float, float, float, float]:
     """(steadiness %, direction tau, trend growth %/yr, growth low %, growth high %)
     over the last ~6 years.
 
@@ -390,7 +390,7 @@ def _robust_trend(s: pd.Series) -> tuple[float, float, float, float, float]:
     s = s.dropna().iloc[-(settings.GROWTH_TREND_YEARS + 1):]
     if len(s) < _TREND_MIN_POINTS:
         return nan5
-    t = _fractional_years(s.index)
+    t = fractional_years(s.index)
     y = s.to_numpy(dtype=float)
     log_mode = bool(np.all(y > 0))
     if log_mode:
@@ -589,7 +589,7 @@ def _splits_after(real: pd.Series, d: pd.Timestamp) -> float:
     return float(after.prod()) if len(after) else 1.0
 
 
-def _basis_candidates(real: pd.Series, d: pd.Timestamp) -> tuple[float, ...]:
+def basis_candidates(real: pd.Series, d: pd.Timestamp) -> tuple[float, ...]:
     """Every factor a figure dated `d` may still need: as filed (all later splits),
     restated for the first k of them (the rest), or fully restated (1). A source can
     sit on a middle basis — MNST's FY2022 row restated for its 2023 split but not
@@ -617,7 +617,7 @@ def eps_current_basis(frames: list[pd.DataFrame], splits: pd.Series | None,
     (NVDA FY2023 0.174 -> 0.0174, EPS trend 178%/yr; MNST 77%/yr).
 
     Per row: no split after it -> one basis, unchanged. Otherwise the candidates
-    are as filed, partly restated or fully restated (`_basis_candidates`); the one whose
+    are as filed, partly restated or fully restated (`basis_candidates`); the one whose
     implied share count (net income / EPS x factor) is closest to the newest row's
     wins. Even the best more than _EPS_BASIS_MAX_OFF away -> NaN (a change of basis:
     Talen's bankruptcy restart). EPS near zero or a loss can't be tested: then EDGAR
@@ -655,7 +655,7 @@ def eps_current_basis(frames: list[pd.DataFrame], splits: pd.Series | None,
         if big == 1.0:
             f = 1.0
         elif pd.notna(shares_now) and shares_now > 0:
-            f = min(_basis_candidates(real, _basis_date(row, d)),
+            f = min(basis_candidates(real, _basis_date(row, d)),
                     key=lambda c: abs(np.log(imp * c / shares_now)))
         else:
             f = big if row.get("source") == "edgar" else 1.0
@@ -677,7 +677,7 @@ def eps_current_basis(frames: list[pd.DataFrame], splits: pd.Series | None,
             big = _splits_after(real, _basis_date(row, d))
             imp = implied(row)
             if pd.notna(imp) and pd.notna(ref) and ref > 0:
-                cands = _basis_candidates(real, _basis_date(row, d))
+                cands = basis_candidates(real, _basis_date(row, d))
                 f = min(cands, key=lambda c: abs(np.log(imp * c / ref)))
                 if abs(np.log(imp * f / ref)) > np.log(_EPS_BASIS_MAX_OFF):
                     continue  # change of basis / bad value
@@ -699,7 +699,7 @@ def _eps_from_shares(row: pd.Series, d: pd.Timestamp, real: pd.Series, ref: floa
         return float("nan")
     if not (pd.notna(ni) and pd.notna(sh) and sh > 0 and pd.notna(ref) and ref > 0):
         return float("nan")
-    cands = _basis_candidates(real, _basis_date(row, d))
+    cands = basis_candidates(real, _basis_date(row, d))
     f = min(cands, key=lambda c: abs(np.log(sh * c / ref)))
     if abs(np.log(sh * f / ref)) > np.log(_EPS_BASIS_MAX_OFF):
         return float("nan")
@@ -711,7 +711,7 @@ def _growth_block(name: str, annual: pd.Series, quarterly: pd.Series) -> dict:
     out: dict[str, float] = {}
     for w in settings.GROWTH_WINDOWS_YEARS:
         out[f"{name}_cagr_{w}y"] = _pct(_cagr(annual, w))
-    vol, tau, growth_trend, lo, hi = _robust_trend(annual)
+    vol, tau, growth_trend, lo, hi = robust_trend(annual)
     out[f"{name}_growth_vol"] = vol
     out[f"{name}_growth_tau"] = tau
     out[f"{name}_growth_trend"] = growth_trend
@@ -1148,8 +1148,8 @@ def _piotroski_f(fin) -> float:
     differ by 2+ points between the two forms). NaN unless all nine tests can be
     computed with positive total assets, current liabilities and revenue.
     """
-    ta = P.annual(fin, "total_assets")
-    ta = ta[~ta.index.duplicated(keep="last")]
+    tab = P.annual_table(fin, ("total_assets", *_PIOTROSKI_FIELDS))
+    ta = tab["total_assets"].dropna()
     if len(ta) < 2:
         return float("nan")
     d_a, d_b = ta.index[-1], ta.index[-2]
@@ -1157,26 +1157,8 @@ def _piotroski_f(fin) -> float:
         return float("nan")
     d_c = ta.index[-3] if len(ta) >= 3 and 300 <= (d_b - ta.index[-3]).days <= 430 else None
 
-    # One slice per year (a year can have several rows, e.g. Yahoo + EDGAR): the
-    # last non-null value of each field, as P.annual would give. Per-field
-    # P.annual calls cost 3.5 ms a symbol (23 s a full run); pandas slicing 2.8 ms.
-    ann = P.prepare(fin).annual
-    cols = [f for f in _PIOTROSKI_FIELDS if f in ann.columns]
-    try:  # the columns are numeric in practice; coerce only if one is not
-        vals = ann[cols].to_numpy(dtype="float64", na_value=np.nan)
-    except (TypeError, ValueError):
-        vals = ann[cols].apply(pd.to_numeric, errors="coerce").to_numpy(dtype="float64")
-    dates = ann.index.to_numpy()
-
     def year(d) -> dict[str, float]:
-        rows = vals[dates == d.to_datetime64()]
-        out = dict.fromkeys(_PIOTROSKI_FIELDS, float("nan"))
-        for j, f in enumerate(cols):
-            col = rows[:, j]
-            col = col[~np.isnan(col)]
-            if len(col):
-                out[f] = float(col[-1])
-        return out
+        return {f: float(tab.at[d, f]) for f in _PIOTROSKI_FIELDS}
 
     a, b = year(d_a), year(d_b)
     a["ta"], b["ta"] = float(ta.iloc[-1]), float(ta.iloc[-2])
@@ -1262,7 +1244,7 @@ def _income_block(fin, paid: pd.Series | None, price, ni_ttm, fcf_ttm, as_of,
         out["div_consistency"] = _pct((ratio >= 1 - tol).mean())
         out["div_consecutive_years"] = (0.0 if view.recent_cut == 1.0
                                         else float(divs.no_cut_streak(by_year, tol)))
-        tr = _robust_trend(by_year)
+        tr = robust_trend(by_year)
         out["div_growth_vol"], out["div_growth_tau"], out["div_growth_trend"] = tr[:3]
         out["_div_growth_lo"], out["_div_growth_hi"] = tr[3:]
 

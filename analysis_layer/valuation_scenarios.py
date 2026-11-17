@@ -13,7 +13,7 @@ scenario lever for this pass.
 
   * intrinsic_value_{lynch,dcf,ddm}_{bear,bull} — per-method scenario values.
     Bear/bull growth is the low / high end of that method's own trend growth's
-    confidence range (metrics._robust_trend: the Theil-Sen slope interval at
+    confidence range (metrics.robust_trend: the Theil-Sen slope interval at
     settings.VALUATION_SCENARIO_CONFIDENCE; fix list §17, 2026-11-15) — how sure
     the growth RATE is. Few or scattered years give a wide range, a long steady
     record a narrow one, automatically. (Replaced trend ∓ the residual spread,

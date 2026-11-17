@@ -502,6 +502,45 @@ PARAM_HINTS: dict[str, dict] = {
         ],
         "vs_peers": "Yes — compare with banks of similar size and business mix.",
     },
+    "health_check": {
+        "name": "Health check",
+        "category": "Balance Sheet",
+        "unit": "",
+        "what_it_is": "A danger gate on the latest fiscal year: ok, warn or fail, with tests set by "
+                      "company type. Ordinary companies: fail on an operating loss or interest cover "
+                      "below 1.5x; warn when debt / EBITDA or interest cover misses the industry's "
+                      "line (steadier industries may carry more debt: 5x / 2x steady, 3.5x / 3x "
+                      "normal, 2.5x / 4x swinging; utilities 6.5x / 2x, telecoms 4x / 2.5x). "
+                      "REITs, insurers, banks, brokers and mortgage REITs have their own tests.",
+        "how_to_use": [
+            "Exclude 'fail' in any long-term screen; read health_reason before acting on 'warn'.",
+            "Empty = can't judge (no operating income on file, shells). A missing figure never fails a test.",
+            "Banks only warn: loan quality and capital ratios are not in the data.",
+        ],
+        "vs_peers": "Partly — ordinary companies' debt lines follow their industry's margin steadiness.",
+    },
+    "health_reason": {
+        "name": "Health check reason",
+        "category": "Balance Sheet",
+        "unit": "",
+        "what_it_is": "Why the health check said warn or fail, e.g. 'operating loss' or "
+                      "'debt/EBITDA 4.5x > 3.5x (normal industry)'. Empty when ok.",
+        "how_to_use": ["Read it next to the verdict; the numbers are the latest fiscal year."],
+        "vs_peers": "No.",
+    },
+    "economic_return_3y": {
+        "name": "Economic return 3y (mREIT)",
+        "category": "Balance Sheet",
+        "unit": "%",
+        "what_it_is": "Mortgage REITs only: change in book value per share plus dividends per share "
+                      "over up to 3 fiscal years, divided by the starting book value per share — the "
+                      "return the business really made for shareholders.",
+        "how_to_use": [
+            "Below 0% the dividend ate into book value (warn); below -20% fail.",
+            "Annaly 2022-2025: book value per share 20.79 -> 20.21 plus dividends paid.",
+        ],
+        "vs_peers": "No — an absolute return.",
+    },
     "piotroski_f": {
         "name": "Piotroski F-score",
         "category": "Balance Sheet",
@@ -530,6 +569,41 @@ PARAM_HINTS: dict[str, dict] = {
             "loss-making companies don't pass as debt-free.",
         ],
         "vs_peers": "No — a yes/no flag.",
+    },
+    "op_margin_std": {
+        "name": "Margin steadiness",
+        "category": "Profitability",
+        "unit": "%",
+        "what_it_is": "Standard deviation of the yearly operating margin over the last 5-10 years, "
+                      "in percentage points. Lower = steadier business.",
+        "how_to_use": [
+            "Under ~3 points is very steady (staples, utilities); above ~10 swings with the cycle.",
+            "Its industry median sorts industries into steady / normal / swinging for the health check's debt lines.",
+        ],
+        "vs_peers": "Yes — some industries swing by nature.",
+    },
+    "margin_peak": {
+        "name": "Margin at a cyclical peak",
+        "category": "Profitability",
+        "unit": "",
+        "what_it_is": "1 when the latest yearly operating margin is more than 15 points AND 1.5x above "
+                      "its own normal (the median of up to 10 earlier years), and 15 points above "
+                      "the trend line through those years. Only for a positive normal (a loss-maker "
+                      "turning profitable is not a peak).",
+        "how_to_use": [
+            "Treat the current P/E as flattering: in the review's test about 29% of the gap to "
+            "normal was given back within 2 years. It marks profits that may not last, not a collapse.",
+        ],
+        "vs_peers": "No — against its own history.",
+    },
+    "margin_vs_normal": {
+        "name": "Margin vs its normal",
+        "category": "Profitability",
+        "unit": "%",
+        "what_it_is": "Latest yearly operating margin minus the median of up to 10 earlier years, in "
+                      "percentage points (pre-tax margin when operating income has too few years).",
+        "how_to_use": ["Large positive = unusually good year; negative = below its usual level."],
+        "vs_peers": "No — against its own history.",
     },
     "quick_health_score": {
         "name": "Quick health",
@@ -1695,6 +1769,29 @@ PARAM_HINTS: dict[str, dict] = {
             "Filter = 1 to leave out OTC stocks and second lines.",
         ],
         "vs_peers": "No — a yes/no flag.",
+    },
+    "company_type": {
+        "name": "Company type",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "The type the health check judges by, from the Yahoo industry: ordinary, "
+                      "utility, telecom, bank, insurer, reit, mortgage_reit, broker (capital markets, "
+                      "financial conglomerates, mortgage finance) or shell.",
+        "how_to_use": ["Pick types before comparing health or strength figures across companies."],
+        "vs_peers": "No — a label.",
+    },
+    "div_outgrowing_earnings": {
+        "name": "Dividend outgrowing earnings",
+        "category": "Income",
+        "unit": "",
+        "what_it_is": "1 when the regular dividend is rising more than 5 points a year faster than "
+                      "net income AND the payout is 50%+ or the latest year was a loss — a rising "
+                      "payout, not real dividend growth.",
+        "how_to_use": [
+            "= 0 in a dividend-growth screen keeps out raises the earnings don't support.",
+            "Empty for non-payers or without enough years for both growth rates.",
+        ],
+        "vs_peers": "No — an absolute check.",
     },
     "price_issues": {
         "name": "Price issues",

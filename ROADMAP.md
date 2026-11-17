@@ -1121,6 +1121,13 @@ needs.
      (replaced the 3y / 5y CAGRs and `forward_eps_growth`); `forward_pe` out of value; no margin-of-
      safety credit for `fair_value_tail`; new `score_history.db` (one snapshot per full run) for
      the score validation still to do. Funds no longer get an `overall_score`.
+   - ✅ Group H, part 1 — health checks (2026-11-15, §21), analysis run checked 2026-11-16: new
+     `analysis_layer/health.py` — `company_type`, `health_check` / `health_reason` (danger gate per
+     type; ordinary companies' debt lines by industry margin steadiness; interest cover below the line
+     only warns, fails below 1.5x — softened from the review), `margin_peak` / `margin_vs_normal` /
+     `op_margin_std` (positive normal only), `div_outgrowing_earnings` (rising dividend, payout ≥ 50% or
+     a loss — narrowed from the review), `economic_return_3y` (mortgage REITs). Parts 2-4: Peer
+     Strength, labels + REIT FFO payout, relative strength vs the industry.
    - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
      `core/backup.fix_backup`).
 

@@ -39,6 +39,7 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
 - **`price`** — the canonical price (above).
 - **`rs_raw`** — weighted trailing return, the input to `rs_rank` (see 9).
 - **`peer_universe`** (0/1, since 2026-11-15) — 1 for an exchange-listed stock / ADR with a market cap of its own (Yahoo's exchange name not "OTC Markets …", not a company second line). The set the peer medians are taken over (see 10).
+- **`company_type`** (since 2026-11-15) — the health-check type from the Yahoo industry: `ordinary`, `utility` (Utilities - Regulated Electric / Gas / Water, Diversified), `telecom` (Telecom Services), `bank` (Banks - …), `insurer` (Insurance - …), `reit` (REIT - …), `mortgage_reit` (REIT - Mortgage), `broker` (Capital Markets, Financial Conglomerates, Mortgage Finance), `shell` (Shell Companies). NULL for non-companies.
 - **`price_issues`** — the `ohlcv.price_flags` checks that touched the price window, comma-joined (e.g. `bad_print, stale`); NULL = clean prices. Screenable ("is null" keeps clean symbols). `level_shift` is not corrected — a lasting 10x move can be an unrecorded reverse split or a real collapse.
 
 ## 2. Valuation (TTM)
@@ -62,6 +63,9 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
 - **`roic_vs_wacc`** — ROIC − WACC (pp); > 0 = creating value. **`roic_vs_wacc_5y`** — median annual ROIC of the last 5 years − today's WACC. **`roic_trend_3y`** — 3-year change in annual ROIC (pp). All standard only.
 - **`ocf_to_ni_3y`**, **`ocf_to_ni_5y`** (standard only) — average operating cash flow / net income over the last 3 / 5 fiscal years, in percent. Loss years and years above 500% are excluded; needs 2+ years. ~100%+ = earnings backed by cash.
 - **`gross_margin_trend_3y`**, **`operating_margin_trend_3y`** — change in annual margin over ~3 years (pp).
+- **`op_margin_std`** (points) — standard deviation of the yearly operating margin over the last 5-10 fiscal years (needs 5). Lower = steadier.
+- **`margin_vs_normal`** (points) — latest yearly operating margin minus the median of up to 10 earlier years (pre-tax margin when operating income has < 5 earlier years). Ordinary companies, utilities, telecoms.
+- **`margin_peak`** (0/1) — cyclical peak: margin − normal > 15 points, margin > 1.5 × normal, and margin > 15 points above the Theil-Sen trend line through the earlier years. 0 when the normal is ≤ 0 (a turnaround, not a peak). The review's test: ~29% of the gap was given back within 2 years.
 
 ## 4. Financial health
 
@@ -73,6 +77,15 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
 - **`efficiency_ratio`** (banks only, %) — non-interest expense / revenue. TTM, else the newest fiscal year with both figures. Lower = better (~55-65% typical).
 - **`quick_health_score`** (standard only, 0-7) — count of passed checks, last fiscal year vs the one before: revenue up; cost of revenue not outgrowing revenue; gross profit up; assets > liabilities; liabilities not outgrowing assets; cash ratio ≥ 0.2; operating cash flow up. Our own checklist, not the Piotroski score.
 - **`piotroski_f`** (standard only, 0-9, since 2026-11-15) — Piotroski (2000), latest fiscal year (a) vs the one before (b), 300-430 days apart; one point each: ROA_a > 0; operating cash flow_a > 0; ROA_a > ROA_b; cash flow_a > net income_a; long-term debt / assets not up (missing debt = 0); current ratio up; `ordinary_shares_number` not up; gross margin up; revenue / assets up. ROA and turnover use the year's opening assets and leverage the average, as in the paper, when a third year is on file; else year-end assets. NULL unless all nine can be computed (total assets, current liabilities, revenue > 0).
+- **`health_check`** (`ok` / `warn` / `fail`, since 2026-11-15) + **`health_reason`** (the failed tests, e.g. `debt/EBITDA 4.5x > 4x`) — a danger gate on the latest fiscal year, by `company_type`. A missing figure means that test can't be judged, never a fail; NULL when nothing can be judged.
+  - **EBITDA** here = normalized, else reported; operating income + depreciation when Yahoo's EBITDA is below operating income (it starts from pre-tax income + interest, so a non-operating loss can drag it down: 210 listed companies, Carvana).
+  - **Ordinary / utility / telecom:** fail on an operating loss or operating income / interest < 1.5x; warn when debt / EBITDA is above, or interest cover below, the line: industries sorted into thirds by the median `op_margin_std` of their listed ordinary companies (≥ 5) — steady 5.0x / 2.0x, normal 3.5x / 3.0x, swinging 2.5x / 4.0x; utilities 6.5x / 2.0x; telecoms 4.0x / 2.5x. EBITDA ≤ 0 with debt = warn. (The review failed on the line itself; changed 2026-11-15, it failed 31% of companies ≥ $2B.)
+  - **REIT:** fail when EBITDA ≤ 0 or EBITDA / interest < 2x; warn when debt / EBITDA > 6.5x or EBITDA / interest < 3x.
+  - **Insurer:** fail when equity ≤ 0, a net loss in 2 of the last 3 years, or (pre-tax income + interest) / interest < 2x; warn when debt > 35% of debt + equity, that cover < 4x, or the latest year is a loss.
+  - **Bank** (warn only — loan quality and capital ratios are not in the data): a net loss, ROA < 0.5%, or tangible book < 4% of (total assets − goodwill and intangibles).
+  - **Broker:** fail when equity ≤ 0 or a net loss in 2 of the last 3 years; warn when the latest year is a loss.
+  - **Mortgage REIT:** fail when `economic_return_3y` < −20%; warn when it is < 0% or dividends paid exceed net income over the period.
+- **`economic_return_3y`** (%, mortgage REITs) — (change in book value per share + dividends per share paid in between) / starting book value per share, over up to 3 fiscal years. Book value per share = `common_stock_equity` / year-end `ordinary_shares_number`, each year's count put on today's split basis; dividends from `ohlcv` (Annaly 2022-2024: 20.79 / 19.44 / 19.15, as reported).
 
 ## 5. Growth
 
@@ -104,6 +117,7 @@ Since 2026-11-15 every metric except the two `_ttm` ones is on **regular** payme
 - **`div_consecutive_years`** — trailing run of consecutive calendar years whose rate did not fall by more than 2% (rounding), or 10% for companies reporting in another currency (dividends arrive converted to dollars). 0 when `div_recent_cut` = 1. A "not cut" streak, not years paid; capped by the ~30-year price history.
 - **`div_years_paid`** — unbroken calendar years with any dividend, counted back from the last full year.
 - **`div_recent_cut`** — 1 when the current rate is below 92% of the median rate 1-2 years ago **and** the last 12 months' regular total is below 95% of the 12 months before; NULL with fewer than 5 regular payments in 3 years.
+- **`div_outgrowing_earnings`** (0/1, since 2026-11-15) — a rising regular dividend (`div_growth_trend` > 0) growing > 5 points a year faster than net income (robust trend, §5), with `div_payout_ratio` ≥ 50% or a latest-year loss (with a loss and no income growth rate: dividend growth > 5 points is enough). NULL for non-payers. Narrowed from the review's "payout ≥ 50% or shrinking earnings": low-payout companies with falling earnings (Thermo Fisher, 9%) were 262 of its 427 flags.
 - **`div_consistency`** — % of year-to-year steps that did not fall (same tolerance).
 - **`div_payout_ratio`** = TTM dividends paid / TTM net income (%). **`div_coverage`** = TTM FCF / TTM dividends paid (x).
 
