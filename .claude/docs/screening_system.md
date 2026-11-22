@@ -123,6 +123,7 @@ Not every base has every window (dividends have no `yoy_q`); `filter_registry.gr
 - `fcf` growth from deep annual history; feeds DCF (5y CAGR capped at 15%).
 - `revenue_accel`, `eps_accel` (pp; self-relative) — latest quarter YoY minus 3y CAGR; positive = accelerating (rule: pivot at 0). Acceleration often precedes price runs (CANSLIM logic).
 - `share_count_chg_1y` (%; lower better) — negative = net buybacks (per-share tailwind); filter `< 0` for shrinkers.
+- `revenue_ps_growth` (%/yr; COMPANY) — robust growth of revenue per diluted share (~6y). Issuance-funded growth doesn't count. `category_growth` (%/yr) = mean of it and `forward_rev_growth` (a forecast above the track record capped at last year's actual `revenue_cagr_1y`) — the number `stock_category` tests.
 
 ### Estimates (forward analyst data; COMPANY types; from signals.db `estimates` table)
 - `forward_eps_growth`, `forward_rev_growth` (%) — consensus next-FY vs current-FY. Forecasts, not facts.
@@ -197,6 +198,7 @@ Not every base has every window (dividends have no `yoy_q`); `filter_registry.gr
 
 ### Classification (text; multi-pick filters)
 - `sector`, `industry` (COMPANY), `fund_family` (FUNDS; ~96% filled from fund_overview). Filtered via `is any of` / `is none of` value lists.
+- `stock_category` (COMPANY; growth / income / both / early / neither) — growth = `category_growth` ≥ 12%/yr; income = regular `div_yield` ≥ 2.5% + `div_years_paid` ≥ 5; early = loss-maker (latest year + most of last 3) under $1B revenue, replaces growth/neither. **Growth screens: `is any of growth, both`; income screens: `is any of income, both`.** NULL for funds and shells. Lines are Settings (`CATEGORY_*`), not fixed.
 
 ### Statement items (raw $ line items — Fundamentals chart only, NOT filter metrics)
 `diluted_eps`, `ebitda`, `free_cash_flow` (OCF + capex — derived, yfinance's own column is sparse), `gross_profit`, `net_income`, `operating_income`, `stockholders_equity`, `total_assets`, `total_debt`, `total_revenue`.

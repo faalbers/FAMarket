@@ -586,9 +586,38 @@ The review points to §21 for it; it needs the industry benchmark map, so it is 
 - **Infinities:** none in the new columns; the only ones in `analysis.db` are 2 in `ps` (an older issue, on the follow-up list in the triage).
 - **Run:** 0 errors, 0 warnings; ~12 minutes; peak RAM 8.4 GB; 334 columns. All 13 saved filters pass `validate_filt`. `indices.db.gz` pushed to FAPortfolio and read back OK.
 
+## Round 12 — Group H, part 3a: §21 stock category label (2026-11-21)
+
+### Stock category — Built
+
+- **New column `stock_category`** (growth / income / both / early / neither, `analysis_layer/labels.py`), plus **`revenue_ps_growth`** (robust revenue-per-share growth) and **`category_growth`** (the rate the label tests). Companies only; NULL for funds and shells. Lines are Settings (`CATEGORY_*`): 12%/yr, 2.5% yield, 5 years paid, $1B revenue.
+- **Spread, listed ≥ $2B (test build):** neither 877, income 453, growth 403, early 159, both 30, NULL 1 (a shell).
+- **Examples:** growth — Microsoft, Alphabet, Nvidia, Amazon, Broadcom, Meta, Tesla, TSMC; income — Procter & Gamble, Verizon, AT&T, Pfizer, Exxon, Realty Income; both — Novo Nordisk, Blackstone, BBVA, Ares; early — Revolution Medicines, Insmed, Rocket Lab, BridgeBio. Coca-Cola is neither (yield 2.19%).
+- **Where we differ from the review:**
+  - **Next year's forecast only:** Yahoo has no 2-year revenue forecast.
+  - **Forecast guard (added):** a forecast above the track record counts only up to last year's actual revenue growth (or the track record, if higher). Without it 42 large companies were growth on forecasts the reported year doesn't show: acquisitions (Kimberly-Clark +70% on Kenvue, Black Hills +73%) and bank forecasts of +56-88% (First Hawaiian, Butterfield). Real accelerators keep growth (Lumentum, Bloom Energy, Coherent, Vicor); Lattice's not-yet-reported rebound becomes neither.
+  - **Size test on reported revenue:** P/S can't convert currencies (TSM's is on Taiwan dollars), so foreign filers lean toward not early.
+- **Not re-tested** against the review's fund holdings (Russell 1000 Growth, SCHD): the holdings aren't in the data.
+
+### Split-event fix in per-share growth (Peer Strength, round 11)
+
+- Yahoo records some spin-offs as near-1:1 "splits" (Realty Income's Orion spin-off, 2021, 1.032). That switched on the share-basis test, which a heavy share issuer fails, so per-share growth came out NULL.
+- Events within 10% of 1:1 are now ignored there. Test build vs stored: `ocf_ps_growth` newly filled for 1 (Realty Income: 6.3%/yr; Peer Strength now on 4 of 4 measures), 4 per-share values changed, `peer_strength` changed for 32.
+
+### Checks
+
+- **Hints:** 158 filter bases, 0 without a hint. **Type check:** `labels.py`, `strength.py` 0 errors.
+- **Test build:** read-only, 35,689 rows; the forecast guard was then applied to it and re-checked on the real code (Kimberly-Clark, Lumentum, Lattice, Nvidia, Realty Income).
+
+### Checked after the run
+
+- **Stored = test build:** all 35,689 rows; all 315 shared numeric columns and every text column identical; `category_growth` identical for every company (the guard applied to the test inputs), NULL for every non-company row; `stock_category` identical. The 2 differences against a hand re-derivation (BRT, HRZN) were the re-derivation's error: loss-making payers stay income, as built.
+- **Infinities:** none in the new columns.
+- **Run:** 0 errors, 0 warnings; ~12 minutes; peak RAM 8.5 GB; 337 columns. `indices.db.gz` pushed to FAPortfolio and read back OK. The 27-minute read-only test build was a background-process slowdown, not the change.
+
 ## Not yet reviewed
 
-§8, §21 parts 3-4 (labels and REIT FFO payout, relative strength vs the industry), and the open parts of §20 not covered above. Grouped as above.
+§8, §21 parts 3b-4 (growth phase labels, REIT FFO payout, relative strength vs the industry), and the open parts of §20 not covered above. Grouped as above.
 
 ## Known gaps / limitations
 

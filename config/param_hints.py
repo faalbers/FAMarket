@@ -2060,3 +2060,44 @@ PARAM_HINTS.update(
                    'how_to_use': ['REITs issue shares often, so per-share growth is what counts.'],
                    'vs_peers': 'Yes.'}}
 )
+
+# Stock category label (fix list §21, Group H part 3).
+PARAM_HINTS.update({
+    "stock_category": {
+        "name": "Stock category",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "What kind of stock it is: growth, income, both, early or neither. "
+                      "Growth = past revenue-per-share growth and next year's revenue forecast "
+                      "average at least 12%/yr. Income = regular dividend yield (specials removed) "
+                      "of at least 2.5%, with a dividend in each of the last 5 calendar years. "
+                      "Early = a loss in the latest year and in most of the last 3, with revenue "
+                      "under $1B; it replaces growth / neither.",
+        "how_to_use": [
+            "Pick 'growth' or 'both' for growth screens, 'income' or 'both' for income screens.",
+            "'early' marks loss-makers whose big forecast comes from a tiny base.",
+            "Empty for funds and shell companies. The lines can be changed in Settings.",
+        ],
+        "vs_peers": "No — fixed lines, the same for every company.",
+    },
+    "revenue_ps_growth": {
+        "name": "Revenue / share growth",
+        "category": "Growth",
+        "unit": "%",
+        "what_it_is": "Robust growth (%/yr) of revenue per diluted share over ~6 years. "
+                      "Growth bought by issuing new shares does not count.",
+        "how_to_use": ["Compare with revenue growth: a big gap means heavy share issuance or buybacks."],
+        "vs_peers": "Yes.",
+    },
+    "category_growth": {
+        "name": "Category growth rate",
+        "category": "Growth",
+        "unit": "%",
+        "what_it_is": "The growth rate the stock category tests: the average of revenue-per-share "
+                      "growth and next year's analyst revenue forecast (either alone when the "
+                      "other is missing). A forecast above the track record counts only as far "
+                      "as last year's actual revenue growth backs it (acquisitions inflate forecasts).",
+        "how_to_use": ["Shows how far a company is from the growth line (12%/yr)."],
+        "vs_peers": "No.",
+    },
+})

@@ -42,7 +42,7 @@ from analysis_layer import _periods as P
 from analysis_layer import metrics, technical, intrinsic_value, valuation_scenarios, peers, scoring
 from analysis_layer import estimates as estimates_metrics
 from analysis_layer import signals as signals_metrics
-from analysis_layer import benchmark_push, health, price_quality, sector_index, strength
+from analysis_layer import benchmark_push, health, labels, price_quality, sector_index, strength
 from config.industry_overrides import INDUSTRY_OVERRIDES
 from data_layer import price_checks
 from core.market_calendar import last_completed_session
@@ -380,6 +380,7 @@ def run_analysis(subset: list[str] | None = None) -> dict:
                                           screen_type=screen_type, regulated=regulated)
         est_m = estimates_metrics.compute(sym, est_by.get(sym), forward_pe=m.get("forward_pe"))
         sig_m = signals_metrics.compute(sym, surp_by.get(sym), own_by.get(sym), asof=signals_asof)
+        hc.update(labels.compute(ann, ctype, m, est_m, split_by.get(sym)))  # stock_category (§21)
         # Fund provider/sponsor — funds only (NULL for stocks). Filtered as a
         # classification value on the Filter page; lives only in quotes.db, so it
         # must be copied into the analysis row to be screenable (no cross-DB joins).

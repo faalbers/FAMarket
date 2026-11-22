@@ -4,7 +4,7 @@ Internal tracker for working through `docs/fix_list_for_data_system.md` on branc
 
 ## Waiting for your input
 
-- **Group H part 2 (Peer Strength) done, uncommitted:** the 2026-11-16 analysis run checked (stored = test build). Next: part 3 labels + REIT FFO payout, part 4 relative strength vs the industry; then Group I.
+- **Group H part 3a (stock category) done 2026-11-21:** the analysis run checked (stored = test build). Next: 3b growth phase labels (track record from SEC years, not Yahoo's first-trade date — Yahoo resets it), 3c REIT FFO payout, part 4 relative strength vs the industry; then Group I.
 - **Small existing issue found (H part 2):** `ps` is stored as infinity for 2 symbols (BTQ, APMCF: revenue near zero) — not valid JSON for the UI; a ratio guard like the peer-median one would fix it.
 - **Possible follow-ups from H part 1** (not started, your call): Yahoo's EBITDA below operating income (210 listed companies) also affects `debt_to_ebitda`, `ev_ebitda` and `ebitda_negative` — the health check's operating-EBITDA fix could be used there too; share the one-row-per-year table between Piotroski and the health check (~3 s a run).
 - **Score validation (§18 step 5)** waits for data: `score_history.db` started 2026-11-15; test later returns per score decile once a few months of runs exist.
@@ -27,7 +27,7 @@ Internal tracker for working through `docs/fix_list_for_data_system.md` on branc
 | E | Signals consistency | §11, §7 (dates, TTM lag, currency), §20 (surprise, currency, insiders, targets) | ✅ done 2026-11-14 · past dates NULL, earnings-driven financials refresh, surprise near zero, revenue chain check · currency / insiders / targets recorded (don't reach the screens) |
 | F | Analysis foundations | §2, §10, §16, §20 (EV, EBITDA definition), §14 steps 2-4 (split basis via `filed_date`, Talen) | ✅ done 2026-11-14 · all-class market cap, EPS on one split basis, robust growth (Theil-Sen, `_growth_tau` replaces `_growth_r2`/`_cv`), EV + minority / preferred, normalized EBITDA · Talen loss rows open |
 | G | Analysis built on F | §9, §17, §19, §18 | part 1 ✅ done 2026-11-15 (§9 regular dividends, §17 fair values, second lines) — analysis run checked · part 2 ✅ done 2026-11-15 (§19: Piotroski, peer universe, negative-denominator ratios) — analysis run checked · part 3 ✅ done 2026-11-15 (§18: input counts, fixed ranking universe, trend + forecast-checked growth, score history) — analysis run checked · score validation waits for history |
-| H | New calculations | §21 · + §19 relative strength vs the industry | part 1 ✅ done 2026-11-16 (health check, peak check, dividend warning) — analysis run checked · part 2 ✅ done 2026-11-16 (Peer Strength) — analysis run checked · parts 3-4 open |
+| H | New calculations | §21 · + §19 relative strength vs the industry | part 1 ✅ done 2026-11-16 (health check, peak check, dividend warning) — analysis run checked · part 2 ✅ done 2026-11-16 (Peer Strength) — analysis run checked · part 3a ✅ done 2026-11-21 (stock category) — analysis run checked · parts 3b-4 open |
 | I | Indices | §8 — touches FAPortfolio's `indices.db` contract | open |
 
 **Order:** B before F (share counts, EPS); F before G; §15 before §18.

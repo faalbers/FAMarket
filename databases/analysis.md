@@ -91,7 +91,7 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
   - **`tangible_equity_ratio`** (%) — tangible book / (total assets − goodwill and intangibles). **`debt_to_capital`** (%) — debt / (debt + equity).
   - **`pretax_interest_cover`** (x) — (pre-tax income + interest) / interest; **`ebitda_interest_cover`** (x) — EBITDA / interest, 0 when EBITDA ≤ 0. Both 999 = no interest to pay (the insurer one only when profitable).
   - **`roe_std`** (points) — standard deviation of the yearly ROE over 5-10 years.
-  - **`tbv_ps_growth`**, **`bvps_growth`**, **`ocf_ps_growth`** (%/yr) — robust growth (§5) of tangible book / book value / operating cash flow per diluted share over ~6 years; share counts put on the newest year's split basis when a split falls in the window (NULL if even the best basis is > 2.5x off).
+  - **`tbv_ps_growth`**, **`bvps_growth`**, **`ocf_ps_growth`** (%/yr) — robust growth (§5) of tangible book / book value / operating cash flow per diluted share over ~6 years; share counts put on the newest year's split basis when a split falls in the window (NULL if even the best basis is > 2.5x off). Since 2026-11-21 an event within 10% of 1:1 is not a split here: Yahoo records spin-off adjustments that way (Realty Income's Orion spin-off, "1.032"), which had given heavy share issuers NULL.
 
 ## 5. Growth
 
@@ -108,6 +108,13 @@ Plus:
 
 - **`revenue_accel`**, **`eps_accel`** — `yoy_q` − `cagr_3y` (pp); > 0 = growing faster than its own 3-year pace.
 - **`share_count_chg_1y`** — 1-year % change in diluted average shares (negative = buybacks).
+- **`revenue_ps_growth`** (%/yr, since 2026-11-21) — robust growth of revenue per diluted share, the same per-share method as `ocf_ps_growth` (§4). Companies only.
+- **`stock_category`** (text, since 2026-11-21, `analysis_layer/labels.py`) — growth / income / both / early / neither. Companies only; NULL for funds and shells. Lines in Settings (`CATEGORY_*`).
+  - **growth:** `category_growth` ≥ 12%/yr. **`category_growth`** = mean of `revenue_ps_growth` and `forward_rev_growth` (either alone when the other is missing; Yahoo has no 2-year revenue forecast). A forecast above the track record counts only up to max(track record, `revenue_cagr_1y`): acquisitions (Kimberly-Clark +70%, Kenvue) and bank revenue-definition jumps are not yet in the reported year. Real accelerators keep the label (Lumentum, Bloom Energy); a rebound not yet reported loses it (Lattice).
+  - **income:** `div_yield` (regular) ≥ 2.5% and `div_years_paid` ≥ 5.
+  - **both:** growth and income.
+  - **early:** a loss in the latest fiscal year and in more than half of the last up to 3, latest annual revenue < $1B (none on file = 0). Replaces growth / neither; an income label stays. Revenue is in the reporting currency (P/S can't convert it: TSM's is on Taiwan dollars), so foreign filers lean toward not early.
+  - **neither:** otherwise.
 
 ## 6. Dividends (from `ohlcv.dividends` history)
 

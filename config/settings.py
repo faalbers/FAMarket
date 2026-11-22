@@ -619,6 +619,14 @@ DIV_OUTGROW_PAYOUT: float = 50.0
 # least this size; the industry is the peer group when it holds this many of them.
 PEER_STRENGTH_MIN_CAP: float = 2e9
 PEER_STRENGTH_MIN_PEERS: int = 8
+# Stock category label (fix list §21, Group H part 3): growth = past revenue-per-share
+# growth and next year's forecast average at least this (%/yr); income = regular yield
+# at least this (%) with a dividend in each of the last N calendar years; early = a
+# loss-maker with revenue under this ($).
+CATEGORY_GROWTH_MIN: float = 12.0
+CATEGORY_INCOME_YIELD_MIN: float = 2.5
+CATEGORY_INCOME_YEARS: int = 5
+CATEGORY_EARLY_MAX_REVENUE: float = 1e9
 
 # --------------------------------------------------------------------------- #
 # Scoring & ranking (Topic 4.4) — all adjustable from the Settings page

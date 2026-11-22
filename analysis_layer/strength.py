@@ -68,6 +68,9 @@ _MIN_MEASURES = {"ordinary": 4}   # else ceil(2/3 of the type's measures)
 # finite number (an infinity is not valid JSON on the way to the UI).
 NO_INTEREST_COVER = 999.0
 
+# A split event this close to 1:1 is a spin-off adjustment, not a share split.
+_MIN_SPLIT_LOG = float(np.log(1.1))
+
 # Stored per-symbol measures (the ordinary ones not listed here already exist).
 _OWN = ("roa_3y", "rotce_3y", "pretax_margin_3y", "tangible_equity_ratio", "tbv_ps_growth",
         "debt_to_capital", "pretax_interest_cover", "roe_std", "bvps_growth",
@@ -97,12 +100,17 @@ def per_share_growth(values: pd.Series, shares: pd.Series, splits: pd.Series | N
     NaN when even the best is > 2.5x off (a change of basis, §14). Without a split
     the counts are used as filed: REITs and banks issue shares steadily (Agree
     Realty 12x in 16 years), which a closeness test would misread. NaN with < 4
-    points."""
+    points.
+
+    Events within 10% of 1:1 are not splits here: Yahoo records a spin-off's price
+    adjustment as one (Realty Income's Orion spin-off, 2021, "1.032"), which would
+    switch on the basis test for a heavy share issuer and wrongly give NaN."""
     s = pd.concat([values, shares], axis=1, keys=["v", "n"]).dropna()
     s = s[s["n"] > 0].iloc[-(settings.GROWTH_TREND_YEARS + 1):]
     if len(s) < 4:
         return float("nan")
-    real = (splits[(splits != 0) & (splits != 1)] if splits is not None and not splits.empty
+    real = (splits[(splits > 0) & (np.abs(np.log(splits.where(splits > 0))) >= _MIN_SPLIT_LOG)]
+            if splits is not None and not splits.empty
             else pd.Series(dtype=float, index=pd.DatetimeIndex([])))
     last_d, last_n = s.index[-1], float(s["n"].iloc[-1])
     window = real[(real.index > s.index[0]) & (real.index <= last_d)]

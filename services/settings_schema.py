@@ -78,6 +78,10 @@ HELP: dict[str, str] = {
     "DIV_OUTGROW_PAYOUT": "Dividend warning: minimum payout ratio (%) for the warning, unless the latest year was a loss.",
     "PEER_STRENGTH_MIN_CAP": "Peer Strength: market cap ($) of the listed companies the measures are ranked against.",
     "PEER_STRENGTH_MIN_PEERS": "Peer Strength: reference companies an industry needs to be the peer group (else the sector / type).",
+    "CATEGORY_GROWTH_MIN": "Stock category: past revenue-per-share growth and next year's forecast must average at least this for 'growth'.",
+    "CATEGORY_INCOME_YIELD_MIN": "Stock category: regular dividend yield (specials removed) needed for 'income'.",
+    "CATEGORY_INCOME_YEARS": "Stock category: 'income' also needs a dividend in each of this many recent calendar years.",
+    "CATEGORY_EARLY_MAX_REVENUE": "Stock category: a loss-maker with revenue under this is 'early', not growth / neither.",
     "RECONCILE_TOLERANCE_PCT": "Max fractional gap between a computed ratio and yfinance's before a divergence WARNING is logged (0.10 = 10%).",
 }
 
@@ -258,6 +262,10 @@ def sections() -> list[dict[str, Any]]:
                 _field("DIV_OUTGROW_PAYOUT", "Dividend warning: min payout (%)", "float", lo=0.0, hi=200.0, step=5.0, group="Health check"),
                 _field("PEER_STRENGTH_MIN_CAP", "Peer Strength: min market cap ($)", "float", lo=0.0, hi=1e12, step=1e8, group="Peer Strength"),
                 _field("PEER_STRENGTH_MIN_PEERS", "Peer Strength: min industry peers", "int", lo=2, hi=50, group="Peer Strength"),
+                _field("CATEGORY_GROWTH_MIN", "Growth: min growth (%/yr)", "float", lo=0.0, hi=100.0, step=0.5, group="Stock category"),
+                _field("CATEGORY_INCOME_YIELD_MIN", "Income: min regular yield (%)", "float", lo=0.0, hi=20.0, step=0.1, group="Stock category"),
+                _field("CATEGORY_INCOME_YEARS", "Income: years with a dividend", "int", lo=1, hi=30, group="Stock category"),
+                _field("CATEGORY_EARLY_MAX_REVENUE", "Early: max revenue ($)", "float", lo=0.0, hi=1e11, step=1e8, group="Stock category"),
                 _field("RECONCILE_TOLERANCE_PCT", "Tolerance (fraction)", "float", lo=0.0, hi=1.0, step=0.01, group="Reconcile"),
             ],
         },

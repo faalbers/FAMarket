@@ -1133,6 +1133,12 @@ needs.
      measures ranked within the industry (≥ 8 reference companies) else sector / type, against listed
      $2B+ companies (`PEER_STRENGTH_MIN_CAP`); 12 new measure columns for banks / insurers / REITs /
      brokers; one annual table per company shared with the health check.
+   - ✅ Group H, part 3a — stock category (2026-11-21, §21), analysis run checked: new
+     `analysis_layer/labels.py` — `stock_category` (growth / income / both / early / neither),
+     `revenue_ps_growth`, `category_growth`; lines in Settings (`CATEGORY_*`). Added to the review:
+     a forecast above the track record counts only up to last year's actual revenue growth
+     (acquisition forecasts). Also fixed: near-1:1 spin-off "splits" no longer void per-share growth.
+     Next: 3b growth phase labels, 3c REIT FFO payout, part 4 relative strength vs the industry.
    - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
      `core/backup.fix_backup`).
 
