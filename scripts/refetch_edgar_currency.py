@@ -30,18 +30,11 @@ Usage
 from __future__ import annotations
 
 import argparse
-import time
-
-import pandas as pd
 
 from config import settings
-from core.backup import fix_backup
 from core.database import Database
-from core.net import configure_tls
 from data_layer.fetchers.edgar_fetcher import EDGARFinancials
-
-BATCH = 25
-PAUSE_S = 0.15  # stays well under SEC's ~10 requests a second
+from scripts._edgar_refetch import refetch
 
 
 def _targets() -> list[str]:
@@ -62,53 +55,10 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dry-run", action="store_true", help="fetch and report; no backup, no writes")
     args = ap.parse_args()
-    configure_tls()
-
-    syms = _targets()
-    print(f"Targets: {len(syms)} companies")
-    if not args.dry_run:
-        print(f"Backup: {fix_backup([settings.FINANCIALS_DB, settings.SYMBOLS_DB], 'refetch_edgar_currency')}")
-
-    fetcher = EDGARFinancials()
-    data = empty = failed = other_ccy = guarded = 0
-    with Database(settings.FINANCIALS_DB) as db:
-        for i in range(0, len(syms), BATCH):
-            frames = []
-            for sym in syms[i:i + BATCH]:
-                if sym.upper() in fetcher._cik_map():
-                    time.sleep(PAUSE_S)
-                try:
-                    rows = fetcher.fetch_one(sym)
-                except Exception as exc:  # transient SEC error: leave the stored rows
-                    failed += 1
-                    print(f"  {sym}: failed ({type(exc).__name__})")
-                    continue
-                if rows is None or rows.empty:
-                    empty += 1
-                    continue
-                data += 1
-                frames.append(rows)
-            if not frames:
-                continue
-            batch = pd.concat(frames, ignore_index=True)
-            kept, dropped = fetcher._drop_other_currency(batch.drop(columns=["regulatory"]))
-            other_ccy += len(dropped)
-            guarded += kept["symbol"].nunique() - fetcher._keep_unreproduced_history(db, kept)["symbol"].nunique()
-            if not args.dry_run:
-                # History guard off for the write: here a "lost" year is an early
-                # year the company tagged only as a USD convenience translation
-                # (MOMO, NOAH, VIPS, VSA; dry run 2026-11-22), and keeping the old
-                # rows would keep the mixed currencies. The count above still
-                # reports any such company.
-                fetcher.guard_history = False
-                fetcher._write(db, batch)
-                fetcher.guard_history = True
-            print(f"  {min(i + BATCH, len(syms))}/{len(syms)}")
-
-    verb = "would" if args.dry_run else "did"
-    print(f"\nDone — SEC data for {data:,} companies ({verb} write), none for {empty:,}, "
-          f"failed {failed:,}; dropped as another currency than Yahoo's: {other_ccy:,}; "
-          f"lose early USD-only years (history guard off here): {guarded:,}.")
+    # History guard off for the write: here a "lost" year is an early year the
+    # company tagged only as a USD convenience translation (MOMO, NOAH, VIPS, VSA;
+    # dry run 2026-11-22), and keeping the old rows would keep the mixed currencies.
+    refetch(_targets(), "refetch_edgar_currency", args.dry_run, guard_history=False)
 
 
 if __name__ == "__main__":

@@ -1166,6 +1166,10 @@ needs.
      run: `strength.per_share_series` puts each year on its newer neighbour's split basis (later splits
      included) and drops a basis break (> 2.5x shares, < 2x value) and everything older; replaced
      "NULL when a split is in the window and the newest-year basis is > 2.5x off" (agreed: drop, not rescale).
+   - Revenue-per-share seams, part 4 — the wrong revenue line (2026-11-22), built, waits for the
+     one-time SEC re-fetch + analysis run: same-year test against Yahoo's revenue
+     (`edgar_fetcher._off_reference`, > 25% off -> tag not used) and `RevenuesNetOfInterestExpense`
+     as the second revenue tag; one-time `scripts/refetch_edgar_revenue.py`.
    - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
      `core/backup.fix_backup`).
 

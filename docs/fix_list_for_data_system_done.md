@@ -900,6 +900,35 @@ Found in round 13 (not in the review): 295 of 1,956 listed companies of $2B+ had
 - **Flagstar:** NULL → 103% — its SEC revenue is a sub-line (23M vs Yahoo's 1.5B; the seam test didn't fire because assets doubled in the merger). The old rule blanked it only by chance. Belongs to the narrower-revenue-line part.
 - **Yahoo share counts 4x too high** (FirstEnergy, Digital Realty) are not corrected — only kept out of per-share trends.
 
+## Round 19 — revenue-per-share seams, part 4: the wrong revenue line (2026-11-22)
+
+### The cause
+
+- **Banks' ASC 606 contract-revenue tag is fees only.** Where a bank has no `Revenues` fact, the importer took it: Western Alliance 3% of Yahoo's revenue, Huntington 19%, Fifth Third 7%, Flagstar 0.03B vs 1.5B, American Express 34B vs 53B.
+- **Sub-line `Revenues`** at some other companies: General Mills 2019-24 at 2B (10%).
+- Sample, 2026-11-22 (446 large companies with years in both sources): the first-choice SEC tag was > 10% off Yahoo for 54 — 43 financials, 6 of ~200 ordinary, 5 REITs. Hershey (listed in round 13) was a share-count case, not revenue: its revenue matches Yahoo exactly.
+- `RevenuesNetOfInterestExpense` — the total Yahoo uses for financials — agreed with Yahoo for 17 of the 23 filers that tag it, and wasn't read.
+
+### Fixed
+
+- **Same-year test** (`edgar_fetcher._off_reference`, `_REFERENCE_MAX_OFF = 1.25`): `fetch_one` reads the company's stored Yahoo annual revenue; a revenue tag > 25% off it (median over shared years) is skipped for all its periods, annual and quarterly, so a later tag can fill them. 10-20% definition gaps (gross vs net of interest) stay.
+- **`RevenuesNetOfInterestExpense`** added as the second revenue tag.
+- **One-time re-fetch** `scripts/refetch_edgar_revenue.py`: every financial / real-estate company with SEC rows plus every company whose revenue steps > 1.33x from its last SEC year to its first Yahoo year (1,750). The shared loop moved to `scripts/_edgar_refetch.py` (the currency script uses it too).
+
+### Checked
+
+- **Test companies:** American Express 2015-21 now 33-44B (net revenue, = Yahoo in 2022-25); Zions 2.8B instead of 0.5B; Flagstar, Western Alliance, Huntington lose their fee-only years; General Mills 2019-24 16.9-19.9B instead of ~2B. Unchanged: Apple, Kohl's, Hershey, Raymond James, JPMorgan (annual), Exxon, Toyota, Alibaba. JPMorgan gains 36 quarters (~30B each, adding up to its annual net revenue).
+- **Dry run (1,750 targets):** SEC data for 1,617, 0 failed. Annual revenue changes: 770 cells in 208 companies (364 → NULL, 215 NULL → value, 191 value → value); quarterly 2,329 cells in 133. 64 large listed companies change (28 ordinary, 12 REITs, 10 banks, 6 brokers, 5 insurers).
+  - Value → value includes post-spin-off recasts the importer now prefers (8-K recasts, rule revised after the 2026-11-11 re-fetch): ConocoPhillips 2009 149B → 51B (Phillips 66), Hilton 2014 10.5B → 6.7B, GE 2020.
+  - MUFG, Mizuho, ORIX lose all SEC revenue (their only tag is 1.6-2.7x Yahoo's definition).
+  - 5 companies newly dropped by the currency rule (SEC CNY / EUR vs Yahoo USD: CANG, COE, FOCL, JF, NBP). History guard kept NAVI, XPRO (known re-pointed records) and BTCT.
+- **Type check:** 0 errors.
+
+### Left open
+
+- Tags with no shared year can't be tested (Flagstar's 2011-12 `Revenues` 1.4B is kept; plausible).
+- Japanese banks' and Carlyle's SEC revenue is gone, not converted to Yahoo's definition.
+
 ## Not yet reviewed
 
 §8 and the open parts of §20 not covered above. Grouped as above.

@@ -105,8 +105,14 @@ FLOW_CONCEPTS: dict[str, list[str]] = {
     # MetLife FY2018 1.26B vs Revenues 67.9B. On 57 sample companies, matching Yahoo
     # within 2% went 149/220 -> 185/220 with Revenues first; the rest are definition
     # gaps (excise tax, bank netting), not sub-lines.
+    # RevenuesNetOfInterestExpense (since 2026-11-22): the total Yahoo uses for
+    # banks, brokers and card issuers (American Express 52.9B FY2022, where the
+    # contract-revenue tag is the 34.2B of fees); it agreed with Yahoo for 17 of 23
+    # sampled filers. Which tag survives is checked against Yahoo's own years
+    # (`_off_reference`).
     "total_revenue": [
         "Revenues",
+        "RevenuesNetOfInterestExpense",
         "RevenueFromContractWithCustomerExcludingAssessedTax",
         "RevenueFromContractWithCustomerIncludingAssessedTax",
         "SalesRevenueNet",
@@ -347,12 +353,37 @@ def _pick_unit(units: dict, col: str, currency: str) -> list | None:
     return units.get(currency)
 
 
+# Same-year revenue test (fix list, revenue-per-share seams part 4, 2026-11-22): a
+# revenue tag whose annual values differ from Yahoo's in the years both have by more
+# than this (median) is another line — banks' ASC 606 contract revenue is fees only
+# (Western Alliance 3% of Yahoo's revenue, Huntington 19%, American Express 60%),
+# General Mills' `Revenues` 10%. Gross-vs-net-of-interest gaps (Raymond James,
+# Stifel ~15%) are definitions, not sub-lines, and stay under it.
+_REFERENCE_MAX_OFF = 1.25
+
+
+def _off_reference(points: dict[tuple[str, str], tuple[float, str, str]],
+                   reference: dict[str, float]) -> bool:
+    """True when the tag's annual points sit > `_REFERENCE_MAX_OFF` (median ratio)
+    from the reference in their shared years. No shared year -> False (untestable)."""
+    ratios = []
+    for (end, freq), (val, *_) in points.items():
+        ref = reference.get(_month_end_str(end) or end) if freq == "annual" else None
+        if ref and ref > 0 and val and val > 0:
+            ratios.append(val / ref)
+    if not ratios:
+        return False
+    med = float(pd.Series(ratios).median())
+    return not (1 / _REFERENCE_MAX_OFF <= med <= _REFERENCE_MAX_OFF)
+
+
 def _merge_tags(
     facts: dict,
     col: str,
     tags: list[str],
     classify,
     currency: str,
+    reference: dict[str, float] | None = None,
 ) -> dict[tuple[str, str], tuple[float, str, str]]:
     """Resolve one canonical column to {(period_end, freq): (value, first_filed, tag)}.
 
@@ -362,6 +393,11 @@ def _merge_tags(
     `filed` for `_FIRST_FILED_COLS`. `first_filed` is always the earliest filing
     that reported the period (for `filed_date`). `classify` maps a datapoint to a
     freq label (or None to drop it). Facts dated after their own filing are dropped.
+
+    `reference` ({month-end period_end: annual value}, Yahoo's) drops a whole tag
+    whose annual values in the years both have are off by more than
+    `_REFERENCE_MAX_OFF` (median) — see `_off_reference`; a later tag can then fill
+    its periods.
     """
     keep_first = col in _FIRST_FILED_COLS
     chosen: dict[tuple[str, str], tuple[float, str, str]] = {}
@@ -390,6 +426,8 @@ def _merge_tags(
             earliest = min(prev[2], filed)
             take = filed < prev[1] if keep_first else filed >= prev[1]
             this_tag[key] = (pt["val"], filed, earliest) if take else (prev[0], prev[1], earliest)
+        if reference and _off_reference(this_tag, reference):
+            continue  # another line than the reference's: don't use or claim it
         for key, (val, _, earliest) in this_tag.items():
             if key not in claimed:  # higher-preference tag already owns it -> skip
                 chosen[key] = (val, earliest, tag)
@@ -520,7 +558,8 @@ def _fiscal_year_ends(facts: dict, fye_months: set[int]) -> set[str]:
     return regular | kept
 
 
-def extract_financials(symbol: str, facts: dict) -> pd.DataFrame:
+def extract_financials(symbol: str, facts: dict,
+                       yahoo_revenue: dict[str, float] | None = None) -> pd.DataFrame:
     """Reshape one company's us-gaap facts into wide financials rows.
 
     Returns columns: symbol, period_end, freq, <canonical line items>, filed_date,
@@ -528,6 +567,9 @@ def extract_financials(symbol: str, facts: dict) -> pd.DataFrame:
     revenue tag behind each row, used by `_write`'s seam test) and `_currency` (the
     company's one reporting currency, `_reporting_currency`), both dropped before
     the write — one row per (period_end, freq). Empty if nothing maps.
+
+    `yahoo_revenue` ({month-end period_end: annual revenue}, the stored Yahoo
+    rows) drops revenue tags that disagree with it in shared years (`_off_reference`).
     """
     fye_months = _fye_months(facts)
     fye = _fiscal_year_ends(facts, fye_months)
@@ -560,7 +602,8 @@ def extract_financials(symbol: str, facts: dict) -> pd.DataFrame:
     currency = _reporting_currency(facts)
     cols: dict[str, dict[tuple[str, str], tuple[float, str, str]]] = {}
     for col, tags in FLOW_CONCEPTS.items():
-        m = _merge_tags(facts, col, tags, _flow_freq_checked, currency)
+        m = _merge_tags(facts, col, tags, _flow_freq_checked, currency,
+                        yahoo_revenue if col == "total_revenue" else None)
         if m:
             cols[col] = m
     for col, tags in INSTANT_CONCEPTS.items():
@@ -841,7 +884,7 @@ class EDGARFinancials(BaseFetcher):
         facts = resp.json().get("facts", {}).get("us-gaap", {})
         if not facts:
             return None
-        rows = extract_financials(symbol, facts)
+        rows = extract_financials(symbol, facts, self._yahoo_revenue(symbol))
         if rows.empty:
             return None
         # Rate-regulated (ASC 980) detection — a per-COMPANY fact, not a
@@ -849,6 +892,23 @@ class EDGARFinancials(BaseFetcher):
         # split it off into symbols.db; it never reaches financials.db itself.
         rows["regulatory"] = int(_has_regulatory_data(facts))
         return rows
+
+    def _yahoo_revenue(self, symbol: str) -> dict[str, float]:
+        """{month-end period_end: revenue} of the symbol's stored Yahoo annual rows —
+        the reference for the same-year revenue test (`_off_reference`)."""
+        from core.database import Database
+
+        with Database(settings.FINANCIALS_DB) as db:
+            if not db.table_exists(self.table) or "source" not in db.columns(self.table):
+                return {}
+            y = db.query(
+                f'SELECT period_end, total_revenue FROM "{self.table}" WHERE symbol = ? '
+                "AND freq = 'annual' AND (source IS NULL OR source != 'edgar') "
+                "AND total_revenue > 0",
+                [symbol],
+            )
+        return {(_month_end_str(pe) or pe): float(v)
+                for pe, v in zip(y["period_end"], y["total_revenue"])}
 
     # -- additive-only write ------------------------------------------------ #
     def _write(self, db: "Database", rows: pd.DataFrame) -> None:
