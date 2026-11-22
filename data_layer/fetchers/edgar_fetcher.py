@@ -311,17 +311,40 @@ def _flow_freq(start: str | None, end: str | None) -> str | None:
     return None
 
 
-def _pick_unit(units: dict, col: str) -> list | None:
-    """Choose the unit series for a concept: USD/shares for EPS, shares for share
-    counts, else USD."""
+_CURRENCY_UNIT_RE = re.compile(r"^[A-Z]{3}$")
+
+
+def _reporting_currency(facts: dict) -> str:
+    """The company's ONE reporting currency: the ISO currency unit carrying the
+    most data points across the mapped money concepts (USD when there are none).
+
+    Foreign filers add a USD "convenience translation" of their latest year to a
+    20-F, so a USD series exists next to the home-currency one but covers only a
+    few years. Picking USD whenever present (the old rule) mixed USD and yen/yuan
+    years in one history, and even inside one row when another concept had no USD
+    copy (Toyota, Alibaba, Nomura; 2026-11-22). The home currency has by far the
+    most points; for a domestic filer it is USD.
+    """
+    counts: dict[str, int] = {}
+    for col, tags in {**FLOW_CONCEPTS, **INSTANT_CONCEPTS}.items():
+        if col in _SHARES_UNIT_COLS or col in _SHARE_PRICE_COLS:
+            continue
+        for tag in tags:
+            for unit, pts in facts.get(tag, {}).get("units", {}).items():
+                if _CURRENCY_UNIT_RE.match(unit):
+                    counts[unit] = counts.get(unit, 0) + len(pts)
+    return max(counts, key=lambda u: counts[u]) if counts else "USD"
+
+
+def _pick_unit(units: dict, col: str, currency: str) -> list | None:
+    """Choose the unit series for a concept: `<currency>/shares` for EPS, shares
+    for share counts, else `<currency>`. Values in any other currency are dropped,
+    so every money column of a company shares one currency."""
     if col in _SHARE_PRICE_COLS:
-        return units.get("USD/shares")
+        return units.get(f"{currency}/shares")
     if col in _SHARES_UNIT_COLS:
         return units.get("shares")
-    if "USD" in units:
-        return units["USD"]
-    # Fall back to the sole unit if there's exactly one (rare alt currencies).
-    return next(iter(units.values())) if len(units) == 1 else None
+    return units.get(currency)
 
 
 def _merge_tags(
@@ -329,6 +352,7 @@ def _merge_tags(
     col: str,
     tags: list[str],
     classify,
+    currency: str,
 ) -> dict[tuple[str, str], tuple[float, str, str]]:
     """Resolve one canonical column to {(period_end, freq): (value, first_filed, tag)}.
 
@@ -346,7 +370,7 @@ def _merge_tags(
         concept = facts.get(tag)
         if not concept:
             continue
-        pts = _pick_unit(concept.get("units", {}), col)
+        pts = _pick_unit(concept.get("units", {}), col, currency)
         if not pts:
             continue
         # key -> (value, filed of that value, earliest filed for the period)
@@ -501,8 +525,9 @@ def extract_financials(symbol: str, facts: dict) -> pd.DataFrame:
 
     Returns columns: symbol, period_end, freq, <canonical line items>, filed_date,
     quarter_sum_flag, is_complete, source, plus the internal `_rev_tag` (the
-    revenue tag behind each row, used by `_write`'s seam test and dropped before
-    the write) — one row per (period_end, freq). Empty if nothing maps.
+    revenue tag behind each row, used by `_write`'s seam test) and `_currency` (the
+    company's one reporting currency, `_reporting_currency`), both dropped before
+    the write — one row per (period_end, freq). Empty if nothing maps.
     """
     fye_months = _fye_months(facts)
     fye = _fiscal_year_ends(facts, fye_months)
@@ -532,13 +557,14 @@ def extract_financials(symbol: str, facts: dict) -> pd.DataFrame:
         return "quarterly"
 
     # column -> {(period_end, freq): (value, first_filed, tag)}
+    currency = _reporting_currency(facts)
     cols: dict[str, dict[tuple[str, str], tuple[float, str, str]]] = {}
     for col, tags in FLOW_CONCEPTS.items():
-        m = _merge_tags(facts, col, tags, _flow_freq_checked)
+        m = _merge_tags(facts, col, tags, _flow_freq_checked, currency)
         if m:
             cols[col] = m
     for col, tags in INSTANT_CONCEPTS.items():
-        m = _merge_tags(facts, col, tags, _instant_freq)
+        m = _merge_tags(facts, col, tags, _instant_freq, currency)
         if col in _SHARE_COUNT_COLS:
             m = _drop_share_spikes(m)
         if m:
@@ -572,6 +598,7 @@ def extract_financials(symbol: str, facts: dict) -> pd.DataFrame:
         out[present].notna().all(axis=1).astype(int) if present else 0
     )
     out["source"] = "edgar"
+    out["_currency"] = currency  # internal, like _rev_tag: _write's Yahoo-currency check
     out = clean_financials(out)[0]
     out = repair_share_scale(out)[0]  # share counts tagged at the wrong 1,000^k
     return out.sort_values(["freq", "period_end"]).reset_index(drop=True)
@@ -845,24 +872,66 @@ class EDGARFinancials(BaseFetcher):
         if rows.empty:
             return
         self._write_regulatory_flag(rows)
-        fin_rows = self._keep_unreproduced_history(db, rows.drop(columns=["regulatory"]))
+        fin_rows, other_ccy = self._drop_other_currency(rows.drop(columns=["regulatory"]))
+        self._delete_edgar_rows(db, other_ccy)
+        fin_rows = self._keep_unreproduced_history(db, fin_rows)
         if fin_rows.empty:
             return
         syms = fin_rows["symbol"].unique().tolist()
         yf_rows = self._yf_rows(db, syms)
         fin_rows = self._seam_check(fin_rows, yf_rows)
         fin_rows, owned = self._split_yf_owned(fin_rows, yf_rows)
-        fin_rows = fin_rows.drop(columns=["_rev_tag"], errors="ignore")
-        if db.table_exists(self.table) and "source" in db.columns(self.table):
-            placeholders = ", ".join("?" for _ in syms)
-            db.execute(
-                f'DELETE FROM "{self.table}" WHERE source = \'edgar\' '
-                f"AND symbol IN ({placeholders})",
-                syms,
-            )
+        fin_rows = fin_rows.drop(columns=["_rev_tag", "_currency"], errors="ignore")
+        self._delete_edgar_rows(db, syms)
         if not fin_rows.empty:
             super()._write(db, fin_rows)
         self._write_edgar_only(db, owned)
+
+    def _delete_edgar_rows(self, db: "Database", syms: list[str]) -> None:
+        """Delete these companies' stored `source='edgar'` rows."""
+        if not syms or not db.table_exists(self.table) or "source" not in db.columns(self.table):
+            return
+        placeholders = ", ".join("?" for _ in syms)
+        db.execute(
+            f'DELETE FROM "{self.table}" WHERE source = \'edgar\' '
+            f"AND symbol IN ({placeholders})",
+            syms,
+        )
+
+    def _drop_other_currency(self, rows: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+        """(rows without the companies whose SEC currency differs from Yahoo's
+        `financialCurrency`, those companies).
+
+        Their SEC history is in another currency than the Yahoo years it would
+        join (Petrobras and Vale filed in USD, Yahoo reports BRL; 2026-11-22), so
+        growth across the hand-over would mix currencies. Their EDGAR rows are
+        dropped and the stored ones deleted; the analysis keeps Yahoo's years only.
+        A company with no Yahoo currency keeps its SEC rows.
+        """
+        from core.database import Database
+
+        if "_currency" not in rows.columns:
+            return rows, []
+        syms = rows["symbol"].unique().tolist()
+        with Database(settings.QUOTES_DB) as qdb:
+            if not qdb.table_exists("quotes") or "financialCurrency" not in qdb.columns("quotes"):
+                return rows, []
+            yahoo = qdb.query(
+                "SELECT symbol, financialCurrency FROM quotes "
+                f"WHERE symbol IN ({', '.join('?' for _ in syms)})",
+                syms,
+            )
+        yahoo_ccy = {s: c for s, c in zip(yahoo["symbol"], yahoo["financialCurrency"])
+                     if isinstance(c, str) and c}
+        ours = rows.groupby("symbol")["_currency"].first()
+        other = [s for s, c in ours.items() if s in yahoo_ccy and yahoo_ccy[s] != c]
+        if not other:
+            return rows, []
+        self.log.info(
+            "EDGAR — dropped SEC history in another currency than Yahoo's for %d companies: %s",
+            len(other), ", ".join(f"{s} ({ours[s]} vs {yahoo_ccy[s]})" for s in other),
+        )
+        return rows[~rows["symbol"].isin(other)], other
 
     # Safety net for the replace-on-fetch: a new fetch may not wipe out stored
     # fiscal years it can't reproduce. Seen 2026-11-11: the SEC re-pointed NAVI and

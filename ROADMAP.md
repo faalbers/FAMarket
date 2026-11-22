@@ -1158,6 +1158,10 @@ needs.
      repaired and checked after the analysis run: new `cleaning_rules.repair_share_scale` (EDGAR counts
      off by an exact 1,000^k from the nearest row that agrees with its own NI / EPS are rescaled;
      run in `edgar_fetcher.extract_financials`) and one-time `scripts/fix_share_scale.py`.
+   - Revenue-per-share seams, part 2 — one currency per company (2026-11-22), built, waits for the
+     one-time SEC re-fetch + analysis run: `edgar_fetcher._reporting_currency` (most-used currency;
+     replaced "USD whenever present"), SEC history dropped when it differs from Yahoo's
+     `financialCurrency` (agreed over FX conversion); one-time `scripts/refetch_edgar_currency.py`.
    - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
      `core/backup.fix_backup`).
 

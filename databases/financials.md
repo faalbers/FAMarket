@@ -39,6 +39,8 @@ Only `stock`, `adr` and REIT-type stocks have rows. No funds, ETFs or preferreds
   - **Fill-in:** from another non-quarterly filing in that month (6-K results, 8-K recast, proxy), or from an annual report at another month-end (a year-end change, e.g. Goldman Sachs Nov → Dec 2008). Kept only when ≥ 300 days from every accepted year.
   - Quarterly reports never supply a year — that keeps out trailing-12-month figures (Amazon) and misdated spans (JBTM).
   - A balance-sheet date is annual when it is a fiscal-year end.
+- **One currency per company** (since 2026-11-22, `_reporting_currency`): the currency with the most data points across the mapped money tags (USD for domestic filers). Every money column and EPS (`<currency>/shares`) is read in it; other-currency copies are ignored. Before, USD was taken whenever a tag had any USD figures, so foreign filers' history mixed a 20-F's USD convenience translation with home-currency years (Toyota, Alibaba, Nomura), and home-currency EPS was dropped (ASML, Sony, Enbridge).
+  - **Currency switch:** when that currency differs from Yahoo's `financialCurrency` (Petrobras and Vale filed in USD, Yahoo reports BRL), the company's SEC history is dropped and its stored EDGAR rows deleted; only Yahoo's years remain. A company with no Yahoo currency keeps its SEC rows.
 - **History guard:** a re-fetch that would lose 2+ stored fiscal years keeps the company's old EDGAR rows and logs a warning.
 - **Restatements:** money columns keep the latest filing's value. **Per-share and share-count columns keep the first-filed value**, so every value sits on the split basis of its own `filed_date` — multiply by the splits after `filed_date` to reach today's basis.
 - **`filed_date`** — the earliest filing date of the facts in that row (when the numbers became public). Also on Yahoo rows for SEC filers.
@@ -72,5 +74,7 @@ Only `stock`, `adr` and REIT-type stocks have rows. No funds, ETFs or preferreds
 - Very old years that a small company tagged only inside a 10-Q are not stored (~110 years across ~60 micro-caps).
 - Older EDGAR years can lack revenue where a company used a tag outside the list (e.g. `SalesRevenueGoodsNet` before 2018, bank-specific revenue tags).
 - Revenue definitions differ slightly between the sources (excise taxes, bank netting), so a 2-20% step can appear at the EDGAR → Yahoo seam (Altria, Molson Coors ~18%).
+- **Currency-switch companies have no SEC history** (Petrobras, Vale, Fresenius Medical Care and ~15 small ones, 2026-11-22): their old filings are in another currency than Yahoo's. Converting with FRED exchange rates is possible later.
+- **IFRS filers' recent years are not read** (`ifrs-full` facts: Toyota since FY2021, Sony, Petrobras): only `us-gaap` facts are mapped.
 - Share counts are per company, not per share class: GOOG/GOOGL, BRK-A/BRK-B etc. carry the same count. ADRs may report home-market shares, not ADR units.
 - Yahoo can shift a `period_end` by a few days between fetches, which can leave two near-duplicate periods.

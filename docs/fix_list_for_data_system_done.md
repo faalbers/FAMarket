@@ -829,6 +829,39 @@ Found in round 13 (not in the review): 295 of 1,956 listed companies of $2B+ had
 - **EPS tagged at the wrong scale:** ~1,100 rows across ~220 companies, mostly quarters (ICE). Not repaired; possible follow-up.
 - **Sector index:** it rescales share units for ~415 constituents itself; cleaner counts may change that number and the index slightly.
 
+## Round 17 — revenue-per-share seams, part 2: one currency per company (2026-11-22)
+
+### The cause
+
+- **The SEC importer picked US dollars for each tag whenever any dollar figures existed.** Foreign filers add a dollar "convenience translation" of their latest year to a 20-F.
+  - So a company's history mixed dollar and home-currency years: Toyota 2010-13 in USD, 2017-20 in JPY; Alibaba's SEC years in USD next to Yahoo's CNY (revenue per share looked ~50x higher).
+  - One row could mix too: three Toyota tags have no USD copy, so USD revenue sat beside JPY figures.
+  - EPS was read only as `USD/shares`, so home-currency EPS was dropped (ASML, Enbridge, Sony, MUFG).
+
+### Fixed
+
+- **One reporting currency per company** (`edgar_fetcher._reporting_currency`): the currency with the most data points across the mapped money tags. All money columns and EPS use it; other currencies are ignored.
+- **Currency switch** (`EDGARFinancials._drop_other_currency`): when that currency differs from Yahoo's `financialCurrency`, the SEC history is dropped and stored EDGAR rows deleted (Petrobras, Vale, Fresenius Medical Care and ~15 small companies — their old filings were in USD). Chosen with the user over FX conversion; conversion stays possible later.
+- **One-time re-fetch** `scripts/refetch_edgar_currency.py` for every non-USD reporter plus SEC companies with no Yahoo currency (backup of `financials.db` and `symbols.db` first; `fetch_status` untouched).
+
+### Checked
+
+- **8 test companies** (Toyota, Alibaba, Nomura, ASML, Enbridge, Sony, Petrobras, MUFG): one consistent currency each; Yahoo's currency matches for 7. Toyota gains 2008-16 in JPY with EPS; ASML / Enbridge / Sony / MUFG gain EPS.
+- **USD reporters unchanged:** Apple, Kohl's, JPMorgan, Exxon give cell-for-cell the same rows under the old and new rule.
+- **Scan of 366 companies (read-only):** 249 match Yahoo's currency, 19 switched (dropped), 62 with no Yahoo currency, 36 without US-GAAP data. 156 matched companies change history (866 annual rows); 178 gain EPS (827 annual rows).
+- **Type check:** 0 errors in the changed files.
+- **Re-fetch run 2026-11-22** (`scripts/refetch_edgar_currency.py`; backup `2026-11-22_09-59-25_refetch_edgar_currency`): 358 companies rewritten, 0 failed, 1,253 targets without SEC data.
+  - The 19 currency-switch companies with stored SEC rows now have none.
+  - MOMO, NOAH, VIPS, VSA lost their early USD-only years (history guard off for this run only); their stored years are now CNY.
+  - No company outside the targets changed. Table rows 330,553 → 330,532.
+  - Toyota, Alibaba, Nomura, ASML: one currency across the SEC → Yahoo seam. Nomura's 2020-22 share counts (×1,000,000, left open in round 16) are now repaired too — its home-currency EPS gives the share-scale rule an anchor.
+
+### Left open
+
+- **ADS vs ordinary share counts** (Alibaba: EDGAR per ordinary share, Yahoo per ADS = 8 shares; Toyota: pre-split ordinary vs ADS) — next part, measured after this repair.
+- **IFRS filings not read** (Toyota since FY2021, Sony, Petrobras).
+- **Narrower / wider revenue line at the seam** (Nomura: SEC gross revenue ~2.5T JPY vs Yahoo net ~1.1T).
+
 ## Not yet reviewed
 
 §8 and the open parts of §20 not covered above. Grouped as above.
