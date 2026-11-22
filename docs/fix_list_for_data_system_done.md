@@ -781,6 +781,54 @@ The review points to §21 for it; it needs the industry benchmark map, so it is 
 - **Run:** 0 errors; peak RAM 8.5 GB; 347 columns.
 - **Also fixed (not in the review):** an analysis-only run now clears a stop request left from earlier. Before, Fetch Control showed such a run as "stopping" (2026-11-21).
 
+## Round 16 — revenue-per-share seams, part 1: share counts at the wrong scale (2026-11-22)
+
+Found in round 13 (not in the review): 295 of 1,956 listed companies of $2B+ had a > 2.5x one-year jump in revenue per share.
+
+### The cause
+
+- **SEC filers sometimes tag a share count at the wrong scale.** Always an exact 1,000x or 1,000,000x, and only in EDGAR rows.
+  - Kohl's FY2021 diluted shares: 148 (148 million). Teva 2017: 1,016. PACCAR 2018: 351.8. Bruker 2021: 152.9.
+  - Before the fix: 91 large companies with a 1,000x-style jump in revenue per share.
+
+### Fixed
+
+- **New rule** `cleaning_rules.repair_share_scale`, run on every EDGAR fetch. A one-time script `scripts/fix_share_scale.py` repairs the stored rows (backup first, changed cells only).
+- **Anchors:** EDGAR rows whose average share count agrees with the row's own net income / EPS (within ~26%).
+- **Each other EDGAR count** is compared with the nearest anchor (same company, within 3 years). Off by close to 1,000^k → divided by 1,000^k.
+  - **A guard:** no change when the row's own EPS cleanly says the value is right (Loar's pre-IPO units).
+  - **Period-end counts** (`ordinary_shares_number`, `share_issued`) are checked against the same row's average count first.
+  - The pass repeats until nothing changes (5 rounds): a repaired row becomes an anchor for its neighbours.
+- **Scope, 2026-11-22:** 8,186 cells in 4,210 rows, ~870 companies; mostly quarters. Yahoo rows untouched.
+
+### Approaches ruled out
+
+- **Neighbours only:** fails when bad values come in clusters, and cells flipped back and forth.
+- **NI / EPS alone:** some EPS values are tagged at the wrong scale too (ICE 2013 quarters at 1,850,000), so correct share counts got "fixed".
+- **Yahoo rows as anchors:** Yahoo restates old counts for later reverse splits (ParkerVision 1-for-100), so correct EDGAR counts got "fixed".
+
+### Checked
+
+- **Large companies with a 1,000x-style jump in revenue per share: 91 → 8.** None new.
+- **Independent check:** 2,595 repaired diluted counts have an EPS on their own row that the rule did not use for that row. After the repair, 98.6% agree with it. Most of the rest have a broken EPS (e.l.f. −709, Sterling).
+  - The later rounds' 142 checkable changes all moved closer to their own row's EPS, none further.
+- **Import path = stored repair:** one company's EDGAR rows at a time give the same result as the whole table (307 companies).
+- **Idempotent:** a second run changes 0 cells.
+- **Type check:** 0 errors in the changed files.
+- **Stored rows repaired 2026-11-22** (`scripts/fix_share_scale.py`; backup `2026-11-22_00-50-17_fix_share_scale`): 4,210 rows; stored values = the check; a second run changes 0.
+- **Test build (read-only, after the repair):**
+  - `revenue_ps_growth` moved for 67 companies, `revenue_ps_growth_long` for 109. Big drops that were share-count errors are gone: ConocoPhillips −69% → +1%, Host Hotels −92% → +26%, Everest −72% → +11%, Mobileye −93% → +12%.
+  - `growth_so_far` changed for 38, `growth_ahead` 28, `stock_category` 8, `peer_strength` 59.
+  - Scores barely move: `growth_score` median change 0.002, largest 2.5; `overall_score` largest 0.8.
+  - `rs_vs_industry_3y`: the 141 rows from the round 15 fix.
+- **Checked after the run (2026-11-22):** the stored `analysis.db` equals the test build in every column (35,689 rows, 347 columns, 0 cells differ); the industry benchmark map is identical (95 industry, 51 sector).
+
+### Left open
+
+- **8 large companies remain:** no anchor nearby (EPAM, Hershey 2011, LifeStance) or another cause — Nomura's currency switch, Hershey's narrower revenue line, a Yahoo row (MCHB).
+- **EPS tagged at the wrong scale:** ~1,100 rows across ~220 companies, mostly quarters (ICE). Not repaired; possible follow-up.
+- **Sector index:** it rescales share units for ~415 constituents itself; cleaner counts may change that number and the index slightly.
+
 ## Not yet reviewed
 
 §8 and the open parts of §20 not covered above. Grouped as above.

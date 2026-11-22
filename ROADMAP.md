@@ -1154,6 +1154,10 @@ needs.
      `industry_benchmark` table in analysis.db, rebuilt each full run (best-correlated sector /
      theme ETF vs a basket of the industry's 10 largest listed companies, else the sector SPDR).
      3-year prices read at three dates only, so `ANALYSIS_OHLCV_LOOKBACK_DAYS` is unchanged.
+   - ✅ Revenue-per-share seams, part 1 — share counts at the wrong scale (2026-11-22), stored rows
+     repaired and checked after the analysis run: new `cleaning_rules.repair_share_scale` (EDGAR counts
+     off by an exact 1,000^k from the nearest row that agrees with its own NI / EPS are rescaled;
+     run in `edgar_fetcher.extract_financials`) and one-time `scripts/fix_share_scale.py`.
    - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
      `core/backup.fix_backup`).
 

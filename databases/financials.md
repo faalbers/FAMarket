@@ -43,8 +43,14 @@ Only `stock`, `adr` and REIT-type stocks have rows. No funds, ETFs or preferreds
 - **Restatements:** money columns keep the latest filing's value. **Per-share and share-count columns keep the first-filed value**, so every value sits on the split basis of its own `filed_date` — multiply by the splits after `filed_date` to reach today's basis.
 - **`filed_date`** — the earliest filing date of the facts in that row (when the numbers became public). Also on Yahoo rows for SEC filers.
 - **`quarter_sum_flag`** (annual EDGAR rows) — 1 when the four quarters' revenue or net income differ from the annual figure by > 2%, 0 when they agree, NULL when four quarters aren't available.
-- **Cleaning:** capex is always negative; facts dated after their own filing (debt maturities) are dropped; isolated one-off share-count spikes (far from both neighbours) are dropped as tagging noise; a revenue tag whose last year is > 3x off Yahoo's first year while assets moved < 1.5x is treated as a sub-line and left NULL.
+- **Cleaning:** capex is always negative; facts dated after their own filing (debt maturities) are dropped; isolated one-off share-count spikes (far from both neighbours) are dropped as tagging noise; share counts tagged at the wrong scale (an exact 1,000x or 1,000,000x: Kohl's FY2021 diluted shares filed as 148) are rescaled — see Share-count scale below; a revenue tag whose last year is > 3x off Yahoo's first year while assets moved < 1.5x is treated as a sub-line and left NULL.
 - No `free_cash_flow`, `ebitda`, `total_debt` or `invested_capital` from EDGAR — derive FCF as `operating_cash_flow + capital_expenditure`.
+
+- **Share-count scale** (since 2026-11-22, `cleaning_rules.repair_share_scale`; stored rows once via `scripts/fix_share_scale.py`):
+  - **Anchors:** EDGAR rows whose average share count agrees with the row's own net income / EPS.
+  - **Rescaled:** an EDGAR count off from the nearest anchor (same company, within 3 years) by close to 1,000^k, unless the row's own EPS says it is right. Period-end counts are checked against the same row's average count first.
+  - Repeats until nothing changes. Yahoo rows are never changed or used as anchors (they are restated for later splits).
+  - 2026-11-22: 8,186 cells in 4,210 rows (~870 companies), mostly quarters. EPS values tagged at the wrong scale are not repaired.
 
 ## Conventions
 

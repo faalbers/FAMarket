@@ -6,7 +6,8 @@ the value it should have been), following the "NULL = not applicable" convention
 The same functions run in two places, so the two can never drift:
 
   * at import — the yfinance / EDGAR sanitize steps, on every new fetch;
-  * once, over the stored rows — ``scripts/clean_stored_data.py``.
+  * once, over the stored rows — ``scripts/clean_stored_data.py`` (and
+    ``scripts/fix_share_scale.py`` for ``repair_share_scale``).
 
 Every function takes a DataFrame, returns ``(cleaned_frame, counts)`` where
 ``counts`` maps a rule name to the number of cells it changed. Columns a frame
@@ -19,6 +20,7 @@ Rules and the evidence behind them: ``docs/fix_list_for_data_system_done.md``.
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 Counts = dict[str, int]
@@ -150,3 +152,130 @@ def clean_financials(df: pd.DataFrame) -> tuple[pd.DataFrame, Counts]:
     counts["stockholders_equity_from_common"] = int(use_common.sum())
     counts["stockholders_equity_zero"] = int(to_null.sum())
     return df, counts
+
+
+# --- share-count scale (SEC filer tagging errors) ---------------------------- #
+# Filers sometimes tag a share count at the wrong scale: Kohl's FY2021 diluted
+# shares as 148 (148 million), Teva 2017 as 1,016. The error is always an exact
+# power of 1,000, and only in EDGAR rows. Evidence: done file, revenue-per-share fix.
+AVG_SHARE_COLS = (("diluted_average_shares", "diluted_eps"), ("basic_average_shares", "basic_eps"))
+INSTANT_SHARE_COLS = ("ordinary_shares_number", "share_issued")
+SHARE_SCALE_COLS = ("symbol", "period_end", "source", "net_income", "diluted_eps", "basic_eps",
+                    *(c for c, _ in AVG_SHARE_COLS), *INSTANT_SHARE_COLS)
+_ANCHOR_AGREE = 0.1        # log10: a count within ~26% of net income / EPS is an anchor
+_SCALE_TOL = 0.35          # log10: an off-by-1000^k value sits within this of 3k
+_INSTANT_TOL = 0.15        # log10: period-end count vs the same row's average count
+_ANCHOR_MAX_GAP = pd.Timedelta(days=3 * 366)
+_MIN_EPS = 0.05            # smaller EPS values are too rounded for the NI / EPS check
+_SHARE_SCALE_ROUNDS = 10
+
+
+def _log10(s: pd.Series) -> pd.Series:
+    s = pd.to_numeric(s, errors="coerce")
+    return np.log10(s.where(s > 0))
+
+
+def _power_k(off: pd.Series, tol: float) -> pd.Series:
+    """k where `off` (log10) sits within `tol` of 3k, k != 0; else 0."""
+    k = np.round(off / 3)
+    return k.where((k != 0) & ((off - 3 * k).abs() < tol), 0).fillna(0)
+
+
+def _nearest(df: pd.DataFrame, lg: pd.Series, anchors: pd.Series) -> pd.Series:
+    """log10 value of the nearest anchor row of the same symbol (by period_end,
+    within `_ANCHOR_MAX_GAP`), aligned to df's index."""
+    a = (df.loc[anchors, ["symbol", "_pe"]].assign(_alg=lg[anchors])
+         .rename(columns={"_pe": "_ape"}).sort_values("_ape"))
+    q = df[["symbol", "_pe"]].assign(_i=np.arange(len(df))).sort_values("_pe")
+    if a.empty:
+        return pd.Series(np.nan, index=df.index)
+    m = pd.merge_asof(q, a, left_on="_pe", right_on="_ape", by="symbol",
+                      direction="nearest", tolerance=_ANCHOR_MAX_GAP)
+    return pd.Series(m.sort_values("_i")["_alg"].to_numpy(), index=df.index)
+
+
+def repair_share_scale(df: pd.DataFrame) -> tuple[pd.DataFrame, Counts]:
+    """Rescale EDGAR share counts tagged at the wrong power of 1,000.
+
+    * Anchors: EDGAR rows whose average share count agrees with the row's own
+      net income / EPS (same filing, so the same split basis). Yahoo rows are
+      never anchors: Yahoo re-states old counts for later splits (ParkerVision's
+      1-for-100), while EDGAR keeps each count as first filed.
+    * Every other EDGAR average count off from the nearest anchor (same symbol,
+      within 3 years) by close to an exact 1,000^k is divided by 1,000^k — unless
+      the row's own NI / EPS cleanly says the value is right as it is or wrong
+      the other way (Loar's pre-IPO units).
+    * Period-end counts (`ordinary_shares_number`, `share_issued`): against the
+      same row's average count when that one is an anchor or was repaired, else
+      the nearest anchor among the period-end counts.
+    * Only EDGAR rows change. EPS values tagged at the wrong scale (ICE 2013
+      quarters at 1,850,000) are not repaired; they just can't be anchors.
+
+    A repaired row that now agrees with its EPS becomes an anchor for its
+    neighbours, so the pass repeats until nothing changes (5 rounds on the
+    stored table, 2026-11-22; each later-round change moved closer to its own
+    row's EPS). Works on any number of symbols at once; a second run changes
+    nothing.
+    """
+    cols = [c for c, _ in AVG_SHARE_COLS if c in df.columns] +            [c for c in INSTANT_SHARE_COLS if c in df.columns]
+    counts: Counts = {c: 0 for c in cols}
+    if df.empty or not cols or "symbol" not in df.columns or "period_end" not in df.columns:
+        return df, counts
+    before = df[cols].apply(pd.to_numeric, errors="coerce")
+    df["_pe"] = pd.to_datetime(df["period_end"], errors="coerce")
+    edgar = (df["source"] == "edgar") if "source" in df.columns else pd.Series(True, index=df.index)
+    edgar &= df["_pe"].notna()
+    ni = _num(df, "net_income") if "net_income" in df.columns else pd.Series(np.nan, index=df.index)
+    for _ in range(_SHARE_SCALE_ROUNDS):
+        if not _share_scale_pass(df, edgar, ni):
+            break
+    df.drop(columns="_pe", inplace=True)
+    for c in cols:
+        after = pd.to_numeric(df[c], errors="coerce")
+        counts[c] = int((~((before[c].isna() & after.isna()) | np.isclose(before[c], after))).sum())
+    return df, counts
+
+
+def _share_scale_pass(df: pd.DataFrame, edgar: pd.Series, ni: pd.Series) -> int:
+    """One pass of `repair_share_scale`; returns the number of cells changed."""
+    changed = 0
+
+    ok_avg = pd.Series(False, index=df.index)
+    for col, eps_col in AVG_SHARE_COLS:
+        if col not in df.columns:
+            continue
+        lg = _log10(df[col])
+        if eps_col in df.columns:
+            eps = _num(df, eps_col)
+            implied = (ni / eps).where((eps.abs() >= _MIN_EPS) & (ni.abs() > 0)
+                                       & (np.sign(ni) == np.sign(eps)))
+        else:
+            implied = pd.Series(np.nan, index=df.index)
+        vs_eps = lg - _log10(implied)
+        anchors = edgar & lg.notna() & (vs_eps.abs() < _ANCHOR_AGREE)
+        k = _power_k(lg - _nearest(df, lg, anchors), _SCALE_TOL)
+        clean_eps = (vs_eps - 3 * np.round(vs_eps / 3)).abs() < _ANCHOR_AGREE
+        worse = vs_eps.notna() & clean_eps & ((vs_eps - 3 * k).abs() > vs_eps.abs())
+        fix = edgar & ~anchors & ~worse & (k != 0)
+        if fix.any():
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+            df.loc[fix, col] = df.loc[fix, col] / 10 ** (3 * k[fix])
+        changed += int(fix.sum())
+        if col == "diluted_average_shares":
+            ok_avg = anchors | fix
+
+    ref = _log10(df["diluted_average_shares"].where(ok_avg)) if "diluted_average_shares" in df.columns \
+        else pd.Series(np.nan, index=df.index)
+    for col in INSTANT_SHARE_COLS:
+        if col not in df.columns:
+            continue
+        lg = _log10(df[col])
+        anchors = edgar & lg.notna() & ((lg - ref).abs() < _INSTANT_TOL)
+        k = _power_k(lg - ref, _INSTANT_TOL)
+        k = k.where(k != 0, _power_k(lg - _nearest(df, lg, anchors), _SCALE_TOL))
+        fix = edgar & ~anchors & (k != 0)
+        if fix.any():
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+            df.loc[fix, col] = df.loc[fix, col] / 10 ** (3 * k[fix])
+        changed += int(fix.sum())
+    return changed

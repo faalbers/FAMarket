@@ -71,7 +71,7 @@ from ratelimit import limits, sleep_and_retry
 
 from config import secrets, settings
 from data_layer import fetch_status, staleness
-from data_layer.cleaning_rules import clean_financials
+from data_layer.cleaning_rules import clean_financials, repair_share_scale
 from data_layer.fetchers.base import BaseFetcher
 
 if TYPE_CHECKING:
@@ -573,6 +573,7 @@ def extract_financials(symbol: str, facts: dict) -> pd.DataFrame:
     )
     out["source"] = "edgar"
     out = clean_financials(out)[0]
+    out = repair_share_scale(out)[0]  # share counts tagged at the wrong 1,000^k
     return out.sort_values(["freq", "period_end"]).reset_index(drop=True)
 
 

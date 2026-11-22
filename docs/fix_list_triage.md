@@ -9,7 +9,8 @@ Internal tracker for working through `docs/fix_list_for_data_system.md` on branc
 - **Group H part 3c (REIT payout on FFO) done 2026-11-21:** the analysis run checked (stored = test build).
 - **Possible follow-ups from H part 3c** (not started, your call): score REITs on `ffo_payout` instead of the net-income payout (REIT band 80-95%); P/FFO for REITs; `div_outgrowing_earnings` still uses net-income growth for REITs.
 - **Group H part 3b (growth phase) done 2026-11-21:** the analysis run checked (stored = test build).
-- **NEW, important — revenue-per-share seams in `financials.db` (found in 3b, pre-existing):** 295 of 1,956 listed ≥ $2B companies have a > 2.5x one-year jump in revenue per diluted share (both years > $100M revenue). Causes seen:
+- **Revenue-per-share seams, part 1 (share counts at the wrong scale) done 2026-11-22:** stored rows repaired, checked after the analysis run. Large companies with a 1,000x jump 91 → 8. Next parts: currency / ADS basis switches (Alibaba, Toyota, Nomura), narrower old revenue lines (American Express, Hershey). Possible follow-up: EPS tagged at the wrong scale (~1,100 rows, ICE).
+- **Revenue-per-share seams in `financials.db` (found in 3b, pre-existing):** 295 of 1,956 listed ≥ $2B companies have a > 2.5x one-year jump in revenue per diluted share (both years > $100M revenue). Causes seen:
   - **share counts in thousands vs units** (×1,000-1,000,000 jumps: Kohl's 2022, Teva 2019, PACCAR 2018, Bruker 2021, Nomura 2023);
   - **currency / ADS basis switch** between sources (Alibaba: USD per ordinary share → CNY per ADS, 2023);
   - **pre-split ordinary counts next to ADS counts** (Toyota);
