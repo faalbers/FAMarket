@@ -2186,3 +2186,59 @@ PARAM_HINTS.update({
         "vs_peers": "Property types pay out differently: compare within one REIT industry.",
     },
 })
+
+# Relative strength vs the industry (fix list §21, Group H part 4)
+_RS_IND_HOW = [
+    "Input data: total return (adjusted close) of the stock minus that of its industry's "
+    "benchmark ETF over the same dates.",
+    "Above 0 = beat its own industry. A gold miner up 80% in a gold rally can still be "
+    "below 0 here while its RS Rank is high.",
+    "Check Industry benchmark fit: with \"sector\" the yardstick is the broad sector fund, "
+    "so this partly measures the industry against its sector.",
+    "NULL without the history, or when the price history has a level shift or a broken "
+    "adjusted close in the period.",
+]
+PARAM_HINTS.update({
+    "rs_vs_industry_1y": {
+        "name": "RS vs industry (1y)",
+        "category": "Relative Strength",
+        "unit": "%",
+        "what_it_is": "1-year total return minus the industry benchmark ETF's 1-year total "
+                      "return, in percentage points.",
+        "how_to_use": _RS_IND_HOW,
+        "vs_peers": "Already relative: measured against the industry's ETF.",
+    },
+    "rs_vs_industry_3y": {
+        "name": "RS vs industry (3y)",
+        "category": "Relative Strength",
+        "unit": "%",
+        "what_it_is": "3-year total return minus the industry benchmark ETF's 3-year total "
+                      "return, in percentage points (not annualised).",
+        "how_to_use": _RS_IND_HOW,
+        "vs_peers": "Already relative: measured against the industry's ETF.",
+    },
+    "industry_etf": {
+        "name": "Industry benchmark ETF",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "The ETF the stock's industry is measured against: the sector or theme "
+                      "fund whose daily returns best follow an equal-weighted basket of the "
+                      "industry's 10 largest listed companies over 3 years.",
+        "how_to_use": [
+            "Rebuilt on every full analysis run; it can change when two ETFs are close.",
+        ],
+        "vs_peers": "No — a label.",
+    },
+    "industry_etf_fit": {
+        "name": "Industry benchmark fit",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "industry = an industry or theme ETF follows the industry well "
+                      "(correlation 0.70+ and 0.05+ above the sector fund). sector = none "
+                      "did, so the sector SPDR is used (a weak fit).",
+        "how_to_use": [
+            "Filter = industry for the cleanest RS vs industry readings.",
+        ],
+        "vs_peers": "No — a label.",
+    },
+})

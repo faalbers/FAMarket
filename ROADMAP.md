@@ -1149,6 +1149,11 @@ needs.
      write-downs, newest fiscal year) and `ffo_payout` (common dividends / FFO), equity REITs only.
      Annual rather than TTM (Yahoo's quarterly lines too sparse). Added to the review: write-downs
      added back, and a check on Yahoo's common / preferred dividend split (Simon).
+   - ✅ Group H, part 4 — relative strength vs the industry (2026-11-21, §21), analysis run checked: new `analysis_layer/industry_rs.py` — `rs_vs_industry_1y` / `_3y` (total return
+     minus the industry ETF's, percentage points), `industry_etf`, `industry_etf_fit`; a new
+     `industry_benchmark` table in analysis.db, rebuilt each full run (best-correlated sector /
+     theme ETF vs a basket of the industry's 10 largest listed companies, else the sector SPDR).
+     3-year prices read at three dates only, so `ANALYSIS_OHLCV_LOOKBACK_DAYS` is unchanged.
    - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
      `core/backup.fix_backup`).
 

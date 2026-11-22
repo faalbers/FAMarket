@@ -42,7 +42,8 @@ from analysis_layer import _periods as P
 from analysis_layer import metrics, technical, intrinsic_value, valuation_scenarios, peers, scoring
 from analysis_layer import estimates as estimates_metrics
 from analysis_layer import signals as signals_metrics
-from analysis_layer import benchmark_push, ffo, health, labels, price_quality, sector_index, strength
+from analysis_layer import (benchmark_push, ffo, health, industry_rs, labels, price_quality,
+                            sector_index, strength)
 from config.industry_overrides import INDUSTRY_OVERRIDES
 from data_layer import price_checks
 from core.market_calendar import last_completed_session
@@ -427,6 +428,8 @@ def run_analysis(subset: list[str] | None = None) -> dict:
     # -- cross-symbol stages --------------------------------------------------- #
     df = health.finalize(df, health_pending)  # industry debt lines for ordinary companies
     df = strength.compute(df)                 # Peer Strength (needs peer_universe, piotroski)
+    # relative strength vs the industry ETF (§21 part 4); full runs rebuild the map
+    df, bench_map = industry_rs.run(df, quotes, first_date_by, prices_as_of, subset)
     log.info("Analysis — peer comparisons across %d symbols…", len(df))
     df = peers.compute(df)
     log.info("Analysis — scoring (ranks + category scores)…")
@@ -438,6 +441,8 @@ def run_analysis(subset: list[str] | None = None) -> dict:
 
     log.info("Analysis — writing analysis.db…")
     _write(df, prices_as_of)
+    if bench_map is not None:
+        industry_rs.write_map(bench_map)
     if subset is None:
         _save_score_history(df, prices_as_of)
     _log_reconcile(reconcile, n_recomputed)

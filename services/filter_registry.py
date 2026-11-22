@@ -313,6 +313,9 @@ BASES: list[Base] = [
     _b("bear_flag_count", "Bear flags", "Intrinsic Value", frozenset({STANDARD, REIT})),
     # -- Relative strength -------------------------------------------------- #
     _b("rs_rank", "RS Rank", "Relative Strength", ALL_TRADED),
+    # vs the industry's benchmark ETF (§21 part 4), percentage points
+    _b("rs_vs_industry_1y", "RS vs industry (1y)", "Relative Strength", COMPANY),
+    _b("rs_vs_industry_3y", "RS vs industry (3y)", "Relative Strength", COMPANY),
     # -- Scores (engine-gated; offered where meaningful) -------------------- #
     _b("overall_score", "Overall", "Score", ALL_TRADED),
     _b("value_score", "Value", "Score", COMPANY),
@@ -341,6 +344,8 @@ BASES: list[Base] = [
     _b("fund_family", "Fund family", "Classification", FUNDS),
     _b("price_issues", "Price issues", "Classification", ALL_TRADED),
     _b("peer_universe", "Listed peer company", "Classification", COMPANY),
+    _b("industry_etf", "Industry benchmark ETF", "Classification", COMPANY),
+    _b("industry_etf_fit", "Industry benchmark fit", "Classification", COMPANY),
 ]
 
 BASE_BY_KEY: dict[str, Base] = {b.key: b for b in BASES}

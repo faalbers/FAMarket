@@ -186,6 +186,7 @@ Not every base has every window (dividends have no `yoy_q`); `filter_registry.gr
 
 ### Relative Strength
 - `rs_rank` (0-99; used as-is by the rule) — IBD-style weighted trailing return (four ~3-month windows, 40/20/20/20 recent-heavy), **ranked within its ranking pool** (companies vs listed companies, funds vs one class per fund; since 2026-11-15). 80+ leads; NULL under ~1y history. `rs_raw` is the persisted input (for subset-run re-ranking; not a filter metric).
+- `rs_vs_industry_1y` / `rs_vs_industry_3y` (COMPANY, unit `%` = percentage points; since 2026-11-21) — total return minus the industry's benchmark ETF's over 1 / 3 years (3y not annualised). > 0 = beat its own industry. **Pair with `industry_etf_fit = industry`** for the clean reading: with `sector` (51 of 146 industries) the yardstick is the broad sector SPDR. `industry_etf` (Classification) names the ETF. Not in any score. Outliers are real multi-baggers (SEZL 3y +7,400) — use thresholds, not means.
 
 ### Scores (0-100; derived RESULTS of scoring rules — not rules themselves)
 - `overall_score` (ALL_TRADED) — weighted blend: Quality 25, Value 22, Momentum 20, Growth 18, Income 15 (Settings-adjustable); empty categories drop out and re-weight. **NULL below half of that weight** (since 2026-11-15) — so funds (momentum + income only) have none.
@@ -365,6 +366,7 @@ Filter Fail review reveals a new trap or a better calibration, add it HERE.
 | `debt_to_ebitda`/`interest_coverage` N/A | no debt / no interest expense (often the HEALTHIEST names) — **or negative EBITDA** (since 2026-11-15) | add `is null` OR child AND a separate `ebitda_negative = 0` OR `is null` block (see quality_compounders.filt) |
 | `atr_pct` NULL for mutual funds | flat NAV, no intraday range | exclude mutual_fund from types or fallback |
 | `rs_rank` NULL | <~1y price history | pair with `history_years` gate or accept the drop |
+| `rs_vs_industry_*` NULL | under 1 / 3 years of prices, a `level_shift` / `bad_adj` price flag, a broken adjusted close, or a fund / non-company row | accept the drop, or add an `is null` OR child for young listings |
 | **`<metric>_vs_sector`/`_vs_industry` silently all-False** | the column only exists for metrics in `settings.PEER_COMPARABLE_METRICS` — a block on any other metric's peer variant returns ZERO rows, silently | check the tuple first. `ps`/`pb`/`p_fcf`/`ev_revenue` were added 2026-08-13 (they had zeroed `small_cap_winners` and `financial_compounders`), so the list is now 15; anything still outside it must use the **Score variant** (`compare: "score"` → `{col}_goodness`), which is peer-anchored anyway |
 | `fair_value_bear`/`_bull` NULL | no usable growth trend (fewer than 4 years, or a loss year), so no scenario could be computed | NULL here means **"no range available", NOT "no downside"** — a filter on `margin_of_safety_bear` therefore EXCLUDES those names rather than judging them. Intended; add an `is null` OR child only if you want them back |
 

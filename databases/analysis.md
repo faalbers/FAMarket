@@ -10,6 +10,20 @@ Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when writ
 - **`analyzed_at`** (UTC build time), **`prices_as_of`** (the price date every metric uses), **`n_symbols`**.
 - **`rank_universe_<pool>`** (since 2026-11-15) — size of each ranking pool's reference set (see 11): `rank_universe_company`, `rank_universe_fund`, `rank_universe_preferred`, …
 
+## Table `industry_benchmark` — one row per Yahoo industry (since 2026-11-21)
+
+The ETF each industry's relative strength is measured against (see 11, `rs_vs_industry_*`). Rebuilt on every full run; subset runs reuse it. Built by `analysis_layer/industry_rs.py`.
+
+- **`sector`, `industry`**, **`benchmark`** (the ETF used), **`fit`** — `industry` (an industry / theme ETF qualified) or `sector` (fallback to the sector SPDR, a weak fit).
+- **`benchmark_corr`** — daily-return correlation of `benchmark` with the yardstick over 3 years; **`spdr`, `spdr_corr`** — the same for the sector SPDR; **`runner_up`, `runner_up_corr`** — the next-best ETF.
+- **`n_members`, `members`** — the yardstick basket (comma-joined symbols).
+- **`previous_benchmark`** — the last build's ETF when it changed, else NULL. **`prices_as_of`**, **`built_at`**.
+- **The rule:**
+  - **Yardstick:** equal-weighted daily returns of the industry's 10 largest listed (`peer_universe`) companies of $2B+ with clean prices (`price_issues` NULL), each day capped at ±25%. Fewer than 3: topped up with the next-largest listed ones of $300M+.
+  - **Candidates:** active ETFs in a sector / theme Morningstar category, $50M+ assets, 3 years of prices (> 95% of days). Plus ETFs Yahoo gives no category (URA, COPX, SLX, TAN …) unless the name marks an option-income, leveraged / inverse or broad fund (28 kept, 2026-11-21).
+  - **Pick:** highest correlation; it needs 0.70+ and 0.05+ above the sector SPDR, else the SPDR. ETFs within 0.01 of the best tie; the longest price history wins.
+  - 2026-11-21: 146 industries, 95 `industry`, 51 `sector`.
+
 ## Table `analysis` — one row per symbol
 
 **Who is in it**: symbols with `is_active = 1` and `is_validated = 1` in `symbols.db`, excluding indices and symbols whose price history has stopped (`is_delisted = 1`, since 2026-11-12). That includes funds, ETFs, warrants etc. — most fundamental columns are simply NULL for them. Around 60% of rows are mutual funds.
@@ -196,6 +210,11 @@ Since 2026-11-15 every metric except the two `_ttm` ones is on **regular** payme
   - **`rank_universe`** (0/1) — the pool's reference rows, the distribution every percentile is taken against: companies with `peer_universe` = 1 (listed, own market cap), one share class per mutual fund (SEC series; the class with a return history first, then alphabetical), every row of the other pools. Rows outside it (OTC stocks, extra fund classes) are placed in that distribution.
   - The absolute rules' fade-out reach is also measured on the reference rows.
 - **`rs_rank`** (0-99) — IBD-style relative strength. `rs_raw` = 0.4·r(Q1) + 0.2·r(Q2) + 0.2·r(Q3) + 0.2·r(Q4), where r = price ratio over each of the last four 63-trading-day quarters (newest first). Percentile **within the ranking pool**, against its reference rows (pools with < 30 reference values ranked across all). Needs 252+ days of history.
+- **`rs_vs_industry_1y`, `rs_vs_industry_3y`** (since 2026-11-21, companies only) — total return (`adj_close`) minus the industry benchmark ETF's (`industry_benchmark` table) over 1 / 3 years, in percentage points (not annualised). Above 0 = beat its own industry.
+  - **`industry_etf`**, **`industry_etf_fit`** — the ETF used and its fit (`industry` / `sector`, see the table).
+  - End bars: the last bar up to 10 days before each date, skipping `bad_print` / `stale` bars. Read straight from ohlcv.db (the analysis window is 2 years).
+  - NULL when either side has no bar near both dates, a `level_shift` / `bad_adj` flag touches the period or the row's `price_issues`, or the total / price return ratio is below 0.98 or above a 15%-a-year yield (a broken adjusted close).
+  - Not part of any score. Residual (beta-adjusted) momentum is not built.
 - **`<metric>_goodness`** — each metric turned into a 0-100 "how good is this value" score by a per-metric rule:
   - **peer** rules: percentile within industry (≥ 5 reference members), else sector, else the pool — e.g. P/E (lower better), margins, ROE (higher better).
   - **universe** rules: percentile across the pool — e.g. growth trends, CAGRs, growth steadiness.
@@ -230,4 +249,5 @@ Since 2026-11-15 every metric except the two `_ttm` ones is on **regular** payme
 - Intrinsic values are model outputs with strong assumptions (fixed 5% equity risk premium, 2.5% terminal growth). DCF is very sensitive to growth.
 - **Most fair values far above the price are not growth problems**: price far below book (Graham), a large past cash flow next to a distressed price (DCF), or a high dividend about to be cut (DDM). `fair_value_tail` marks them.
 - **Dividends of irregular payers**: variable dividends (Cal-Maine pays a share of profit, Argentine banks pay in instalments) can read as cuts or a suspension. Specials are not detected for semi-annual / annual payers.
+- **RS vs industry with a `sector` fit** (51 of 146 industries, 2026-11-21: tobacco, IT services, waste management, medical distribution …) measures against the broad sector fund, so part of it is the industry's own move against its sector.
 - `sector`/`industry`/`country` are Yahoo tags; ADRs and foreign companies carry their home company's tags.

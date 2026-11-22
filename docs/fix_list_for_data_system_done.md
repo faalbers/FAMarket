@@ -698,9 +698,92 @@ The review points to §21 for it; it needs the industry benchmark map, so it is 
 - **New columns:** filled for equity REITs only (147 `ffo`, 137 `ffo_payout`); no infinities.
 - **Run:** 0 errors, 0 warnings; ~14 minutes; peak RAM 8.5 GB; 342 columns. `indices.db.gz` pushed to FAPortfolio.
 
+## Round 15 — Group H, part 4: §21 relative strength vs the industry (2026-11-21)
+
+### Relative strength vs the industry — Built
+
+- **New columns (companies only):**
+  - `rs_vs_industry_1y` and `rs_vs_industry_3y`: total return minus the industry benchmark ETF's, in percentage points.
+  - `industry_etf` (the ETF) and `industry_etf_fit` (`industry` / `sector`).
+- **New table:** `industry_benchmark` in analysis.db, one row per industry. It holds the ETF, its correlation, the sector SPDR's, the runner-up, the basket and the previous ETF when it changed.
+  - Rebuilt on every full run (~8 s); subset runs reuse it.
+  - New module `analysis_layer/industry_rs.py`.
+- **The map, as the review set it:**
+  - **Yardstick:** equal-weighted daily returns of the industry's 10 largest listed companies, over 3 years.
+  - **Candidates:** sector or theme ETFs.
+  - **Pick:** correlation 0.70+ and 0.05+ above the sector SPDR, else the SPDR as a weak fit.
+  - **Ties:** the longer price history wins.
+- **2026-11-21:** 146 industries — 95 with their own ETF, 51 on the sector SPDR.
+
+### Where we differ from the review / choices made
+
+- **Basket members are $2B+ with clean prices, and each day's move is capped at ±25%.** The first prototype let one bad stock steer a basket:
+  - QH has an unrecorded reverse split: a +2,400% day and a $269B "market cap".
+  - Micro-caps (MEDS, HKPD, COSM) polluted others.
+  - The fix took application software from 0.17 to IGV at 0.89.
+- **Small industries are topped up to 3 members** with the next-largest listed companies of $300M+. Silver went from the sector fund to SILJ at 0.94.
+- **A tie is within 0.01 of the best.** SMH is picked over the newer SOXQ for semiconductors (0.972 vs 0.975).
+- **Uncategorised ETFs count too.** Yahoo gives 67 larger ETFs no category, among them URA, COPX, SLX and TAN. They count unless the name marks an option-income, leveraged / inverse or broad fund (28 kept).
+  - Without them, uranium fell back to XLE (0.13); now it gets URA (0.94).
+  - Copper → COPX 0.95, steel → SLX 0.92, solar → TAN 0.90.
+- **Returns are read straight from ohlcv.db at three dates.** Just one bar per symbol per date; the 2-year analysis window is unchanged. Bars with a bad print or no trading are skipped.
+- **Return guards.** The return is NULL on:
+  - a `level_shift` / `bad_adj` price flag in the period or in `price_issues`;
+  - a total-return / price-return ratio below 0.98 or above a 15%-a-year yield. That catches a broken adjusted close outside the flagged spans: Tokyo Ohka (TOKCF) read +21,000 points.
+- **Residual (beta-adjusted) momentum is not built.** It was optional in the review.
+- **Not part of any score.**
+
+### Sample of the map
+
+| Industry | ETF | Correlation | Sector SPDR |
+|---|---|---|---|
+| Gold | GDX | 0.99 | 0.49 |
+| Semiconductors | SMH | 0.97 | 0.92 |
+| Airlines | JETS | 0.97 | 0.66 |
+| Homebuilders | ITB | 0.98 | 0.53 |
+| Mortgage REITs | REM | 0.97 | 0.65 |
+| P&C insurance | IAK | 0.97 | 0.63 |
+| Application software | IGV | 0.89 | 0.54 |
+| Uranium | URA | 0.94 | 0.13 |
+| IT services | XLK (sector) | 0.26 | — |
+| Waste management | XLI (sector) | 0.34 | — |
+| Tobacco | XLP (sector) | 0.62 | — |
+
+- **Genuine weak fits:** IBM and Accenture don't move with XLK, and no ETF follows them.
+- **Broad but allowed:** a few picks are broad equal-weight or AlphaDEX sector funds (FXD, FXR, RSPM). They pass because they beat the SPDR by 0.05+.
+
+### Checked by hand
+
+- NVDA, XOM, JPM, NEM and O recomputed from raw `adj_close`. They match to the cent.
+  - This shows the arithmetic only; the prices are the project's own Yahoo data.
+- **Listed companies of $2B+:** median 1-year +2 points, 3-year −5 points (1,899 / 1,807 filled).
+  - The large values are real multi-baggers: Sezzle 3-year +7,400.
+
+### Possible follow-ups (not started)
+
+- **Residual momentum:** the beta-adjusted score from the review.
+- **A stickiness rule** so near-equal ETFs don't swap between runs. For now a change is only recorded, in `previous_benchmark`.
+- **Scoring:** RS vs industry could feed the momentum score.
+
+### Checks
+
+- **Hints:** 168 filter bases, 0 without a hint.
+- **Type check:** `industry_rs.py` 0 errors; `pipeline.py` only its older `forward_pe` error.
+- **Speed:** the return step went from 23 s to 1 s by reading one index range per date, with the same results.
+
+### Checked after the run
+
+- **Existing columns unchanged:** all 35,689 rows match the round 14 build. Only the 4 new columns are new (`bb_squeeze` differed only as bool vs 0/1).
+- **New columns:** filled for companies only (7,448 with an ETF; 6,326 with a 1-year value). The map matches the test: 95 `industry`, 51 `sector`.
+- **Found and fixed after the run:** 141 three-year values got through that should be NULL.
+  - The cause: the pipeline loads price flags for its 2-year window only, so a level shift 2-3 years back was missed.
+  - The module now reads its own flags from ohlcv.db. Rechecked on the stored data: 1-year values identical; 3-year values match the full-flag check. The next analysis run applies it (only 3 of the 141 are listed companies of $2B+).
+- **Run:** 0 errors; peak RAM 8.5 GB; 347 columns.
+- **Also fixed (not in the review):** an analysis-only run now clears a stop request left from earlier. Before, Fetch Control showed such a run as "stopping" (2026-11-21).
+
 ## Not yet reviewed
 
-§8, §21 part 4 (relative strength vs the industry), and the open parts of §20 not covered above. Grouped as above.
+§8 and the open parts of §20 not covered above. Grouped as above.
 
 ## Known gaps / limitations
 
