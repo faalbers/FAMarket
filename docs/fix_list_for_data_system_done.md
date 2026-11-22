@@ -855,12 +855,50 @@ Found in round 13 (not in the review): 295 of 1,956 listed companies of $2B+ had
   - MOMO, NOAH, VIPS, VSA lost their early USD-only years (history guard off for this run only); their stored years are now CNY.
   - No company outside the targets changed. Table rows 330,553 → 330,532.
   - Toyota, Alibaba, Nomura, ASML: one currency across the SEC → Yahoo seam. Nomura's 2020-22 share counts (×1,000,000, left open in round 16) are now repaired too — its home-currency EPS gives the share-scale rule an anchor.
+- **Test build (read-only, after the re-fetch):** rows and columns unchanged.
+  - **199 companies' own inputs moved**; all 75 `growth_score` moves above 2 points are non-USD reporters — growth that came from dollar years next to yuan / yen years is gone: RLX 64.6 → 37.9, Hello Group 58.7 → 31.2, Autohome 49.8 → 20.2. Nomura `revenue_ps_growth` 1,805% → 3.3%; Alibaba 143% → 67% (the ADS seam is still in it).
+  - **Ripple:** ~4,400 companies' `growth_score` move by a median 0.17 points (`overall_score` 0.035) — the percentile ranks shift as those values move. Sector medians shift slightly (Technology `revenue_cagr_3y` 6.34 → 6.53), so `_vs_sector` columns move for ~2,600 companies; a small median turns a small shift into a large %.
+- **Checked after the run (2026-11-22):** the stored `analysis.db` equals the test build in every column (35,689 rows, 347 columns, 0 cells differ); the industry benchmark map is unchanged.
+- **Remaining revenue-per-share steps** (large listed companies, analysis's own split-adjusted series, all years): 190 of 1,956 have a > 2.5x one-year step; most are real business moves (airlines 2020, Moderna 2021, acquisitions). 24 are ADRs — the share-basis cases (Alibaba, Toyota, PDD, Mizuho, BeOne) are among them. 223 already get NaN from the analysis's basis test.
 
 ### Left open
 
 - **ADS vs ordinary share counts** (Alibaba: EDGAR per ordinary share, Yahoo per ADS = 8 shares; Toyota: pre-split ordinary vs ADS) — next part, measured after this repair.
 - **IFRS filings not read** (Toyota since FY2021, Sony, Petrobras).
 - **Narrower / wider revenue line at the seam** (Nomura: SEC gross revenue ~2.5T JPY vs Yahoo net ~1.1T).
+
+## Round 18 — revenue-per-share seams, part 3: share-basis breaks (2026-11-22)
+
+### The cause
+
+- **161 of 1,956 large companies** still had a > 2.5x one-year step in revenue per share after parts 1-2; ~58 looked like a change of share basis (shares > 2.5x, revenue < 2x).
+- **A bug:** `strength.per_share_series` ignored splits dated after the newest fiscal year, so SEC years filed before them stayed pre-split while Yahoo's were restated (CrowdStrike 4:1 Jul-2026; Booking 25:1 Apr-2026, `revenue_ps_growth` −27.6%).
+- **ADR share basis:** SEC years count ordinary shares, Yahoo counts ADSs (Alibaba 8 per ADS, JOYY 20, BeOne 13, GDS / Futu 8, Zai Lab 10); ordinary-share splits Yahoo doesn't list (Alibaba 2019, Mizuho 2020, HUTCHMED 2019).
+- **Yahoo share counts 4x too high:** FirstEnergy (2.29B vs 579M outstanding), Digital Realty. **Class scope:** Carvana (Yahoo all classes, SEC Class A). **One-year Yahoo blips:** Travelers 2024 (x100).
+- Without a split in the window, counts were used as filed — no basis test at all. EPS growth already drops rows off its basis (`metrics.eps_current_basis`).
+
+### Fixed
+
+- **`strength.per_share_series`** (revenue / book value / tangible book / OCF per share): each year's count is put on the next newer year's basis (relative split candidates, later splits included). Walking back from the newest year, a year > 2.5x off its newer neighbour while the value moved < 2x (`_BREAK_VALUE_MOVE`) is a basis break: it and all older years are dropped. A lone odd year whose older neighbour is back within 2.5x is dropped alone. Shares and value jumping together (a stock merger) is kept.
+- Compared with the neighbour, not the newest year, so steady issuers (Agree Realty, Realty Income) are untouched — the reason the old rule tested only when a split was in the window.
+
+### Checked
+
+- **Old vs new rule over all 7,049 companies** (read-only, stored financials): recent rate changed for 461, long rate for 608; recent value → NULL 93, NULL → value 201 (the old whole-series NULL when a split was in the window now keeps the newer years). Large listed companies: 60 of 1,955 changed.
+  - ADRs on Yahoo's ADS years only: Alibaba 67% → 10%, JOYY 99% → 12%, GDS 65% → 4%, Futu 120% → 40%, Zai Lab 132% → 23%, BeOne 178% → 52%.
+  - Later splits: CrowdStrike 3.6% → 36%, Booking −27.6% → 38%.
+  - Yahoo 4x counts: FirstEnergy −20% → 5%, Digital Realty −22% → 3%.
+  - Unchanged: Agree Realty, Realty Income, NVIDIA, Monster, Apple, Kohl's.
+  - Sphere: −7.8% instead of 12.5% — its 2023 "2.165 split" is the MSG Entertainment spin-off adjustment, which the neighbour test no longer applies.
+- **Type check:** 0 errors.
+- **Test build (read-only):** rows and columns unchanged. `revenue_ps_growth` / `category_growth` moved for 461 companies, `revenue_ps_growth_long` 608, `revenue_years` 718 — the same as the comparison. Labels: `stock_category` 57, `growth_so_far` 172, `growth_ahead` 188; `peer_strength` 99. `tbv_ps_growth` 5, `bvps_growth` 4, `ocf_ps_growth` 6. **No score moves** (revenue per share isn't a score input).
+- **Checked after the run (2026-11-22):** the stored `analysis.db` equals the test build in every column (35,689 rows, 347 columns, 0 cells differ); the industry benchmark map is unchanged (95 industry, 51 sector).
+
+### Left open
+
+- **Toyota:** SEC ordinary (pre-2021 5:1 split) vs Yahoo ADS is only 2.15x apart, under the 2.5x test; its seam stays (`revenue_ps_growth_long` 8%).
+- **Flagstar:** NULL → 103% — its SEC revenue is a sub-line (23M vs Yahoo's 1.5B; the seam test didn't fire because assets doubled in the merger). The old rule blanked it only by chance. Belongs to the narrower-revenue-line part.
+- **Yahoo share counts 4x too high** (FirstEnergy, Digital Realty) are not corrected — only kept out of per-share trends.
 
 ## Not yet reviewed
 

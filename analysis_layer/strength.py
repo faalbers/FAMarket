@@ -72,6 +72,9 @@ NO_INTEREST_COVER = 999.0
 _MIN_SPLIT_LOG = float(np.log(1.1))
 # Share count jump across a listing that marks the pre-listing years as another basis.
 _LISTING_SHARE_JUMP = 1.5
+# A > 2.5x share-count step is a change of basis unless the value moved at least
+# this much the same way (a merger paid in stock).
+_BREAK_VALUE_MOVE = 2.0
 
 # Stored per-symbol measures (the ordinary ones not listed here already exist).
 _OWN = ("roa_3y", "rotce_3y", "pretax_margin_3y", "tangible_equity_ratio", "tbv_ps_growth",
@@ -114,16 +117,25 @@ def per_share_series(values: pd.Series, shares: pd.Series, splits: pd.Series | N
     read as flat or falling per-share values. The pre-listing years are dropped
     only when the count jumps > 1.5x across the listing: a spin-off files its old
     years on the shares it distributes (GE Vernova), which are fine.
-    When a split falls inside them, each year's share count is
-    put on the newest year's basis (the split candidate closest to it, as for EPS),
-    NaN when even the best is > 2.5x off (a change of basis, §14). Without a split
-    the counts are used as filed: REITs and banks issue shares steadily (Agree
-    Realty 12x in 16 years), which a closeness test would misread. NaN with < 4
-    points.
+    **Split basis:** each year's share count is put on the next newer year's basis
+    — the split candidate (`M.basis_candidates`, as for EPS) closest to it. Splits
+    dated after the newest year count too: SEC rows filed before them are on the old
+    basis while Yahoo's are restated (CrowdStrike 4:1 Jul-2026, Booking 25:1
+    Apr-2026; before 2026-11-22 those were ignored, Booking -28%/yr).
+
+    **Basis breaks** (fix list, revenue-per-share seams part 3, 2026-11-22): walking
+    back from the newest year, a year whose count is > 2.5x off the next newer kept
+    year while the value moved < 2x is on another basis — an ADR's SEC years count
+    ordinary shares, Yahoo's count ADSs (Alibaba 8 per ADS, JOYY 20); a Yahoo count
+    4x too high (FirstEnergy); one class vs all (Carvana). That year and every older
+    one are dropped, as EPS drops rows off its basis. A single odd year between two
+    that agree is dropped alone (Travelers 2024, x100). Each year is tested against
+    its NEWER NEIGHBOUR, not the newest year: REITs and banks issue shares steadily
+    (Agree Realty 12x in 16 years) and no single year jumps 2.5x. Shares and value
+    jumping together (a merger paid in stock) is real and kept. NaN with < 4 points.
 
     Events within 10% of 1:1 are not splits here: Yahoo records a spin-off's price
-    adjustment as one (Realty Income's Orion spin-off, 2021, "1.032"), which would
-    switch on the basis test for a heavy share issuer and wrongly give NaN."""
+    adjustment as one (Realty Income's Orion spin-off, 2021, "1.032")."""
     s = pd.concat([values, shares], axis=1, keys=["v", "n"]).dropna()
     s = s[s["n"] > 0]
     if listed_from is not None and pd.notna(listed_from):
@@ -138,18 +150,46 @@ def per_share_series(values: pd.Series, shares: pd.Series, splits: pd.Series | N
     real = (splits[(splits > 0) & (np.abs(np.log(splits.where(splits > 0))) >= _MIN_SPLIT_LOG)]
             if splits is not None and not splits.empty
             else pd.Series(dtype=float, index=pd.DatetimeIndex([])))
-    last_d, last_n = s.index[-1], float(s["n"].iloc[-1])
-    window = real[(real.index > s.index[0]) & (real.index <= last_d)]
-    ps = []
-    for d, row in s.iterrows():
-        n = float(row["n"])
-        c = 1.0
-        if not window.empty:
-            c = min(M.basis_candidates(window, d), key=lambda f: abs(np.log(n * f / last_n)))
-            if abs(np.log(n * c / last_n)) > np.log(M._EPS_BASIS_MAX_OFF):
-                return None
-        ps.append(float(row["v"]) / (n * c))
-    return pd.Series(ps, index=s.index)
+    real = real[real.index > s.index[0]].sort_index()
+    dates, vals, counts = list(s.index), s["v"].to_numpy(float), s["n"].to_numpy(float)
+
+    def on_basis(i: int, ref_d: pd.Timestamp, ref_n: float) -> float:
+        """Year i's count on the basis of a newer year (ref_d, already adjusted to
+        ref_n): the relative split factor closest to it."""
+        rel = {a / b for a in M.basis_candidates(real, dates[i])
+               for b in M.basis_candidates(real, ref_d)}
+        return counts[i] * min(rel, key=lambda f: abs(np.log(counts[i] * f / ref_n)))
+
+    def other_basis(i: int, n_adj: float, ref_v: float, ref_n: float) -> bool:
+        if abs(np.log(n_adj / ref_n)) <= np.log(M._EPS_BASIS_MAX_OFF):
+            return False
+        v = vals[i]
+        moved_together = (v > 0 and ref_v > 0 and abs(np.log(ref_v / v)) >= np.log(_BREAK_VALUE_MOVE)
+                          and np.sign(np.log(ref_v / v)) == np.sign(np.log(ref_n / n_adj)))
+        return not moved_together
+
+    last = len(dates) - 1
+    kept = {last: counts[last]}
+    ref = last
+    i = last - 1
+    while i >= 0:
+        n_adj = on_basis(i, dates[ref], kept[ref])
+        if not other_basis(i, n_adj, vals[ref], kept[ref]):
+            kept[i], ref = n_adj, i
+            i -= 1
+            continue
+        # A lone odd year: the year before it is back near the newer neighbour's count
+        # (closeness only — a value that moved with the shares doesn't excuse it).
+        if i > 0:
+            n_prev = on_basis(i - 1, dates[ref], kept[ref])
+            if abs(np.log(n_prev / kept[ref])) <= np.log(M._EPS_BASIS_MAX_OFF):
+                i -= 1  # skip year i; year i-1 is tested (and kept) next round
+                continue
+        break  # a change of basis: this year and every older one are dropped
+    if len(kept) < 4:
+        return None
+    order = sorted(kept)
+    return pd.Series([vals[k] / kept[k] for k in order], index=[dates[k] for k in order])
 
 
 def measures(tab: pd.DataFrame, ctype: str | None, splits: pd.Series | None = None,
