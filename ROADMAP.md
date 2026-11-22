@@ -1139,6 +1139,11 @@ needs.
      a forecast above the track record counts only up to last year's actual revenue growth
      (acquisition forecasts). Also fixed: near-1:1 spin-off "splits" no longer void per-share growth.
      Next: 3b growth phase labels, 3c REIT FFO payout, part 4 relative strength vs the industry.
+   - ✅ Group H, part 3b — growth phase labels (2026-11-21, §21), analysis run checked:
+     `growth_so_far` (+ `revenue_ps_growth_long`, `revenue_years`) and `growth_ahead` in `labels.py`;
+     lines in Settings. Also: per-share growth drops pre-listing years when the share count jumps
+     > 1.5x across the listing (Palantir). Found, open: revenue-per-share seams in `financials.db`
+     (295 large companies; share-count units, currency / ADS switches) — see the triage list.
    - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
      `core/backup.fix_backup`).
 

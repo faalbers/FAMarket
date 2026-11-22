@@ -115,6 +115,15 @@ Plus:
   - **both:** growth and income.
   - **early:** a loss in the latest fiscal year and in more than half of the last up to 3, latest annual revenue < $1B (none on file = 0). Replaces growth / neither; an income label stays. Revenue is in the reporting currency (P/S can't convert it: TSM's is on Taiwan dollars), so foreign filers lean toward not early.
   - **neither:** otherwise.
+- **Growth phase** (text, since 2026-11-21, `labels.py`; companies only; lines in Settings, `GROWTH_PHASE_*` / `GROWTH_AHEAD_*`):
+  - **`growth_so_far`** — the revenue-per-share track record. **`revenue_ps_growth_long`** (%/yr) = robust growth over up to 12 fiscal years; **`revenue_years`** = the years it rests on. In order:
+    - **recently listed:** `history_years` < 6 (young companies, spin-offs, bankruptcy relistings, late-listing REITs — the data can't tell them apart);
+    - **short record:** < 8 years of revenue (mostly foreign filers: Yahoo's ~4 years, no SEC history);
+    - **long-running:** long-run growth ≥ 10%/yr and Mann-Kendall tau ≥ 0.6;
+    - **picked up:** `revenue_ps_growth` (~6y) ≥ the long-run rate + 5 points;
+    - **moderate:** otherwise.
+  - **`growth_ahead`** — `forward_rev_growth` against `revenue_ps_growth`: starting (past < 5%, forecast ≥ 12%), steady (change < 5 points or < 25% of the past rate), speeding up, slowing, slowing sharply (below half a positive past rate). The raw forecast, unlike the category: an acquisition reads as speeding up / starting (Kimberly-Clark). NULL without a forecast or past rate.
+- **Per-share growth and listings** (all per-share columns, since 2026-11-21): when the share count jumps > 1.5x across the listing (first price bar + 1 year), the pre-listing years are dropped. Pre-IPO counts leave out the preferred that converts at listing (Palantir 577M → 1.9B), so revenue per share looked flat. Spin-offs file their old years on the distributed shares and keep them (GE Vernova).
 
 ## 6. Dividends (from `ohlcv.dividends` history)
 

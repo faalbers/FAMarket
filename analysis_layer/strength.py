@@ -70,6 +70,8 @@ NO_INTEREST_COVER = 999.0
 
 # A split event this close to 1:1 is a spin-off adjustment, not a share split.
 _MIN_SPLIT_LOG = float(np.log(1.1))
+# Share count jump across a listing that marks the pre-listing years as another basis.
+_LISTING_SHARE_JUMP = 1.5
 
 # Stored per-symbol measures (the ordinary ones not listed here already exist).
 _OWN = ("roa_3y", "rotce_3y", "pretax_margin_3y", "tangible_equity_ratio", "tbv_ps_growth",
@@ -93,9 +95,26 @@ def _ebitda(tab: pd.DataFrame) -> pd.Series:
     return e.where(~low, op + da)
 
 
-def per_share_growth(values: pd.Series, shares: pd.Series, splits: pd.Series | None) -> float:
+def per_share_growth(values: pd.Series, shares: pd.Series, splits: pd.Series | None,
+                     listed_from: pd.Timestamp | None = None) -> float:
     """Robust growth (§16) of value / diluted average shares, %/yr, over the years
-    the trend uses (~6). When a split falls inside them, each year's share count is
+    the trend uses (~6); NaN with < 4 points or a change of basis."""
+    ps = per_share_series(values, shares, splits, listed_from=listed_from)
+    return M.robust_trend(ps)[2] if ps is not None else float("nan")
+
+
+def per_share_series(values: pd.Series, shares: pd.Series, splits: pd.Series | None,
+                     points: int | None = None,
+                     listed_from: pd.Timestamp | None = None) -> pd.Series | None:
+    """value / diluted average shares over the newest `points` fiscal years
+    (default: the trend's ~6), from the first fiscal year ending a year after
+    `listed_from` (the first price bar). Before a listing the filed share count
+    leaves out the preferred stock that converts at it (Palantir: 577M shares for
+    2019, 1.9B for 2021), and a bankruptcy relisting cancels the old shares — both
+    read as flat or falling per-share values. The pre-listing years are dropped
+    only when the count jumps > 1.5x across the listing: a spin-off files its old
+    years on the shares it distributes (GE Vernova), which are fine.
+    When a split falls inside them, each year's share count is
     put on the newest year's basis (the split candidate closest to it, as for EPS),
     NaN when even the best is > 2.5x off (a change of basis, §14). Without a split
     the counts are used as filed: REITs and banks issue shares steadily (Agree
@@ -106,9 +125,16 @@ def per_share_growth(values: pd.Series, shares: pd.Series, splits: pd.Series | N
     adjustment as one (Realty Income's Orion spin-off, 2021, "1.032"), which would
     switch on the basis test for a heavy share issuer and wrongly give NaN."""
     s = pd.concat([values, shares], axis=1, keys=["v", "n"]).dropna()
-    s = s[s["n"] > 0].iloc[-(settings.GROWTH_TREND_YEARS + 1):]
+    s = s[s["n"] > 0]
+    if listed_from is not None and pd.notna(listed_from):
+        listed = s.index >= pd.Timestamp(listed_from) + pd.Timedelta(days=365)
+        if listed.any() and (~listed).any():
+            jump = float(s["n"][listed].iloc[0]) / float(s["n"][~listed].iloc[-1])
+            if abs(np.log(jump)) > np.log(_LISTING_SHARE_JUMP):
+                s = s[listed]
+    s = s.iloc[-(points or settings.GROWTH_TREND_YEARS + 1):]
     if len(s) < 4:
-        return float("nan")
+        return None
     real = (splits[(splits > 0) & (np.abs(np.log(splits.where(splits > 0))) >= _MIN_SPLIT_LOG)]
             if splits is not None and not splits.empty
             else pd.Series(dtype=float, index=pd.DatetimeIndex([])))
@@ -121,12 +147,13 @@ def per_share_growth(values: pd.Series, shares: pd.Series, splits: pd.Series | N
         if not window.empty:
             c = min(M.basis_candidates(window, d), key=lambda f: abs(np.log(n * f / last_n)))
             if abs(np.log(n * c / last_n)) > np.log(M._EPS_BASIS_MAX_OFF):
-                return float("nan")
+                return None
         ps.append(float(row["v"]) / (n * c))
-    return M.robust_trend(pd.Series(ps, index=s.index))[2]
+    return pd.Series(ps, index=s.index)
 
 
-def measures(tab: pd.DataFrame, ctype: str | None, splits: pd.Series | None = None) -> dict:
+def measures(tab: pd.DataFrame, ctype: str | None, splits: pd.Series | None = None,
+             listed_from: pd.Timestamp | None = None) -> dict:
     """The per-symbol measures this type needs that are not already columns."""
     out = dict.fromkeys(_OWN, float("nan"))
     fam = _FAMILY.get(ctype or "")
@@ -141,7 +168,7 @@ def measures(tab: pd.DataFrame, ctype: str | None, splits: pd.Series | None = No
         out["pretax_margin_3y"] = _median3(tab["pretax_income"], rev)
     if fam in ("bank", "broker"):
         out["rotce_3y"] = _median3(ni, tbv)
-        out["tbv_ps_growth"] = per_share_growth(tbv, shares, splits)
+        out["tbv_ps_growth"] = per_share_growth(tbv, shares, splits, listed_from)
     if fam == "bank":
         out["roa_3y"] = _median3(ni, tab["total_assets"])
         row = tab[tab["tangible_book_value"].notna() & tab["total_assets"].notna()]
@@ -166,7 +193,7 @@ def measures(tab: pd.DataFrame, ctype: str | None, splits: pd.Series | None = No
                 out["pretax_interest_cover"] = NO_INTEREST_COVER if pt > 0 else float("nan")
             else:
                 out["pretax_interest_cover"] = min((float(pt) + float(it)) / float(it), NO_INTEREST_COVER)
-        out["bvps_growth"] = per_share_growth(eq, shares, splits)
+        out["bvps_growth"] = per_share_growth(eq, shares, splits, listed_from)
     if fam == "reit":
         e = _ebitda(tab)
         out["ebitda_margin_3y"] = _median3(e, rev)
@@ -176,7 +203,7 @@ def measures(tab: pd.DataFrame, ctype: str | None, splits: pd.Series | None = No
             out["ebitda_interest_cover"] = (0.0 if ev <= 0 else
                                             NO_INTEREST_COVER if pd.isna(it) or it == 0
                                             else min(ev / float(it), NO_INTEREST_COVER))
-        out["ocf_ps_growth"] = per_share_growth(tab["operating_cash_flow"], shares, splits)
+        out["ocf_ps_growth"] = per_share_growth(tab["operating_cash_flow"], shares, splits, listed_from)
     return out
 
 

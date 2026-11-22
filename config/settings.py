@@ -627,6 +627,22 @@ CATEGORY_GROWTH_MIN: float = 12.0
 CATEGORY_INCOME_YIELD_MIN: float = 2.5
 CATEGORY_INCOME_YEARS: int = 5
 CATEGORY_EARLY_MAX_REVENUE: float = 1e9
+# Growth phase labels (fix list §21, Group H part 3b). Growth so far: revenue-per-share
+# track record over up to GROWTH_PHASE_YEARS fiscal years; "recently listed" under
+# GROWTH_PHASE_LISTED_YEARS of price history; a long record needs MIN_YEARS of revenue;
+# "long-running" = long-run growth >= LONG_RATE %/yr with Mann-Kendall tau >= TAU;
+# "picked up" = the recent (~6y) rate >= the long-run rate + PICKUP_PP.
+GROWTH_PHASE_YEARS: int = 12
+GROWTH_PHASE_LISTED_YEARS: float = 6.0
+GROWTH_PHASE_MIN_YEARS: int = 8
+GROWTH_PHASE_LONG_RATE: float = 10.0
+GROWTH_PHASE_TAU: float = 0.6
+GROWTH_PHASE_PICKUP_PP: float = 5.0
+# Growth ahead: "starting" = past < START_PAST % with a forecast >= CATEGORY_GROWTH_MIN;
+# a change needs >= CHANGE_PP points AND >= CHANGE_REL x |past rate|.
+GROWTH_AHEAD_START_PAST: float = 5.0
+GROWTH_AHEAD_CHANGE_PP: float = 5.0
+GROWTH_AHEAD_CHANGE_REL: float = 0.25
 
 # --------------------------------------------------------------------------- #
 # Scoring & ranking (Topic 4.4) — all adjustable from the Settings page

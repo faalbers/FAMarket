@@ -371,8 +371,11 @@ def run_analysis(subset: list[str] | None = None) -> dict:
         hc, hp = health.assess(fsym, ctype, m, div_by.get(sym), split_by.get(sym), table=ann)
         if hp is not None:
             health_pending[sym] = hp
+        # first price bar: per-share growth starts a year after it (pre-listing share counts)
+        fd = first_date_by.get(sym)
+        listed_from = pd.Timestamp(fd) if fd is not None and pd.notna(fd) else None
         hc.update(strength.measures(ann if ann is not None else pd.DataFrame(), ctype,
-                                    split_by.get(sym)))
+                                    split_by.get(sym), listed_from))
         t = technical.compute(sym, osym, first_date=first_date_by.get(sym))
         iv = intrinsic_value.compute(sym, fsym, quote, price, m, risk_free,
                                       screen_type=screen_type, regulated=regulated)
@@ -380,7 +383,9 @@ def run_analysis(subset: list[str] | None = None) -> dict:
                                           screen_type=screen_type, regulated=regulated)
         est_m = estimates_metrics.compute(sym, est_by.get(sym), forward_pe=m.get("forward_pe"))
         sig_m = signals_metrics.compute(sym, surp_by.get(sym), own_by.get(sym), asof=signals_asof)
-        hc.update(labels.compute(ann, ctype, m, est_m, split_by.get(sym)))  # stock_category (§21)
+        hc.update(labels.compute(ann, ctype, m, est_m, split_by.get(sym),  # labels (§21)
+                                 history_years=t.get("history_years", float("nan")),
+                                 listed_from=listed_from))
         # Fund provider/sponsor — funds only (NULL for stocks). Filtered as a
         # classification value on the Filter page; lives only in quotes.db, so it
         # must be copied into the analysis row to be screenable (no cross-DB joins).

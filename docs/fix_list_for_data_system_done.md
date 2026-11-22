@@ -615,9 +615,46 @@ The review points to §21 for it; it needs the industry benchmark map, so it is 
 - **Infinities:** none in the new columns.
 - **Run:** 0 errors, 0 warnings; ~12 minutes; peak RAM 8.5 GB; 337 columns. `indices.db.gz` pushed to FAPortfolio and read back OK. The 27-minute read-only test build was a background-process slowdown, not the change.
 
+## Round 13 — Group H, part 3b: §21 growth phase labels (2026-11-21)
+
+### Growth phase — Built
+
+- **New columns:** `growth_so_far` (+ `revenue_ps_growth_long`, robust revenue-per-share growth over up to 12 fiscal years, and `revenue_years`), `growth_ahead` (number: `forward_rev_growth`). Companies only. Lines in Settings (`GROWTH_PHASE_*`, `GROWTH_AHEAD_*`), the review's values.
+- **Spread, listed ≥ $2B (test build):**
+  - growth so far — moderate 637, short record 566, long-running 293, recently listed 285, picked up 174;
+  - growth ahead — steady 835, slowing sharply 428, speeding up 309, starting 109, slowing 107, NULL 168 (no forecast).
+- **Examples:** long-running — Nvidia, Microsoft, Amazon, Eli Lilly; picked up — Uber (30%/yr recent vs 15% long run); recently listed — Abnb, ARM, GE Vernova, Weatherford, American Healthcare REIT; growth ahead slowing sharply — Coca-Cola, JPMorgan, Berkshire, Merck.
+- **Where we differ from the review / choices made:**
+  - **Recently listed from price history** (`history_years`). Checked against SEC revenue years: of 286 large companies under 6 years of price history, only 11 hold 8+ years of revenue, and those are real late listings (bankruptcy relistings, late-listing REITs). Yahoo's first-trade-date resets don't matter here.
+  - **Order:** recently listed → short record → long-running → picked up → moderate (a fast compounder whose recent rate is higher still reads long-running).
+  - **Growth ahead uses the raw forecast** (no category guard): it is the analysts' view by definition. Kimberly-Clark reads "starting" on its Kenvue acquisition.
+  - **"Slowing sharply" is common (428):** median forecast +3.8% vs a median past rate of 15% — the 6-year window holds the 2021-22 boom. A per-share forecast (adjusted for share-count change) moved it only to 396, so not used.
+  - **Short record is mostly foreign filers** (Yahoo's ~4 years, no SEC history): TSM, Novo Nordisk. Noted in the filter guide.
+
+### Per-share growth across a listing (all per-share columns)
+
+- Pre-IPO share counts leave out the preferred that converts at listing: Palantir 577M shares (2019) → 1.9B (2021), so revenue per share looked flat (3%/yr long run; now 18%/yr from its first listed year).
+- **Rule:** when the count jumps > 1.5x across the listing (first price bar + 1 year), the pre-listing years are dropped. Spin-offs file their old years on the distributed shares and keep them (GE Vernova, ARM). A first version dropped all pre-listing years and lost them.
+- **Moved vs stored:** `revenue_ps_growth` 227 values (82 now NULL: too few listed years), `category_growth` 227, `stock_category` 27 (15 neither → growth, 12 growth → neither), `peer_strength` 119, its per-share measures 11.
+
+### Found, not fixed (pre-existing)
+
+- **Revenue-per-share seams in `financials.db`:** 295 of 1,956 large companies have a > 2.5x one-year jump — share counts in thousands vs units (Kohl's, Teva, PACCAR), currency / ADS switches (Alibaba), pre-split ordinary vs ADS counts (Toyota), a narrower old revenue line (American Express). On the triage list as its own fix.
+
+### Checks
+
+- **Hints:** 162 filter bases, 0 without a hint. **Type check:** `labels.py`, `strength.py` 0 errors; `metrics.py` only its 7 older errors (none in the changed lines).
+- **Test build:** read-only, 35,689 rows, 13.4 minutes.
+
+### Checked after the run
+
+- **Stored = test build:** all 35,689 rows; all 318 numeric and 22 text columns of the test build identical (the new labels, the per-share columns, `peer_strength`).
+- **Infinities:** none in the new columns.
+- **Run:** 0 errors, 0 warnings; ~12 minutes; peak RAM 8.5 GB; 341 columns. `indices.db.gz` pushed to FAPortfolio.
+
 ## Not yet reviewed
 
-§8, §21 parts 3b-4 (growth phase labels, REIT FFO payout, relative strength vs the industry), and the open parts of §20 not covered above. Grouped as above.
+§8, §21 parts 3c-4 (REIT FFO payout, relative strength vs the industry), and the open parts of §20 not covered above. Grouped as above.
 
 ## Known gaps / limitations
 

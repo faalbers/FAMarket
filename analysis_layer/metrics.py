@@ -365,9 +365,10 @@ def fractional_years(idx) -> np.ndarray:
     return np.asarray(idx, dtype=float) + 0.997  # a calendar year ends ~Dec 31
 
 
-def robust_trend(s: pd.Series) -> tuple[float, float, float, float, float]:
+def robust_trend(s: pd.Series, max_points: int | None = None) -> tuple[float, float, float, float, float]:
     """(steadiness %, direction tau, trend growth %/yr, growth low %, growth high %)
-    over the last ~6 years.
+    over the last ~6 years (`max_points` overrides: the growth phase label reads
+    up to 12, fix list §21).
 
     Fix list §16 (2026-11-14). Replaces an ordinary least-squares fit on a year
     index, which one odd year moved (often a FY2020 trough as the first point):
@@ -387,7 +388,7 @@ def robust_trend(s: pd.Series) -> tuple[float, float, float, float, float]:
     """
     nan = float("nan")
     nan5 = (nan, nan, nan, nan, nan)
-    s = s.dropna().iloc[-(settings.GROWTH_TREND_YEARS + 1):]
+    s = s.dropna().iloc[-(max_points or settings.GROWTH_TREND_YEARS + 1):]
     if len(s) < _TREND_MIN_POINTS:
         return nan5
     t = fractional_years(s.index)

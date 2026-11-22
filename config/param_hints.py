@@ -2101,3 +2101,55 @@ PARAM_HINTS.update({
         "vs_peers": "No.",
     },
 })
+
+# Growth phase labels (fix list §21, Group H part 3b).
+PARAM_HINTS.update({
+    "growth_so_far": {
+        "name": "Growth so far",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "The revenue-per-share track record: long-running (>= 10%/yr over up to 12 "
+                      "years, rising in most years), picked up (the last ~6 years >= 5 points above "
+                      "the long run), moderate, recently listed (< 6 years of price history) or "
+                      "short record (< 8 years of revenue in the data).",
+        "how_to_use": [
+            "Pick 'long-running' for proven compounders; 'picked up' for growth that recently sped up.",
+            "'recently listed' covers young companies, spin-offs and old companies newly listed "
+            "(bankruptcy relistings) — the data can't tell them apart.",
+            "'short record' is mostly foreign filers, which have only ~4 years of statements here.",
+        ],
+        "vs_peers": "No — fixed lines.",
+    },
+    "growth_ahead": {
+        "name": "Growth ahead",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "Next year's analyst revenue forecast against the recent revenue-per-share "
+                      "growth: starting (past < 5%, forecast >= 12%), speeding up, steady, slowing, "
+                      "or slowing sharply (forecast below half the past rate). A change needs 5+ "
+                      "points and 25%+ of the past rate.",
+        "how_to_use": [
+            "Pair with Growth so far: 'long-running' + 'steady' is a proven grower expected to keep going.",
+            "The raw forecast: an acquisition shows as speeding up. Empty without a forecast.",
+        ],
+        "vs_peers": "No — fixed lines.",
+    },
+    "revenue_ps_growth_long": {
+        "name": "Revenue / share growth (long run)",
+        "category": "Growth",
+        "unit": "%",
+        "what_it_is": "Robust growth (%/yr) of revenue per diluted share over up to 12 fiscal years "
+                      "— the number behind Growth so far.",
+        "how_to_use": ["Compare with Revenue / share growth (~6 years) to see a pick-up or a slowdown."],
+        "vs_peers": "Yes.",
+    },
+    "revenue_years": {
+        "name": "Years of revenue",
+        "category": "Growth",
+        "unit": "",
+        "what_it_is": "How many fiscal years (of the newest 12) the long-run revenue-per-share "
+                      "growth rests on.",
+        "how_to_use": ["Under 8 = 'short record'. Filter it high to trust long-run growth more."],
+        "vs_peers": "No — a count.",
+    },
+})
