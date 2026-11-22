@@ -42,7 +42,7 @@ from analysis_layer import _periods as P
 from analysis_layer import metrics, technical, intrinsic_value, valuation_scenarios, peers, scoring
 from analysis_layer import estimates as estimates_metrics
 from analysis_layer import signals as signals_metrics
-from analysis_layer import benchmark_push, health, labels, price_quality, sector_index, strength
+from analysis_layer import benchmark_push, ffo, health, labels, price_quality, sector_index, strength
 from config.industry_overrides import INDUSTRY_OVERRIDES
 from data_layer import price_checks
 from core.market_calendar import last_completed_session
@@ -204,8 +204,8 @@ def _secondary_lines(universe: pd.DataFrame, quotes: pd.DataFrame) -> set[str]:
     return set(sec["symbol"])
 
 
-# Annual fields the health check and Peer Strength read (one table per symbol).
-_ANNUAL_FIELDS = tuple(dict.fromkeys(health.FIELDS + strength.FIELDS))
+# Annual fields the health check, Peer Strength and REIT FFO read (one table per symbol).
+_ANNUAL_FIELDS = tuple(dict.fromkeys(health.FIELDS + strength.FIELDS + ffo.FIELDS))
 
 
 def _in_peer_universe(security_type, quote, market_cap) -> bool:
@@ -386,6 +386,7 @@ def run_analysis(subset: list[str] | None = None) -> dict:
         hc.update(labels.compute(ann, ctype, m, est_m, split_by.get(sym),  # labels (§21)
                                  history_years=t.get("history_years", float("nan")),
                                  listed_from=listed_from))
+        hc.update(ffo.compute(ann, ctype))  # REIT payout on FFO (§21 part 3c)
         # Fund provider/sponsor — funds only (NULL for stocks). Filtered as a
         # classification value on the Filter page; lives only in quotes.db, so it
         # must be copied into the analysis row to be screenable (no cross-DB joins).

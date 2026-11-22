@@ -2153,3 +2153,36 @@ PARAM_HINTS.update({
         "vs_peers": "No — a count.",
     },
 })
+
+# REIT payout on FFO (fix list §21, Group H part 3c).
+PARAM_HINTS.update({
+    "ffo": {
+        "name": "FFO",
+        "category": "Income",
+        "unit": "$",
+        "what_it_is": "Funds from operations, latest fiscal year, to common: net income + "
+                      "depreciation - gains on sales + write-downs. Equity REITs only. A rough "
+                      "version of the FFO REITs report (within ~1% for Realty Income and Public "
+                      "Storage), in the reporting currency.",
+        "how_to_use": [
+            "Errs high when a gain is filed where it can't be separated (Simon 2025: +37%).",
+            "Joint-venture-heavy REITs (SL Green) read low: their share of JV depreciation is missing.",
+        ],
+        "vs_peers": "No — a size, not a ratio.",
+    },
+    "ffo_payout": {
+        "name": "Payout on FFO",
+        "category": "Income",
+        "unit": "%",
+        "what_it_is": "Common dividends paid / FFO × 100, latest fiscal year — the REIT payout "
+                      "ratio. Net income understates a REIT's earnings by its depreciation, so "
+                      "its payout on net income reads too high (median 105% vs 65% on FFO).",
+        "how_to_use": [
+            "Use this for REITs, not the payout ratio. 60-80% is typical; above ~90% leaves "
+            "little room.",
+            "NULL when FFO is zero or negative. Mortgage REITs: NULL (see Economic return).",
+            "A fiscal year old at worst; a dividend cut since then doesn't show.",
+        ],
+        "vs_peers": "Property types pay out differently: compare within one REIT industry.",
+    },
+})

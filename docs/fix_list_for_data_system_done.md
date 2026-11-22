@@ -652,9 +652,55 @@ The review points to §21 for it; it needs the industry benchmark map, so it is 
 - **Infinities:** none in the new columns.
 - **Run:** 0 errors, 0 warnings; ~12 minutes; peak RAM 8.5 GB; 341 columns. `indices.db.gz` pushed to FAPortfolio.
 
+## Round 14 — Group H, part 3c: §21 REIT payout on FFO (2026-11-21)
+
+### REIT payout on FFO — Built
+
+- **New columns:** `ffo` and `ffo_payout`, equity REITs only (mortgage REITs NULL). New module `analysis_layer/ffo.py`.
+- **FFO** = net income to common + depreciation − gains on sales + write-downs, newest fiscal year.
+  - **Gains:** property, business / real-estate entity and investment sales — the review's Public Storage case. Yahoo files most REITs' property-sale gains under `gain_on_sale_of_security` (Prologis, Realty Income, Alexandria), so that line is the one that matters most.
+  - **Write-downs added back**, as NAREIT does — the review's Alexandria case: 2025 net income −$1.44B, FFO $1.50B (~$8.8 a share).
+  - **Each gain from the income statement, else the cash-flow line (sign flipped), never both:** Public Storage 2022 carries the $2.13B PS Business Parks gain in both.
+- **Payout** = common dividends paid / FFO.
+- **Spread, listed ≥ $2B equity REITs (86 of 87 filled):** median 65% (quartiles 54-77%), against a median 105% on net income.
+- **Where we differ from the review / choices made:**
+  - **Annual, not TTM:** Yahoo's quarterly rows lack depreciation for ~42% of large REITs and write-downs for ~76%, and a missing quarter line can't be told from a zero. So the payout can be up to a year old.
+  - **All depreciation, not real-estate only;** no joint-venture adjustment. EDGAR backfill years carry no depreciation, so there is no FFO history (only the latest year is used).
+  - **Simon's dividend split is wrong in Yahoo:** 2025 shows $2.79B preferred paid vs $3M preferred on the income statement, so its payout read 7%. Rule: when the cash-flow preferred split is > 3x the income statement's preferred and > 5% of all dividends, use total − income-statement preferred. It changed Simon only (7% → 51%).
+
+### Checked against reported FFO (company releases, FY2025)
+
+| REIT | Ours | Reported | Gap |
+|---|---|---|---|
+| Realty Income | $3.90B | FFO $3.86B | +1% |
+| Public Storage | $2.95B | Core FFO $16.97 × ~176M shares ≈ $2.99B | −1% |
+| Prologis | $4.99B | Core FFO $5.81 × ~960M ≈ $5.6B (company measure) | −10% |
+| Welltower | $3.22B | normalized FFO $5.29 × ~670M ≈ $3.5B | below normalized, as expected |
+| Simon | $6.37B | FFO $4.66B | +37% |
+
+- **Simon:** a large 2025 gain sits in net income on a line the formula can't separate, so FFO is high and the payout low (51% vs ~70% reported). The share counts in the table are estimates; the gaps are rough.
+- **Outliers to know:** SL Green 299% (most of its business in joint ventures); Crown Castle 182% (its fiber business is held for sale; cause not checked).
+
+### Possible follow-ups (not started)
+
+- **Scoring:** REITs are still scored on `div_payout_ratio` (REIT band 80-95% on net income). `ffo_payout` could replace it for REITs.
+- **Dividend warning:** `div_outgrowing_earnings` compares REIT dividend growth with net-income growth; FFO history would fit better, but there is none before Yahoo's ~5 years.
+- **P/FFO:** the REIT price multiple, from `ffo` and market cap.
+
+### Checks
+
+- **Hints:** 164 filter bases, 0 without a hint. **Type check:** `ffo.py` 0 errors; `pipeline.py` only its older `forward_pe` error.
+- **Test build:** read-only, 35,689 rows; only `ffo` / `ffo_payout` new, no existing column moved.
+
+### Checked after the run
+
+- **Stored = test build:** all 35,689 rows; all 321 numeric and 21 text columns identical.
+- **New columns:** filled for equity REITs only (147 `ffo`, 137 `ffo_payout`); no infinities.
+- **Run:** 0 errors, 0 warnings; ~14 minutes; peak RAM 8.5 GB; 342 columns. `indices.db.gz` pushed to FAPortfolio.
+
 ## Not yet reviewed
 
-§8, §21 parts 3c-4 (REIT FFO payout, relative strength vs the industry), and the open parts of §20 not covered above. Grouped as above.
+§8, §21 part 4 (relative strength vs the industry), and the open parts of §20 not covered above. Grouped as above.
 
 ## Known gaps / limitations
 

@@ -4,7 +4,9 @@ Internal tracker for working through `docs/fix_list_for_data_system.md` on branc
 
 ## Waiting for your input
 
-- **Group H part 3b (growth phase) done 2026-11-21:** the analysis run checked (stored = test build). Next: 3c REIT FFO payout, part 4 relative strength vs the industry; then Group I.
+- **Group H part 3c (REIT payout on FFO) done 2026-11-21:** the analysis run checked (stored = test build). Next: part 4 relative strength vs the industry; then Group I.
+- **Possible follow-ups from H part 3c** (not started, your call): score REITs on `ffo_payout` instead of the net-income payout (REIT band 80-95%); P/FFO for REITs; `div_outgrowing_earnings` still uses net-income growth for REITs.
+- **Group H part 3b (growth phase) done 2026-11-21:** the analysis run checked (stored = test build).
 - **NEW, important — revenue-per-share seams in `financials.db` (found in 3b, pre-existing):** 295 of 1,956 listed ≥ $2B companies have a > 2.5x one-year jump in revenue per diluted share (both years > $100M revenue). Causes seen:
   - **share counts in thousands vs units** (×1,000-1,000,000 jumps: Kohl's 2022, Teva 2019, PACCAR 2018, Bruker 2021, Nomura 2023);
   - **currency / ADS basis switch** between sources (Alibaba: USD per ordinary share → CNY per ADS, 2023);
@@ -34,7 +36,7 @@ Internal tracker for working through `docs/fix_list_for_data_system.md` on branc
 | E | Signals consistency | §11, §7 (dates, TTM lag, currency), §20 (surprise, currency, insiders, targets) | ✅ done 2026-11-14 · past dates NULL, earnings-driven financials refresh, surprise near zero, revenue chain check · currency / insiders / targets recorded (don't reach the screens) |
 | F | Analysis foundations | §2, §10, §16, §20 (EV, EBITDA definition), §14 steps 2-4 (split basis via `filed_date`, Talen) | ✅ done 2026-11-14 · all-class market cap, EPS on one split basis, robust growth (Theil-Sen, `_growth_tau` replaces `_growth_r2`/`_cv`), EV + minority / preferred, normalized EBITDA · Talen loss rows open |
 | G | Analysis built on F | §9, §17, §19, §18 | part 1 ✅ done 2026-11-15 (§9 regular dividends, §17 fair values, second lines) — analysis run checked · part 2 ✅ done 2026-11-15 (§19: Piotroski, peer universe, negative-denominator ratios) — analysis run checked · part 3 ✅ done 2026-11-15 (§18: input counts, fixed ranking universe, trend + forecast-checked growth, score history) — analysis run checked · score validation waits for history |
-| H | New calculations | §21 · + §19 relative strength vs the industry | part 1 ✅ done 2026-11-16 (health check, peak check, dividend warning) — analysis run checked · part 2 ✅ done 2026-11-16 (Peer Strength) — analysis run checked · part 3a ✅ done 2026-11-21 (stock category) — analysis run checked · part 3b ✅ done 2026-11-21 (growth phase) — analysis run checked · parts 3c-4 open |
+| H | New calculations | §21 · + §19 relative strength vs the industry | part 1 ✅ done 2026-11-16 (health check, peak check, dividend warning) — analysis run checked · part 2 ✅ done 2026-11-16 (Peer Strength) — analysis run checked · part 3a ✅ done 2026-11-21 (stock category) — analysis run checked · part 3b ✅ done 2026-11-21 (growth phase) — analysis run checked · part 3c ✅ done 2026-11-21 (REIT payout on FFO) — analysis run checked · part 4 open |
 | I | Indices | §8 — touches FAPortfolio's `indices.db` contract | open |
 
 **Order:** B before F (share counts, EPS); F before G; §15 before §18.

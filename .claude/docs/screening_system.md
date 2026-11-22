@@ -152,6 +152,7 @@ Not every base has every window (dividends have no `yoy_q`); `filter_registry.gr
 - `div_consecutive_years` (yr) — years WITHOUT A CUT in the regular rate (a flat year keeps it; not years-paid); 0 after a recent cut; foreign companies tolerate a 10% currency dip. 10/25+ = achiever/aristocrat territory; capped by our ~30-year price history ("at least this many").
 - `div_consistency` (%) — share of YoY steps held-or-grew; softer than streak (one old cut doesn't zero it).
 - `div_payout_ratio` (%) — sweet spot 30-60 (REIT override 80-95, they're legally high payers); >80 thin safety, >100 paid from reserves/debt. **Explodes for low-NI payers — prefer coverage.**
+- `ffo_payout` (%; equity REITs only) — common dividends / FFO, newest fiscal year. **The payout to screen REITs on** (median 65% for listed $2B+ REITs, against 105% on net income): 60-80 typical, >90 thin. `ffo` ($) is the rough FFO behind it. NULL for mortgage REITs (use `economic_return_3y`) and when FFO ≤ 0. Can be a year old; joint-venture-heavy REITs (SL Green) read high.
 - `div_coverage` (x; anchor 1.0) — FCF / dividends paid; >2 comfortable, <1 = not cash-funded. Cash-based mirror of payout; trust it more (earnings payout can hide a 290%-payout Walgreens-style trap that FCF coverage exposes).
 
 ### Technical (ALL_TRADED; volume/ATR exclude mutual_fund)

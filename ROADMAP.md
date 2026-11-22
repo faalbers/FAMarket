@@ -1144,6 +1144,11 @@ needs.
      lines in Settings. Also: per-share growth drops pre-listing years when the share count jumps
      > 1.5x across the listing (Palantir). Found, open: revenue-per-share seams in `financials.db`
      (295 large companies; share-count units, currency / ADS switches) — see the triage list.
+   - ✅ Group H, part 3c — REIT payout on FFO (2026-11-21, §21), analysis run checked:
+     new `analysis_layer/ffo.py` — `ffo` (net income to common + depreciation − gains on sales +
+     write-downs, newest fiscal year) and `ffo_payout` (common dividends / FFO), equity REITs only.
+     Annual rather than TTM (Yahoo's quarterly lines too sparse). Added to the review: write-downs
+     added back, and a check on Yahoo's common / preferred dividend split (Simon).
    - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
      `core/backup.fix_backup`).
 

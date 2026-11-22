@@ -266,6 +266,8 @@ BASES: list[Base] = [
     _b("div_consistency", "Dividend consistency", "Income", FUND_DIV),
     _b("div_payout_ratio", "Payout ratio", "Income", frozenset({STANDARD, BANK, INSURANCE})),
     _b("div_coverage", "Dividend coverage", "Income", frozenset({STANDARD, BANK, INSURANCE})),
+    _b("ffo_payout", "Payout on FFO (REIT)", "Income", frozenset({REIT})),
+    _b("ffo", "FFO (REIT)", "Income", frozenset({REIT})),
     # -- Technical (all traded; mutual funds drop volume + ATR) ------------- #
     _b("price_vs_ma_50", "Price vs 50-day MA", "Technical", ALL_TRADED),
     _b("price_vs_ma_150", "Price vs 150-day MA", "Technical", ALL_TRADED),
