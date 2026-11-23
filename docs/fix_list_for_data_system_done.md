@@ -923,6 +923,15 @@ Found in round 13 (not in the review): 295 of 1,956 listed companies of $2B+ had
   - MUFG, Mizuho, ORIX lose all SEC revenue (their only tag is 1.6-2.7x Yahoo's definition).
   - 5 companies newly dropped by the currency rule (SEC CNY / EUR vs Yahoo USD: CANG, COE, FOCL, JF, NBP). History guard kept NAVI, XPRO (known re-pointed records) and BTCT.
 - **Type check:** 0 errors.
+- **Re-fetch, two runs 2026-11-22** (backups `2026-11-22_13-38-33_refetch_edgar_revenue`, `..._14-10-43_refetch_edgar_revenue_2`):
+  - Run 1: 1,617 companies, 0 failed. Its target list missed companies with no stored SEC revenue — financials whose fee tag the old seam test had blanked (Zions, Western Alliance, Huntington) and sub-line cases (General Mills 2019-22).
+  - Run 2 (fixed list: SEC years with net income but no revenue, and financials by any SEC row): 1,892 more targets, 1,604 with data, 0 failed; 6 more currency drops; history guard kept CLBK (known) and SVM.
+  - Both runs: annual revenue changed in 992 cells / 242 companies (420 → NULL, 340 NULL → value), quarterly 3,094 cells / 367. No Yahoo row changed. Zions 2018-21 now 2.8-2.9B, General Mills 2019-22 16.9-19.0B.
+- **Test build (read-only, after both runs):** rows and columns unchanged.
+  - **Fake bank revenue growth gone:** Flagstar `revenue_cagr_5y` 148% → 2.7%, Banc of California 211% → NULL, Glacier 79% → NULL; American Express 26.9% → 14.9%; Zions NULL → 3.9%. Net margins on the right revenue: M&T 52.7% → 31.0%, SoFi 30.2% → 15.6%, American Express 20.3% → 15.8%, Northern Trust 34.4% → 26.0%.
+  - **Side effect, fresh data:** the re-fetch also brought in the newest filings of companies whose SEC data was due (~40 new quarters in a 40-company sample), so balance-sheet ratios moved for ~150 small companies (`current_ratio` 158, none listed ≥ $2B).
+  - **Scores:** `overall_score` moved for ~4,600 companies by a median 0.015 points (percentile ripple); 62 move > 2 points, 10 of them listed ≥ $2B — all financials whose revenue changed (largest SoFi 38.7 → 45.4, Starwood 43.4 → 38.2).
+- **Checked after the run (2026-11-22):** the stored `analysis.db` equals the test build in every column (35,689 rows, 347 columns, 0 cells differ); the industry benchmark map is unchanged.
 
 ### Left open
 

@@ -4,18 +4,18 @@ Internal tracker for working through `docs/fix_list_for_data_system.md` on branc
 
 ## Waiting for your input
 
-- **Group H part 4 (relative strength vs the industry) done 2026-11-22:** the analysis run checked. One fix after it (3-year values missed price flags older than 2 years); your next run applies it. Then: the revenue-per-share seams fix, Group I.
+- **Group H part 4 (relative strength vs the industry) done 2026-11-22:** the analysis run checked. One fix after it (3-year values missed price flags older than 2 years), applied by the next runs.
 - **Possible follow-ups from H part 4** (not started, your call): residual (beta-adjusted) momentum; a stickiness rule for near-equal ETFs; RS vs industry in the momentum score.
 - **Group H part 3c (REIT payout on FFO) done 2026-11-21:** the analysis run checked (stored = test build).
 - **Possible follow-ups from H part 3c** (not started, your call): score REITs on `ffo_payout` instead of the net-income payout (REIT band 80-95%); P/FFO for REITs; `div_outgrowing_earnings` still uses net-income growth for REITs.
 - **Group H part 3b (growth phase) done 2026-11-21:** the analysis run checked (stored = test build).
-- **Revenue-per-share seams, part 1 (share counts at the wrong scale) done 2026-11-22:** stored rows repaired, checked after the analysis run. Large companies with a 1,000x jump 91 → 8. Part 2 (one currency per company) done 2026-11-22: SEC re-fetch run, checked after the analysis run. **Part 3 (share-basis breaks) done 2026-11-22, checked after the analysis run — see review log round 18.** **Part 4 (wrong revenue line) built 2026-11-22: re-fetch running, then an analysis run — round 19.** Researched (share-basis breaks in revenue per share; 161 of 1,956 large companies still have a > 2.5x step, ~58 look like a basis change: shares jump > 2.5x while revenue moves < 2x):
-    - **Bug:** `strength.per_share_series` ignores splits dated after the newest fiscal year — EDGAR rows stay pre-split while Yahoo's are restated (CrowdStrike 4:1 Jul-2026, Booking 25:1 Apr-2026: `revenue_ps_growth` −27.6%). The EPS path already handles this (`shares_now`).
-    - **ADR share basis:** SEC rows count ordinary shares, Yahoo counts ADSs (Alibaba 8, JOYY 20, BeOne 13, GDS 8, FUTU 8, Zai Lab 10); also ordinary-share splits inside the SEC years that Yahoo doesn't list (Alibaba 2019 8:1, Mizuho 2020 1:10, HUTCHMED 2019).
-    - **Yahoo share counts 4x too high:** FirstEnergy (Yahoo 2.29B vs 579M outstanding, EPS 0.48), Digital Realty — internally consistent, so EPS rows pass. **Class scope:** Carvana (Yahoo all classes, SEC Class A).
-    - **One-year Yahoo blips:** Travelers 2024 (x100), Rocket, Hagerty, Central Bancompany.
-    - EPS growth is already protected: rows whose implied shares are > 2.5x off the newest are dropped (`metrics.eps_current_basis`); revenue per share has no such test without a split. Next parts: ADS vs ordinary share counts (Alibaba, Toyota), narrower old revenue lines (American Express, Hershey). Possible follow-up: EPS tagged at the wrong scale (~1,100 rows, ICE).
-- **Revenue-per-share seams in `financials.db` (found in 3b, pre-existing):** 295 of 1,956 listed ≥ $2B companies have a > 2.5x one-year jump in revenue per diluted share (both years > $100M revenue). Causes seen:
+- **Revenue-per-share seams done 2026-11-22** (all four parts checked after their analysis runs; review log rounds 16-19): share counts at the wrong scale, one currency per company, share-basis breaks, the wrong revenue line. **Next: Group I.**
+- **Parked follow-ups from the seams** (your call, 2026-11-22: low value, skipped for now):
+  - **EPS tagged at the wrong scale** (~1,100 rows, ~220 companies, mostly quarters; ICE). EPS trends already drop such rows — implied shares (net income / EPS) are > 2.5x off (`metrics.eps_current_basis`); only loss quarters, where that test can't run, get through. A fix = an import rule + a stored repair.
+  - **Toyota's share basis:** SEC ordinary (pre-2021 split) vs Yahoo ADS is 2.15x, under the 2.5x break test; lowering the test would catch real share issues elsewhere. One company.
+  - **Yahoo share counts 4x too high** (FirstEnergy, Digital Realty): kept out of per-share trends, not corrected.
+  - **Japanese banks' and Carlyle's SEC revenue** dropped (another definition than Yahoo's), not converted.
+- **Revenue-per-share seams in `financials.db` (found in 3b, pre-existing; resolved 2026-11-22, see above):** 295 of 1,956 listed ≥ $2B companies have a > 2.5x one-year jump in revenue per diluted share (both years > $100M revenue). Causes seen:
   - **share counts in thousands vs units** (×1,000-1,000,000 jumps: Kohl's 2022, Teva 2019, PACCAR 2018, Bruker 2021, Nomura 2023);
   - **currency / ADS basis switch** between sources (Alibaba: USD per ordinary share → CNY per ADS, 2023);
   - **pre-split ordinary counts next to ADS counts** (Toyota);
