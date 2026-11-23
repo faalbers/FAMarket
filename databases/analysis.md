@@ -1,9 +1,9 @@
 # analysis.db — computed screening metrics, one row per security
 
-The main analysis output: for every analysable security, ~290 columns of valuation, profitability, health, growth, dividend, technical, intrinsic-value, analyst and ranking metrics.
+The main analysis output: for every analysable security, ~350 columns of valuation, profitability, health, growth, dividend, technical, intrinsic-value, analyst and ranking metrics.
 All values are computed from the other databases. Rebuilt from scratch on each full run, so it is a snapshot "as of" one price date.
 
-Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when written (2026-11-09): ~38.6k rows, prices as of 2026-11-06.
+Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot (2026-11-22): ~35.7k rows, 347 columns, prices as of 2026-11-20.
 
 ## Table `analysis_meta` — one row
 

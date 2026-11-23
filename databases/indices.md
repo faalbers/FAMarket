@@ -3,7 +3,7 @@
 Daily index levels for every Yahoo **sector** and every **sector | industry** group, built from the stock data in the other databases.
 Each series starts at 100, so a level reads as growth since that series' start (180 = +80%). Rebuilt from scratch on every full analysis run.
 
-Snapshot when written (2026-11-09): 11 sectors, 143 industries, data to 2026-11-06, ~4.3k constituent stocks.
+Snapshot (2026-11-22): 11 sectors, 143 industries, data to 2026-11-20, ~4.3k constituent stocks.
 
 ## Table `sector_industry_index` — one row per (kind, label, date), long/tidy
 

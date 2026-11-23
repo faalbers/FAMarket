@@ -3,7 +3,7 @@
 One row per symbol holding Yahoo Finance's `info` record: price snapshot, company profile, Yahoo's own pre-computed ratios, analyst targets, short interest, and fund details.
 It is a **current snapshot only** — each fetch overwrites the symbol's row, so there is no history.
 
-Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when written (2026-11-09): ~39.5k rows, 235 columns.
+Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot (2026-11-22): ~39.8k rows, 235 columns.
 
 ## How it is retrieved
 

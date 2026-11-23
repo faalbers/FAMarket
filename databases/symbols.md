@@ -3,7 +3,7 @@
 The master list of every US-listed security the system knows about, plus its type and state flags.
 Every other database joins on its `symbol` column. Also holds `fetch_status`, the per-fetcher bookkeeping of when each symbol was last fetched.
 
-Snapshot when written (2026-11-09): ~55k symbols, ~116k fetch_status rows.
+Snapshot (2026-11-22): ~55k symbols, ~117k fetch_status rows.
 
 ## Conventions shared by all databases in this folder
 

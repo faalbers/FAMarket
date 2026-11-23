@@ -3,7 +3,7 @@
 Reported financial statements for operating companies, annual and quarterly, merged into one wide table.
 Recent periods come from Yahoo Finance; older history (often back to ~2008, sometimes much earlier) is filled in from SEC EDGAR XBRL filings.
 
-Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot when written (2026-11-09): ~370k rows, ~8.3k symbols, 357 columns.
+Join key: `symbol` (see `symbols.md` for shared conventions). Snapshot (2026-11-22): ~331k rows, ~8.3k symbols, 360 columns.
 
 ## Table `financials` — one row per (symbol, period_end, freq)
 
@@ -30,7 +30,7 @@ Only `stock`, `adr` and REIT-type stocks have rows. No funds, ETFs or preferreds
 - From the SEC "company facts" XBRL API (`data.sec.gov/api/xbrl/companyfacts`), keyed by the company's CIK.
 - **Additive only**: an EDGAR period is written only if Yahoo doesn't already own that (period_end, freq). EDGAR never overwrites a Yahoo value.
   - **Exception — EDGAR-only columns** (`filed_date`, `non_interest_expense`) are also written onto Yahoo-owned periods, since Yahoo never supplies them.
-- **Refresh:** re-fetched only to pick up a new filing — when a company's newest period has no `filed_date` yet, from `FINANCIALS_REPORT_LAG_DAYS` after the period end, at most every `EDGAR_REFRESH_LOCK_DAYS` (30), until `EDGAR_REFRESH_WINDOW_DAYS` (120) after it (since 2026-11-11; before, fetched once per company). Each fetch **replaces** that company's previous EDGAR rows. Last full fetch: 2026-11-11 (one-time re-fetch for the fix list).
+- **Refresh:** re-fetched only to pick up a new filing — when a company's newest period has no `filed_date` yet, from `FINANCIALS_REPORT_LAG_DAYS` after the period end, at most every `EDGAR_REFRESH_LOCK_DAYS` (30), until `EDGAR_REFRESH_WINDOW_DAYS` (120) after it (since 2026-11-11; before, fetched once per company). Each fetch **replaces** that company's previous EDGAR rows. Last full fetch: 2026-11-11 (one-time re-fetch for the fix list); partial re-fetches 2026-11-22 for the currency and revenue-tag rules below (`scripts/refetch_edgar_currency.py`, `scripts/refetch_edgar_revenue.py`).
 - Only a curated subset of columns is filled, mapped from US-GAAP tags (several tags tried in order, to survive tag changes over the years):
   - Flows: `total_revenue` (broad `Revenues` tried first, then `RevenuesNetOfInterestExpense` — banks' / brokers' / card issuers' total, since 2026-11-22), `cost_of_revenue`, `gross_profit`, `operating_income`, `pretax_income`, `tax_provision`, `net_income`, `research_and_development`, `interest_expense`, `basic_eps`, `diluted_eps`, `diluted_average_shares`, `basic_average_shares`, `non_interest_expense` (banks), `operating_cash_flow`, `capital_expenditure`, `investing_cash_flow`, `financing_cash_flow`, `cash_dividends_paid`.
   - Balance sheet: `total_assets`, `current_assets`, `total_liabilities_net_minority_interest`, `current_liabilities`, `stockholders_equity`, `cash_and_cash_equivalents`, `retained_earnings`, `inventory`, `long_term_debt`, `ordinary_shares_number`, `share_issued`.
