@@ -1170,10 +1170,17 @@ needs.
      checked after the analysis run: same-year test against Yahoo's revenue
      (`edgar_fetcher._off_reference`, > 25% off -> tag not used) and `RevenuesNetOfInterestExpense`
      as the second revenue tag; one-time `scripts/refetch_edgar_revenue.py`.
+   - ✅ Group I (indices, fix list §8) (2026-11-22), checked after the analysis run: industry series
+     back-fill each member's earliest share count (`sector_index._backfill_shares`), so big members
+     with late counts are weighted (Cameco / Uranium, Google / Internet Content); sectors keep reported
+     counts. Per-series coverage recorded in the new `indices.db` `index_coverage` table (not pushed to
+     FAPortfolio). The fix list's ">= 60% coverage" start rule was tried and dropped (agreed): no gain
+     after the back-fill, and thin foreign OTC lines would have started Conglomerates in 2026.
    - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
      `core/backup.fix_backup`).
 
 ## Future Ideas (post-MVP, no timeline)
+- Historical share counts from Yahoo for the indices (added 2026-11-22, parked by the user — "keep it available"): yfinance `Ticker.get_shares_full()` gives a dated share-count series. It would replace the industry back-fill's constant-count approximation (fix list §8), whose weights drift for heavy issuers / buyers, and could let sectors use filled counts too. A new fetch step (~4,000 index members, one request each, own rate-limit budget); check how far back Yahoo's series goes and verify it against SEC counts before building on it.
 - Cloud VM for daily fetch + analysis (added 2026-06-17, LOW priority — brainstormed, not scheduled) — move the weekly fetch+analysis to a cloud VM that maintains the DBs and runs **daily** outside market hours; user retrieves only the small analysis data locally. Discussion outcome, not yet a committed design:
   - **Feasible — it's just Python + SQLite, nothing machine-bound.** A clean VM also won't need the local TLS-interception hack (`core/net.configure_tls()` stays but is harmless there).
   - **Retrieval split by DB size:** analysis.db ~19 MB + indices.db ~10 MB + financials.db ~202 MB are cheap to sync daily; **ohlcv.db ~6.7 GB stays on the VM, used only to compute analysis.** Two shapes: (A) pull the small DBs, run the UI locally; (B) run everything incl. Streamlit on the VM and browse to it.

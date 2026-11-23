@@ -73,6 +73,10 @@ log = get_logger("analysis")
 
 TABLE = "sector_industry_index"
 META_TABLE = "index_meta"
+# One row per series: start date, members, coverage and back-filled weight at the
+# start (fix list §8). Not part of FAPortfolio's contract: benchmark_push copies
+# only TABLE and META_TABLE.
+COVERAGE_TABLE = "index_coverage"
 
 # Symbols per IN(...) chunk for the deep price read — stays well under SQLite's
 # bound-parameter limit and keeps each query's materialized frame small.
@@ -185,6 +189,8 @@ def compute_index(
     cap_prices: pd.DataFrame | None = None,
     eligible: pd.DataFrame | None = None,
     break_ratio: float | None = None,
+    cap_today: pd.Series | None = None,
+    backfilled: pd.DataFrame | None = None,
 ) -> pd.Series:
     """Float-adjusted, capped, quarterly-rebalanced base-100 level series for one group.
 
@@ -194,6 +200,15 @@ def compute_index(
     that fails it at a rebalance is left out until a later rebalance. `break_ratio`
     (default `settings.INDEX_PRICE_BREAK_RATIO`, 0 = off) neutralises one-day price
     jumps beyond that factor as data breaks.
+
+    With `cap_today` (each member's market cap today) the returned Series carries
+    `attrs["coverage_at_start"]`: of the members trading on the start day, the share
+    (by today's cap) that could be weighted. With `backfilled` (bool panel: that day's
+    share count is a back-filled one) it also carries `backfilled_at_start`, the start
+    weight resting on back-filled counts. Both are recorded, not gates: a coverage
+    start rule (>= 60%) was tried on 2026-11-22 and dropped — after the back-fill it
+    changed almost nothing, and foreign OTC lines priced but too thinly traded to be
+    weighted (Hitachi, Itochu, Enel) would have started Conglomerates in 2026.
     """
     if break_ratio is None:
         break_ratio = settings.INDEX_PRICE_BREAK_RATIO
@@ -235,6 +250,20 @@ def compute_index(
     if started.size == 0:
         return pd.Series(dtype=float)
     s0 = int(started[0])
+    attrs: dict = {}
+    if cap_today is not None:
+        # Of the members trading THEN (by today's cap — the stand-in weight), the share
+        # that can be weighted. Not of today's whole group: a later listing or spin-off
+        # isn't missing from the past.
+        today = cap_today.reindex(cols).fillna(0.0).to_numpy(dtype=float)
+        with np.errstate(invalid="ignore"):
+            priced = ~np.isnan(prc[s0]) & (prc[s0] > 0)
+        denom = float((priced * today).sum())
+        attrs["coverage_at_start"] = float((active[s0] * today).sum() / denom) if denom > 0 else float("nan")
+    if backfilled is not None:
+        bf = window(backfilled[cols]).reindex(px.index).fillna(False).to_numpy(dtype=bool)[s0]
+        f0 = np.where(active[s0], fmc[s0], 0.0)
+        attrs["backfilled_at_start"] = float(f0[bf].sum() / f0.sum()) if f0.sum() > 0 else float("nan")
     dates = px_ff.index[s0:]
     prc, fmc, active = prc[s0:], fmc[s0:], active[s0:]
     n = len(dates)
@@ -302,7 +331,9 @@ def compute_index(
                 pos, hold, prev_value = nxt
         t = r + 1
 
-    return pd.Series(level, index=dates).dropna()
+    out = pd.Series(level, index=dates).dropna()
+    out.attrs.update(attrs)
+    return out
 
 
 # ==================================================================================
@@ -500,6 +531,24 @@ def _shares_panel(symbols, shares_pts: pd.DataFrame, date_index: pd.DatetimeInde
     return out
 
 
+def _backfill_shares(shares: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(shares with each member's earliest count carried back to the panel start,
+    bool panel of the back-filled days).
+
+    Fix list §8 (2026-11-22): a member with no share report yet couldn't be weighted
+    at all, so a big name whose counts start late left an industry to a few small
+    ones — Cameco ($25B of Uranium's ~$37B) has counts only from Yahoo's window
+    (~2022, an IFRS filer), and Uranium 2016 read +114% vs URA's -1%; Google has no
+    SEC rows before 2015 (old Google Inc. record). Holding the earliest count constant
+    back in time weights it approximately (its share-count drift) instead of not at
+    all. Counts are on today's split basis like the cap prices, so no split
+    arithmetic is needed. Yahoo's historical share counts would be the accurate
+    source — parked, ROADMAP.
+    """
+    filled = shares.bfill()
+    return filled, shares.isna() & filled.notna()
+
+
 # A float share below this is almost always mixed units, not a real float (BRK-B:
 # Yahoo's floatShares is in Class A units, sharesOutstanding in Class B -> 0.09%).
 _IWF_SANITY_FLOOR = 0.05
@@ -670,12 +719,16 @@ def _groups(quotes: pd.DataFrame, symbols) -> tuple[dict, dict]:
 
 
 def _to_long(kind: str, groups: dict, prices, shares, iwf, cap_prices=None,
-             eligible=None, min_active: int = 2) -> pd.DataFrame:
-    """Compute each group's series and stack into tidy (kind, label, date, level) rows."""
-    frames = []
+             eligible=None, min_active: int = 2,
+             cap_today: pd.Series | None = None,
+             backfilled: pd.DataFrame | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Compute each group's series -> (tidy (kind, label, date, level) rows, one
+    coverage row per series for `COVERAGE_TABLE`)."""
+    frames, cov = [], []
     for label, names in groups.items():
         lvl = compute_index(names, prices, shares, iwf, cap=True, min_active=min_active,
-                            cap_prices=cap_prices, eligible=eligible)
+                            cap_prices=cap_prices, eligible=eligible,
+                            cap_today=cap_today, backfilled=backfilled)
         if len(lvl):
             frames.append(pd.DataFrame({
                 "kind": kind,
@@ -683,8 +736,13 @@ def _to_long(kind: str, groups: dict, prices, shares, iwf, cap_prices=None,
                 "date": lvl.index.strftime("%Y-%m-%d"),
                 "level": lvl.to_numpy(),
             }))
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
+            cov.append({"kind": kind, "label": label, "n_members": len(names),
+                        "start_date": lvl.index[0].strftime("%Y-%m-%d"),
+                        "coverage_at_start": lvl.attrs.get("coverage_at_start"),
+                        "backfilled_at_start": lvl.attrs.get("backfilled_at_start")})
+    long_df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
         columns=["kind", "label", "date", "level"])
+    return long_df, pd.DataFrame(cov)
 
 
 # ==================================================================================
@@ -725,9 +783,15 @@ def build_and_write(universe_symbols, quotes: pd.DataFrame, financials: pd.DataF
                                    _split_events(members))
     shares = _shares_panel(members, adj_pts, prices.index)
     shares = _calibrate_share_units(shares, cap_prices, quotes)
+    # Industries weight back-filled counts (fix list §8); sectors keep the reported
+    # ones — they start with 20+ members and track their SPDR funds within ~1 pp/yr,
+    # and back-filling moved them off (Basic Materials -0.2 -> -1.6 pp/yr: heavy
+    # share issuers carried their later, larger count back; tested 2026-11-22).
+    ind_shares, backfilled = _backfill_shares(shares)
     reported = shares_pts.sort_values("period_end").groupby("symbol")["shares"].last()
     iwf = _iwf(quotes, members, reported_shares=reported)
     eligible = _point_in_time_eligible(dollar_volume, cap_prices, shares, iwf)
+    ind_eligible = _point_in_time_eligible(dollar_volume, cap_prices, ind_shares, iwf)
     del dollar_volume
 
     log.info("Sector index — %d constituents, %d sectors, %d industries (%s, $-vol floor "
@@ -736,11 +800,22 @@ def build_and_write(universe_symbols, quotes: pd.DataFrame, financials: pd.DataF
              settings.INDEX_MIN_AVG_DOLLAR_VOLUME / 1e6,
              start.date() if start is not None else "n/a", settings.INDEX_START_MIN_REPORTERS)
 
-    sec_long = _to_long("sector", sector_groups, prices, shares, iwf, cap_prices, eligible,
-                        min_active=settings.INDEX_MIN_ACTIVE_SECTOR)
-    ind_long = _to_long("industry", industry_groups, prices, shares, iwf, cap_prices, eligible,
-                        min_active=settings.INDEX_MIN_ACTIVE_INDUSTRY)
+    # Today's market cap per member, the coverage yardstick: Yahoo's all-class cap,
+    # else our latest close x latest count.
+    ours_today = cap_prices.ffill().iloc[-1] * shares.ffill().iloc[-1]
+    yahoo_cap = (pd.to_numeric(quotes["marketCap"], errors="coerce").reindex(members)
+                 if "marketCap" in quotes.columns else pd.Series(np.nan, index=members))
+    cap_today = yahoo_cap.fillna(ours_today.reindex(members))
+
+    sec_long, sec_cov = _to_long("sector", sector_groups, prices, shares, iwf, cap_prices,
+                                 eligible, min_active=settings.INDEX_MIN_ACTIVE_SECTOR,
+                                 cap_today=cap_today)
+    ind_long, ind_cov = _to_long("industry", industry_groups, prices, ind_shares, iwf,
+                                 cap_prices, ind_eligible,
+                                 min_active=settings.INDEX_MIN_ACTIVE_INDUSTRY,
+                                 cap_today=cap_today, backfilled=backfilled)
     long_df = pd.concat([sec_long, ind_long], ignore_index=True)
+    coverage = pd.concat([sec_cov, ind_cov], ignore_index=True)
 
     n_sectors = sec_long["label"].nunique() if not sec_long.empty else 0
     n_industries = ind_long["label"].nunique() if not ind_long.empty else 0
@@ -758,6 +833,8 @@ def build_and_write(universe_symbols, quotes: pd.DataFrame, financials: pd.DataF
     with Database(settings.INDICES_DB) as db:
         db.replace(TABLE, long_df)
         db.replace(META_TABLE, meta)
+        if not coverage.empty:
+            db.replace(COVERAGE_TABLE, coverage)
     log.info("indices.db — %d sector + %d industry series, %d rows (%s..%s)",
              n_sectors, n_industries, len(long_df), date_span[0], date_span[1])
     return {"sectors": n_sectors, "industries": n_industries, "constituents": len(members),

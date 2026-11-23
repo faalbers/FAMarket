@@ -938,6 +938,38 @@ Found in round 13 (not in the review): 295 of 1,956 listed companies of $2B+ had
 - Tags with no shared year can't be tested (Flagstar's 2011-12 `Revenues` 1.4B is kept; plausible).
 - Japanese banks' and Carlyle's SEC revenue is gone, not converted to Yahoo's definition.
 
+## Round 20 — Group I: self-built indices (fix list §8, 2026-11-22)
+
+### The cause
+
+- **Big members without share counts got no weight.** The check still failed: Internet Content 2013 +256% (Google +58%, Meta +105%, ETF SOCL +64%) — GOOGL has no SEC rows before 2015 (the old Google Inc. record), Baidu none.
+- **Not only early years:** Uranium 2016 +114% vs URA −1%. Cameco ($25B of the industry's ~$37B) has share counts only from Yahoo's window (~2022; IFRS filer), so four micro-caps carried it (Centrus +284%).
+- Members with a count held 51% (2009) to 71% (2021) of the priced members' market cap; 45-50 of 145 industries were below 60% in 2012-2021.
+- Yardstick: each industry vs its best-fit ETF (`industry_benchmark`, 95 industries): 10.3% of industry-years > 25 pp off; first years 24.6%, later years 9.6% (ETF composition differs, so ~10% is the floor).
+
+### Fixed
+
+- **Back-filled share counts, industries only** (`sector_index._backfill_shares`): before a member's first report its earliest count is held constant (counts and cap prices are both on today's split basis). Sectors keep reported counts — back-filling moved them off their SPDR funds (Basic Materials −0.2 → −1.6 pp/yr, Healthcare −0.5 → −1.2: heavy share issuers carried their later, larger count back).
+- **`index_coverage` table** in `indices.db`: per series `n_members`, `start_date`, `coverage_at_start` (weightable share of the members trading then, by today's cap), `backfilled_at_start`. Not in FAPortfolio's copy (the push carries two tables).
+- **Ruled out:** the fix list's start rule (industry starts once ≥ 60% of today's cap can be weighted). Against today's whole industry it moved Aerospace & Defense's start to 2026 (later listings); against the members trading then it changed almost nothing after the back-fill, and foreign OTC lines priced but too thin to weight (Hitachi, Itochu, Enel, E.ON) would have started Conglomerates in Nov 2026 and Utilities - Diversified in 2025.
+- **Parked:** Yahoo's historical share counts (`get_shares_full`), the accurate fix for the back-fill's drift — ROADMAP Future Ideas.
+
+### Checked (read-only index-only builds on the stored data; writes captured)
+
+- **Reproduces live:** the unchanged code gives exactly today's `indices.db` series.
+- **Industries vs ETFs:** > 25 pp off 10.3% → 9.8% (later years 9.6% → 9.1%), median gap 8.3 → 7.8 pp, over 1,507 industry-years (47 more: earlier starts). Internet Content 2013 +256% → +108%; Uranium 2016 +114% → +2%.
+- **Starts:** 71 industries start > 1 year earlier, none later; 2 start inside FAPortfolio's 4-year window (was 4).
+- **Sectors identical** to the live series.
+- **Coverage at start (industries):** median 0.99, lower quartile 0.92. Back-filled weight at start: median 100% — most industries start in 2008, before the first share reports; it falls as reports arrive.
+- **Type check:** 0 errors.
+- **Checked after the run (2026-11-22):** stored `indices.db` equals the test build — 706,653 rows, 0 levels differ; `index_coverage` identical (154 series). `analysis.db` unchanged. The benchmark push to FAPortfolio ran and read back OK (commit 6528de7, 156,405 rows since 2022-10-22).
+
+### Left open
+
+- Back-filled weights drift with each member's share-count change since (no correction without Yahoo's historical counts).
+- Survivorship bias (today's members only) is unchanged.
+- FAPortfolio receives the changed industry levels on the next full run's push (same tables, same columns).
+
 ## Not yet reviewed
 
 §8 and the open parts of §20 not covered above. Grouped as above.

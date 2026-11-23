@@ -18,6 +18,15 @@ Series start on different dates (sectors ~2008-2010, some industries later), so 
 
 - **`built_at`** (UTC), **`prices_as_of`** (last price date used), **`start_date`** / **`end_date`** (overall span), **`field`** (`adj_close` = total return), **`n_sectors`**, **`n_industries`**, **`n_constituents`**.
 
+## Table `index_coverage` — one row per series (since 2026-11-22)
+
+- **`kind`**, **`label`** — as in `sector_industry_index`.
+- **`n_members`** — members in the group.
+- **`start_date`** — the series' first day.
+- **`coverage_at_start`** — of the members trading on the start day, the share (by today's market cap) that could be weighted.
+- **`backfilled_at_start`** (industries only) — the start weight resting on back-filled share counts (see Shares below).
+- Not part of FAPortfolio's copy: the benchmark push carries only `sector_industry_index` and `index_meta`.
+
 ## How the levels are calculated
 
 The method follows the S&P **SPDR Select Sector** index rules (the XLK, XLF, … sector ETFs):
@@ -28,6 +37,8 @@ The method follows the S&P **SPDR Select Sector** index rules (the XLK, XLF, …
 - **Rebalancing**: weights are reset quarterly (first trading day on/after the third Friday of Mar/Jun/Sep/Dec) and held fixed in between.
 - **Capping** (current Select Sector rule): no single stock above 24% (cut to 23%); the stocks above 4.8% together capped at 50% (cut to 45%); the rest capped at 4.5%.
 - **Shares**: from `financials.db` (`ordinary_shares_number`, else `share_issued`), interpolated daily between reports, put on today's split basis, and rescaled when today's implied market cap disagrees with Yahoo's `marketCap` by more than 2x (wrong share-class or ADR units).
+  - **Industries only — back-filled** (since 2026-11-22): before a member's first share report, its earliest count is held constant, so a big member whose counts start late is still weighted. Cameco (most of Uranium) has counts only from ~2022 (IFRS filer); Google has none before 2015 (old Google Inc. record). The weight is approximate: a company that issued or bought back many shares since gets a too-large / too-small early weight.
+  - **Sectors keep the reported counts**: they start with 20+ members and track the SPDR funds; back-filling moved them off (Basic Materials −0.2 → −1.6 pp/yr).
 
 ## Who is included
 
@@ -43,6 +54,7 @@ The method follows the S&P **SPDR Select Sector** index rules (the XLK, XLF, …
 
 - **Survivorship bias**: membership comes from symbols active today. Companies that were delisted, went bankrupt or were acquired before today are missing from the history, so older returns are biased upward.
 - Sector and industry tags are today's Yahoo tags applied to the whole history.
+- **Back-filled industry weights drift** with a member's share count change since the back-filled period. Yahoo's historical share counts would fix it (parked, ROADMAP).
 - History is limited by share-count data: most starts are the late-2008 filings, so nothing before ~2008.
 - These are approximations of the SPDR method on free data, not official index values. Sector series track the SPDR ETFs closely but not exactly.
 - Small industries (2-5 names) are noisy and can be dominated by one company.

@@ -9,7 +9,13 @@ Internal tracker for working through `docs/fix_list_for_data_system.md` on branc
 - **Group H part 3c (REIT payout on FFO) done 2026-11-21:** the analysis run checked (stored = test build).
 - **Possible follow-ups from H part 3c** (not started, your call): score REITs on `ffo_payout` instead of the net-income payout (REIT band 80-95%); P/FFO for REITs; `div_outgrowing_earnings` still uses net-income growth for REITs.
 - **Group H part 3b (growth phase) done 2026-11-21:** the analysis run checked (stored = test build).
-- **Revenue-per-share seams done 2026-11-22** (all four parts checked after their analysis runs; review log rounds 16-19): share counts at the wrong scale, one currency per company, share-basis breaks, the wrong revenue line. **Next: Group I.**
+- **Group I (indices) done 2026-11-22, checked after the analysis run** — review log round 20 (industry back-fill; coverage recorded; 60% start rule dropped; Yahoo historical shares parked). Research:
+  - **Check still fails:** Internet Content 2013 +256% (Google / Meta / Baidu unweighted). GOOGL has no SEC rows before 2015 (old Google Inc. CIK); Baidu none.
+  - **Main cause is missing share counts for big members, not only early years:** Uranium 2016 +114% vs URA −1% — Cameco ($25B of ~$37B) has counts only from Yahoo's window (~2022; IFRS filer), so four micro-caps carry the index (Centrus +284%).
+  - **Coverage** (members with a count / priced members, by today's market cap): all industries 51% in 2009, 61% 2012, 69-71% 2015-2021, 100% 2024; 45-50 of 145 industries below 60% in 2012-2021.
+  - **Vs best-fit industry ETFs** (95 industries, 1,460 industry-years): 25% of first years > 25pp off, ~10% of later years (ETF composition differs, so 10% is the floor).
+  - Shares and `close` are both on today's split basis, so a back-filled count needs no split arithmetic. A coverage table can go in a NEW `indices.db` table: the FAPortfolio push copies only its two tables.
+ (all four parts checked after their analysis runs; review log rounds 16-19): share counts at the wrong scale, one currency per company, share-basis breaks, the wrong revenue line. **Next: Group I.**
 - **Parked follow-ups from the seams** (your call, 2026-11-22: low value, skipped for now):
   - **EPS tagged at the wrong scale** (~1,100 rows, ~220 companies, mostly quarters; ICE). EPS trends already drop such rows — implied shares (net income / EPS) are > 2.5x off (`metrics.eps_current_basis`); only loss quarters, where that test can't run, get through. A fix = an import rule + a stored repair.
   - **Toyota's share basis:** SEC ordinary (pre-2021 split) vs Yahoo ADS is 2.15x, under the 2.5x break test; lowering the test would catch real share issues elsewhere. One company.
@@ -45,7 +51,7 @@ Internal tracker for working through `docs/fix_list_for_data_system.md` on branc
 | F | Analysis foundations | §2, §10, §16, §20 (EV, EBITDA definition), §14 steps 2-4 (split basis via `filed_date`, Talen) | ✅ done 2026-11-14 · all-class market cap, EPS on one split basis, robust growth (Theil-Sen, `_growth_tau` replaces `_growth_r2`/`_cv`), EV + minority / preferred, normalized EBITDA · Talen loss rows open |
 | G | Analysis built on F | §9, §17, §19, §18 | part 1 ✅ done 2026-11-15 (§9 regular dividends, §17 fair values, second lines) — analysis run checked · part 2 ✅ done 2026-11-15 (§19: Piotroski, peer universe, negative-denominator ratios) — analysis run checked · part 3 ✅ done 2026-11-15 (§18: input counts, fixed ranking universe, trend + forecast-checked growth, score history) — analysis run checked · score validation waits for history |
 | H | New calculations | §21 · + §19 relative strength vs the industry | part 1 ✅ done 2026-11-16 (health check, peak check, dividend warning) — analysis run checked · part 2 ✅ done 2026-11-16 (Peer Strength) — analysis run checked · part 3a ✅ done 2026-11-21 (stock category) — analysis run checked · part 3b ✅ done 2026-11-21 (growth phase) — analysis run checked · part 3c ✅ done 2026-11-21 (REIT payout on FFO) — analysis run checked · part 4 ✅ done 2026-11-22 (relative strength vs the industry) — analysis run checked |
-| I | Indices | §8 — touches FAPortfolio's `indices.db` contract | open |
+| I | Indices | §8 — touches FAPortfolio's `indices.db` contract | ✅ done 2026-11-22 · industry back-fill, `index_coverage` table (not pushed); checked after the run |
 
 **Order:** B before F (share counts, EPS); F before G; §15 before §18.
 
