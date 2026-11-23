@@ -38,7 +38,7 @@ ANALYSIS_DB: Path = DB_DIR / "analysis.db"
 MACRO_DB: Path = DB_DIR / "macro.db"
 INDICES_DB: Path = DB_DIR / "indices.db"  # sector / sub-industry index level series
 SIGNALS_DB: Path = DB_DIR / "signals.db"  # yfinance per-symbol signals: estimates + earnings_surprise + ownership
-ML_DATA_DB: Path = DB_DIR / "ml_data.db"  # scripts/build_ml_data.py — daily historical ML feature export
+SCORE_HISTORY_DB: Path = DB_DIR / "score_history.db"  # one snapshot of the scores per full run (fix list §18)
 
 # Rotating backups of every .db file, taken before each fetch run.
 BACKUP_DIR: Path = BASE_DIR / "backups"
@@ -172,6 +172,18 @@ MAX_NO_DATA_FETCHES: int = 4
 # healthy symbols out; changed 2026-11-08). Self-perpetuating for genuinely stale
 # symbols — the stored date can't advance while skipped.
 OHLCV_STALE_WEEKS: int = 4                     # newest OHLCV date older than this
+# Re-check instead of giving up for good (2026-11-12, fix list §15): a symbol the
+# abandonment gates skip (prices stale, or repeated no-data answers) is still
+# price-fetched once every OHLCV_RECHECK_DAYS while its newest stored bar is within
+# RECHECK_WINDOW_DAYS; a switched-off symbol (is_active = 0) is switched back on for
+# one attempt on the same cadence while it was deactivated within that window.
+# Yahoo drops weeks of bars for many symbols at once (150 symbols missing
+# 2026-10-02..11-06), so a permanent give-up after 4 weeks lost live symbols.
+OHLCV_RECHECK_DAYS: int = 30
+RECHECK_WINDOW_DAYS: int = 183
+# Warn in the run log when this many symbols are newly marked delisted with the
+# same last bar date — the fingerprint of a Yahoo outage (or a fund-family closure).
+DELISTED_BURST_WARN: int = 25
 FINANCIALS_QUARTERLY_STALE_QUARTERS: int = 2   # newest quarterly period_end older than this
 FINANCIALS_YEARLY_STALE_QUARTERS: int = 6      # newest annual period_end older than this
 
@@ -182,12 +194,41 @@ FINANCIALS_YEARLY_STALE_QUARTERS: int = 6      # newest annual period_end older 
 # own. A viability gate — governed by FETCH_ABANDONMENT_ENABLED, not the 5-day lock.
 FINANCIALS_REPORT_LAG_DAYS: int = 45
 
+# EDGAR refresh (2026-11-11). EDGAR was a one-time backfill; it now also supplies
+# columns Yahoo never has (filed_date, non_interest_expense), so it re-fetches a
+# company to pick up each NEW filing: when its newest stored period has no
+# filed_date yet and is at least FINANCIALS_REPORT_LAG_DAYS old. Tries at most
+# every EDGAR_REFRESH_LOCK_DAYS, and stops trying EDGAR_REFRESH_WINDOW_DAYS after
+# the period ended (a 10-K can take 90 days; a foreign filer's quarters never
+# reach XBRL). Viability gate — governed by FETCH_ABANDONMENT_ENABLED.
+EDGAR_REFRESH_LOCK_DAYS: int = 30
+EDGAR_REFRESH_WINDOW_DAYS: int = 120
+
 # Price history window pulled on EVERY OHLCV fetch, not just the first (renamed
 # from OHLCV_INITIAL_YEARS 2026-08-15). Each fetch fully replaces the symbol's
 # stored rows over this window, so it defines the entire depth of ohlcv.db.
 # Raising it deepens history on the next fetch; LOWERING it discards the
 # difference, since rows outside the window are deleted rather than kept stale.
 OHLCV_HISTORY_YEARS: int = 30
+
+# yfinance price repair, ONLY for a symbol whose adj_close comes back broken
+# (<= 0 or above the close) — 2026-11-12, fix list §3. Foreign-currency dividends
+# drove adj_close negative on ~80 OTC lines; repair rebuilds them. Not run on
+# healthy symbols: there it deleted real dividends (CRH, QQQ, DNP). The repaired
+# series is kept only if clean, with dividends on the same dates (amounts may be
+# corrected: 100x unit mix-ups) and no fewer bars. Needs
+# scikit-learn; its requests are paced inside the yfinance rate limit.
+OHLCV_REPAIR_ENABLED: bool = True
+
+# Price checks after each OHLCV fetch (data_layer/price_checks.py -> ohlcv.db
+# `price_flags`, 2026-11-12, fix list §3/§20). A one-day move of this ratio or
+# more either way is a bad print (it reverses next day) or a level shift (it stays:
+# unrecorded reverse split, old + new company, or a real collapse — flagged only).
+# A run of this many bars with an
+# unchanged close and zero volume is "stale" — carried, not traded. The analysis
+# drops / works around flagged bars (analysis_layer/price_quality.py).
+OHLCV_PRICE_BREAK_RATIO: float = 10.0
+OHLCV_STALE_RUN_DAYS: int = 10
 
 # Market indices that DO get price history (2026-08-15). Indices are otherwise
 # excluded from fetching entirely — orchestrator.load_fetch_universe() drops
@@ -379,6 +420,20 @@ BENCHMARK_PUSH_STATE_FILE: Path = STATE_DIR / "benchmark_push.json"
 RECONCILE_TOLERANCE_PCT: float = 0.10
 
 # --------------------------------------------------------------------------- #
+# Dividends — regular payments, cuts (analysis_layer/dividends.py, fix list §9 / §21)
+# --------------------------------------------------------------------------- #
+# A payment whose annual pay rate is above this multiple of the lower-half median
+# rate within ±400 days is a special (the review's method, tested downstream).
+DIV_SPECIAL_MULTIPLE: float = 2.5
+# A yearly regular rate this fraction below the year before still counts as "not
+# cut" in the streak: split-adjusted amounts are rounded (EFSC 0.053 -> 0.052).
+DIV_CUT_TOLERANCE: float = 0.02
+# Same for companies reporting in another currency: their dividends arrive converted
+# to dollars, so a weaker home currency looks like a cut (Manulife and Capital Power
+# raised every year in CAD, yet fell 5% in USD in 2022).
+DIV_CUT_TOLERANCE_FX: float = 0.10
+
+# --------------------------------------------------------------------------- #
 # Intrinsic value (Topic 4.1)
 # --------------------------------------------------------------------------- #
 GRAHAM_MULTIPLIER: float = 22.5        # Graham's 15 (P/E) × 1.5 (P/B)
@@ -424,12 +479,14 @@ WACC_MAX_COST_OF_DEBT: float = 0.5
 # --------------------------------------------------------------------------- #
 # Valuation scenarios (bear / base / bull) — analysis_layer/valuation_scenarios.py
 # --------------------------------------------------------------------------- #
-# Bear/bull growth = trend growth ∓ (residual volatility × this multiplier), using
-# each method's own metrics._trend_stats() vol column (eps/fcf/div_growth_vol) — an
-# uncertainty-scaled stand-in for the manual scenario-rebuild professionals do by
-# hand (no named industry-standard formula found for this specific technique,
-# 2026-08 research; treat as FAMarket's own, tunable, not "how Wall Street does it").
-VALUATION_SCENARIO_VOL_MULTIPLIER: float = 1.0
+# Bear/bull growth = the low / high end of the trend growth's own confidence range:
+# the Theil-Sen slope interval (Sen 1968, scipy.stats.theilslopes) at this confidence,
+# from metrics._robust_trend. Fix list §17 (2026-11-15) — replaced trend ∓ the residual
+# spread (eps/fcf/div_growth_vol), which measured how far single years sit off the
+# line, not how sure the growth rate is: MNST's 4 tidy EPS years gave bear ≈ bull
+# (false certainty); the interval gives 5-38%. Few or scattered years -> a wide range,
+# automatically. 0.80 = a 10th-90th percentile range.
+VALUATION_SCENARIO_CONFIDENCE: float = 0.80
 # Floor on the BEAR scenario's year-1 growth (percent). Negative on purpose: a bear
 # case that shrinks for a while before stabilising at terminal growth is a legitimate
 # story (revenue decline, dividend cut), and practitioner guidance is that coded bear
@@ -443,6 +500,11 @@ VALUATION_SCENARIO_BEAR_GROWTH_FLOOR: float = -10.0
 # assuming an implausibly persistent excess return forever (Damodaran: terminal
 # growth alone isn't the risk — the excess-return spread paired with it is).
 GUARDRAIL_ROIC_WACC_SPREAD_MAX: float = 20.0
+# A fair value above this multiple of the price is a model tail (an input outside
+# what the model can handle: distressed price, book far above market value, a past
+# cash flow that won't recur), not a bargain -> `fair_value_tail` (fix list §17).
+# 10% of stocks / ADRs with a fair value sat above 3x on 2026-11-14.
+FAIR_VALUE_TAIL_MULTIPLE: float = 3.0
 # Qualitative red-flag thresholds (visible on Output, never auto-applied to
 # fair_value_bear — see valuation_scenarios.py module docstring for why).
 BEAR_FLAG_CASH_CONVERSION_MIN: float = 100.0   # ocf_to_ni_3y/5y (%) below this = weak
@@ -498,8 +560,10 @@ PEER_COMPARABLE_METRICS: tuple[str, ...] = (
     "pe", "forward_pe", "peg", "gross_margin", "operating_margin", "net_margin",
     "roe", "roa", "ev_ebitda", "revenue_cagr_3y", "debt_to_equity",
     "ps", "pb", "p_fcf", "ev_revenue",
+    "debt_to_ebitda", "interest_coverage",  # health vs peers (fix list §19)
 )
-MIN_PEERS_FOR_MEDIAN: int = 3       # below this a sector/industry median is too noisy
+MIN_PEERS_FOR_MEDIAN: int = 5       # below this a sector/industry median is too noisy (3 before
+                                    # 2026-11-15, §19); counted in the peer universe only
 MIN_PEERS_FOR_PERCENTILE: int = 5   # below this fall back to the universe for scoring
 
 # Category/overall scores that get a _vs_type column (% above/below their own
@@ -513,8 +577,89 @@ RS_RANK_MIN_PER_TYPE: int = 30      # min members for a security_type to rank RS
                                     # (else fall back to universe — funds vs stocks don't distort)
 
 # --------------------------------------------------------------------------- #
+# Health check, peak check, dividend warning (fix list §21, Group H part 1)
+# --------------------------------------------------------------------------- #
+# Ordinary companies / utilities / telecoms: (max debt / EBITDA, min interest cover).
+# Ordinary lines follow how steady the industry's operating margin is (the S&P
+# business-risk idea); utility / telecom lines from rating-agency benchmarks.
+HEALTH_LINES: dict[str, tuple[float, float]] = {
+    "steady": (5.0, 2.0), "normal": (3.5, 3.0), "swinging": (2.5, 4.0),
+    "utility": (6.5, 2.0), "telecom": (4.0, 2.5),
+}
+# Below its line the interest cover is a warn; below this it fails (2026-11-15: the
+# line alone failed 31% of companies >= $2B — Amgen 3.3x vs 4x — this gives ~21%).
+HEALTH_COVER_FAIL: float = 1.5
+HEALTH_STEADINESS_YEARS: int = 10      # yearly operating margins for `op_margin_std` (max)
+HEALTH_STEADINESS_MIN_YEARS: int = 5   # ... and at least this many
+HEALTH_STEADINESS_MIN_PEERS: int = 5   # listed companies an industry needs for its own class
+# REITs (Moody's downgrade triggers): fail below 2x EBITDA / interest or EBITDA <= 0;
+# warn above 6.5x debt / EBITDA or below 3x cover.
+HEALTH_REIT_DEBT_EBITDA_WARN: float = 6.5
+HEALTH_REIT_COVER_FAIL: float = 2.0
+HEALTH_REIT_COVER_WARN: float = 3.0
+# Insurers: fail below 2x (pre-tax + interest) / interest, warn below 4x or debt > 35% of capital.
+HEALTH_INSURER_COVER_FAIL: float = 2.0
+HEALTH_INSURER_COVER_WARN: float = 4.0
+HEALTH_INSURER_DEBT_CAPITAL_WARN: float = 35.0
+# Banks (warn only): tangible equity < 4% of tangible assets, ROA < 0.5%.
+HEALTH_BANK_TCE_WARN: float = 4.0
+HEALTH_BANK_ROA_WARN: float = 0.5
+# Mortgage REITs: economic return over up to 3 years; fail below -20%, warn below 0%.
+HEALTH_MREIT_ECON_FAIL: float = -20.0
+# Cyclical peak: margin above its own normal by > 15 points, > 1.5x normal, and
+# > 15 points above the trend line through the earlier years.
+PEAK_MARGIN_GAP_PP: float = 15.0
+PEAK_MARGIN_RATIO: float = 1.5
+PEAK_MIN_EARLIER_YEARS: int = 5
+# Dividend outgrowing earnings: dividend growth > net-income growth + this (pp/yr),
+# with a payout of at least DIV_OUTGROW_PAYOUT % or shrinking earnings.
+DIV_OUTGROW_GAP_PP: float = 5.0
+DIV_OUTGROW_PAYOUT: float = 50.0
+# Peer Strength (fix list §21, Group H part 2): ranked against listed companies of at
+# least this size; the industry is the peer group when it holds this many of them.
+PEER_STRENGTH_MIN_CAP: float = 2e9
+PEER_STRENGTH_MIN_PEERS: int = 8
+# Stock category label (fix list §21, Group H part 3): growth = past revenue-per-share
+# growth and next year's forecast average at least this (%/yr); income = regular yield
+# at least this (%) with a dividend in each of the last N calendar years; early = a
+# loss-maker with revenue under this ($).
+CATEGORY_GROWTH_MIN: float = 12.0
+CATEGORY_INCOME_YIELD_MIN: float = 2.5
+CATEGORY_INCOME_YEARS: int = 5
+CATEGORY_EARLY_MAX_REVENUE: float = 1e9
+# Growth phase labels (fix list §21, Group H part 3b). Growth so far: revenue-per-share
+# track record over up to GROWTH_PHASE_YEARS fiscal years; "recently listed" under
+# GROWTH_PHASE_LISTED_YEARS of price history; a long record needs MIN_YEARS of revenue;
+# "long-running" = long-run growth >= LONG_RATE %/yr with Mann-Kendall tau >= TAU;
+# "picked up" = the recent (~6y) rate >= the long-run rate + PICKUP_PP.
+GROWTH_PHASE_YEARS: int = 12
+GROWTH_PHASE_LISTED_YEARS: float = 6.0
+GROWTH_PHASE_MIN_YEARS: int = 8
+GROWTH_PHASE_LONG_RATE: float = 10.0
+GROWTH_PHASE_TAU: float = 0.6
+GROWTH_PHASE_PICKUP_PP: float = 5.0
+# Growth ahead: "starting" = past < START_PAST % with a forecast >= CATEGORY_GROWTH_MIN;
+# a change needs >= CHANGE_PP points AND >= CHANGE_REL x |past rate|.
+GROWTH_AHEAD_START_PAST: float = 5.0
+GROWTH_AHEAD_CHANGE_PP: float = 5.0
+GROWTH_AHEAD_CHANGE_REL: float = 0.25
+
+# --------------------------------------------------------------------------- #
 # Scoring & ranking (Topic 4.4) — all adjustable from the Settings page
 # --------------------------------------------------------------------------- #
+# Fixed ranking universe (fix list §18, 2026-11-15): percentiles are taken within a
+# POOL, against its reference rows (`rank_universe`). Types not listed are their own
+# pool. Companies: listed with their own market cap (`peer_universe`); funds: one
+# share class per mutual fund.
+RANK_POOL_BY_TYPE: dict[str, str] = {
+    "stock": "company", "adr": "company",
+    "etf": "fund", "mutual_fund": "fund", "closed_end_fund": "fund",
+}
+# A category score (and overall_score) needs at least this share of its weight
+# present, else NULL (§18): a loss-maker's value score from P/S + P/B alone (22% of
+# the weight) ranked it cheaper than profitable companies.
+SCORE_MIN_INPUT_SHARE: float = 0.5
+
 # Weights of each category score within the Overall Score (must sum to 1.0).
 # Mix re-derived 2026-06-20 (was Q25/G25/M20/V20/I10): the five category scores are
 # near-uncorrelated on the live universe (all |r|≈0, value↔momentum −0.23), so this is
@@ -543,7 +688,8 @@ OVERALL_SCORE_WEIGHTS: dict[str, float] = {
 CATEGORY_METRIC_WEIGHTS: dict[str, dict[str, float]] = {
     "value": {  # favor EV/EBITDA, FCF, DCF gap; down-weight redundant multiples
         "ev_ebitda": 1.0, "p_fcf": 1.0, "margin_of_safety": 1.0, "pe": 0.75,
-        "peg": 0.5, "pb": 0.5, "ps": 0.5, "ev_revenue": 0.25, "forward_pe": 0.25,
+        "peg": 0.5, "pb": 0.5, "ps": 0.5, "ev_revenue": 0.25,
+        # forward_pe left out 2026-11-15 (§18): optimistic EPS forecasts make it look cheap.
     },
     "quality": {  # gross_margin + roic + safety carry; margin blob shares one slot
         "roic": 1.0, "gross_margin": 1.0, "roe": 0.75, "altman_z": 0.75,
@@ -551,13 +697,12 @@ CATEGORY_METRIC_WEIGHTS: dict[str, dict[str, float]] = {
         "current_ratio": 0.5, "interest_coverage": 0.5, "operating_margin": 0.25,
         "roa": 0.25, "debt_to_ebitda": 0.25,
     },
-    "growth": {  # historical CAGRs anchor; forward signals add at half weight
-        "eps_cagr_3y": 1.0, "revenue_cagr_3y": 1.0, "eps_yoy_q": 0.75,
-        "revenue_yoy_q": 0.75, "fcf_cagr_3y": 0.5, "eps_growth_r2": 0.5,
-        "eps_cagr_5y": 0.5, "revenue_cagr_5y": 0.5,
-        # forward-looking (analyst estimates) — sparse, so they drop out & renormalize
-        # for no-coverage names; for covered names they tilt growth toward what's NEXT.
-        "forward_eps_growth": 0.5, "eps_revision_1m": 0.5, "revenue_accel": 0.5,
+    "growth": {  # robust trends anchor (§16); since 2026-11-15 (§18) they replace the
+        # endpoint 3y / 5y CAGRs, and an analyst forecast can only pull them DOWN
+        # (`_growth_checked`) — forward_eps_growth is no longer its own input.
+        "eps_growth_checked": 1.0, "revenue_growth_checked": 1.0, "eps_yoy_q": 0.75,
+        "revenue_yoy_q": 0.75, "fcf_growth_trend": 0.5, "eps_growth_tau": 0.5,
+        "eps_revision_1m": 0.5, "revenue_accel": 0.5,
         # earnings beating estimates = growth surprising to the upside (sparse).
         "earnings_surprise_avg": 0.5,
     },
@@ -570,8 +715,9 @@ CATEGORY_METRIC_WEIGHTS: dict[str, dict[str, float]] = {
     "income": {  # near-independent already; keep sustainability weighted
         # cagr_3y is the anchor (like growth's revenue/eps_cagr_3y), cagr_5y half
         # weight; cagr_1y is filter-only (too noisy for the category score).
-        "div_yield_ttm": 1.0, "div_cagr_3y": 0.75, "div_cagr_5y": 0.375, "div_coverage": 0.75,
+        "div_yield": 1.0, "div_cagr_3y": 0.75, "div_cagr_5y": 0.375, "div_coverage": 0.75,
         "div_consistency": 0.75, "div_payout_ratio": 0.5, "div_consecutive_years": 0.5,
+        "div_years_paid": 0.25,
     },
 }
 

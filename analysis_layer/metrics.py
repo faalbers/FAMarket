@@ -17,9 +17,11 @@ Two correctness guards the data forced on us:
     meaningless. When currencies disagree we fall back to yfinance's pre-computed
     valuation ratios and flag `valuation_basis="yfinance"`. Pure-fundamental ratios
     (margins, ROE, …) are currency-neutral and always computed.
-  * Splits: EPS is reported split-UNADJUSTED, so an EPS *growth* series crossing a
-    split is discontinuous. We split-adjust the EPS series with ohlcv `splits`
-    before computing growth. Dollar series (revenue, FCF, equity) need no adjust.
+  * Splits: stored EPS rows sit on different split bases (EDGAR first-filed, Yahoo
+    usually restated, sometimes only partly), so `eps_current_basis` tests each
+    row's basis against its implied share count before computing growth (fix list
+    §10). Dollar series (revenue, FCF, equity) need no adjust.
+  * Shares: `company_shares` counts ALL share classes (fix list §2).
 
 Percent convention: every "%" metric is stored as a percent number (12.5, not
 0.125) — see [[param-unit-percent-storage]].
@@ -29,12 +31,16 @@ Sections: valuation · profitability · growth · income · financial health.
 
 from __future__ import annotations
 
+from datetime import date
+
 import numpy as np
 import pandas as pd
+from scipy.stats import kendalltau, theilslopes
 
 from config import settings
 from analysis_layer import _periods as P
-from analysis_layer.screen_type import STANDARD
+from analysis_layer import dividends as divs
+from analysis_layer.screen_type import BANK, STANDARD
 
 # ---- field kinds for _periods.current() ---------------------------------- #
 # Flows (income statement / cash flow) get a TTM sum; stocks (balance sheet) take
@@ -68,6 +74,27 @@ def _div(a: float, b: float) -> float:
     if a is None or b is None or pd.isna(a) or pd.isna(b) or b == 0:
         return float("nan")
     return a / b
+
+
+def _positive_or_nan(x: float) -> float:
+    """x when > 0, else NaN — for a vendor multiple whose sign we can't trace back."""
+    return x if pd.notna(x) and x > 0 else float("nan")
+
+
+def _div_pos(a: float, b: float) -> float:
+    """a / b for a ratio whose denominator must be positive to mean anything
+    (earnings, EBITDA, FCF, equity): NaN when b <= 0 (fix list §19, 2026-11-15).
+
+    A negative denominator flips the ratio's sign and makes it read as GOOD: a
+    loss gives a "cheap" negative P/E, negative EBITDA a "low-debt" negative
+    debt/EBITDA (163 stocks >= $2B), and negative NI over negative equity a huge
+    positive ROE (RBLX 97,200%). Data vendors show these as n/a; so do we. The
+    sign itself stays visible in the denominator's own columns (eps_ttm,
+    net_margin, ebitda_negative, book value).
+    """
+    if b is None or pd.isna(b) or b <= 0:
+        return float("nan")
+    return _div(a, b)
 
 
 def _pct(x: float) -> float:
@@ -109,7 +136,7 @@ def fcf_margin(fcf: float, rev: float) -> float:
 
 
 def roe(ni: float, equity: float) -> float:
-    return _pct(_div(ni, equity))
+    return _pct(_div_pos(ni, equity))
 
 
 def roa(ni: float, total_assets: float) -> float:
@@ -121,7 +148,7 @@ def asset_turnover(rev: float, total_assets: float) -> float:
 
 
 def equity_multiplier(total_assets: float, equity: float) -> float:
-    return _div(total_assets, equity)
+    return _div_pos(total_assets, equity)
 
 
 def roe_roa_gap(ni: float, equity: float, total_assets: float) -> float:
@@ -130,7 +157,7 @@ def roe_roa_gap(ni: float, equity: float, total_assets: float) -> float:
 
 
 def debt_to_equity(total_debt: float, equity: float) -> float:
-    return _div(total_debt, equity)
+    return _div_pos(total_debt, equity)
 
 
 def current_ratio(cur_assets: float, cur_liab: float) -> float:
@@ -138,11 +165,57 @@ def current_ratio(cur_assets: float, cur_liab: float) -> float:
 
 
 def debt_to_ebitda(total_debt: float, ebitda: float) -> float:
-    return _div(total_debt, ebitda)
+    return _div_pos(total_debt, ebitda)
 
 
 def interest_coverage(ebit: float, interest_expense: float) -> float:
     return _div(ebit, abs(interest_expense) if pd.notna(interest_expense) else float("nan"))
+
+
+def efficiency_ratio(non_interest_expense: float, total_revenue: float) -> float:
+    """Bank efficiency ratio (%): non-interest expense / revenue. Lower = better.
+
+    A non-positive revenue gives NaN (the ratio has no meaning there).
+    """
+    if pd.isna(total_revenue) or total_revenue <= 0:
+        return float("nan")
+    return _pct(_div(non_interest_expense, total_revenue))
+
+
+# A bank's efficiency ratio older than this (vs its newest reported period) is
+# left blank rather than shown as current.
+_EFFICIENCY_MAX_AGE_DAYS = 456  # ~15 months
+
+
+def _bank_efficiency(fin) -> float:
+    """Efficiency ratio from the newest SAME-PERIOD pair of inputs.
+
+    `non_interest_expense` comes only from EDGAR (fix list §23), so it can lag the
+    Yahoo revenue by a filing. Both inputs are therefore matched period by period:
+    the TTM over the last four consecutive quarters that carry both, or the latest
+    fiscal year that does, whichever ends later. Banks rarely tag a Q4 three-month
+    figure, so the fiscal year is often the one used. NaN when that pair ends more
+    than `_EFFICIENCY_MAX_AGE_DAYS` before the newest reported period.
+    """
+    def _pairs(series_of) -> pd.DataFrame:
+        return pd.concat([series_of(fin, "non_interest_expense"), series_of(fin, "total_revenue")],
+                         axis=1, keys=["nie", "rev"], sort=True).dropna()
+
+    best: tuple[pd.Timestamp, float, float] | None = None
+    q = _pairs(P.quarterly)
+    if len(q) >= P.TTM_QUARTERS:
+        last4 = q.iloc[-P.TTM_QUARTERS:]
+        if not (last4.index.to_series().diff().dropna().dt.days > P.MAX_QUARTER_GAP_DAYS).any():
+            best = (last4.index[-1], float(last4["nie"].sum()), float(last4["rev"].sum()))
+    a = _pairs(P.annual)
+    if len(a) and (best is None or a.index[-1] > best[0]):
+        best = (a.index[-1], float(a["nie"].iloc[-1]), float(a["rev"].iloc[-1]))
+    if best is None:
+        return float("nan")
+    newest = P.latest_period_end(fin)
+    if newest is not None and (newest - best[0]).days > _EFFICIENCY_MAX_AGE_DAYS:
+        return float("nan")
+    return efficiency_ratio(best[1], best[2])
 
 
 def _wacc(mktcap: float, total_debt: float, interest_expense: float, tax_rate: float,
@@ -202,6 +275,7 @@ RATIO_PERIOD_METRICS: dict[str, tuple] = {
     "debt_to_ebitda": (debt_to_ebitda, ("total_debt", "ebitda"), "x"),
     "current_ratio": (current_ratio, ("current_assets", "current_liabilities"), "x"),
     "interest_coverage": (interest_coverage, ("operating_income", "interest_expense"), "x"),
+    "efficiency_ratio": (efficiency_ratio, ("non_interest_expense", "total_revenue"), "%"),
 }
 
 # Raw statement line items the chart can plot directly (no formula) -> display label.
@@ -269,37 +343,86 @@ def _cagr(s: pd.Series, years: int) -> float:
     return (last / base) ** (1 / span) - 1
 
 
-def _trend_stats(s: pd.Series) -> tuple[float, float, float, float]:
-    """(residual volatility %, R², CV %, trend growth %/yr) over the last N years.
+# Robust trend settings (fix list §16; values from the review's sweep: they flag
+# 0.2% of clean series and find every 2x outlier).
+_TREND_MIN_POINTS = 4
+_TREND_OUTLIER_K = 4.0
+_TREND_FLOOR_LOG = 0.03      # growth series (log units)
+_TREND_FLOOR_LEVEL = 0.10    # level series (fraction of the median level)
+_MAD_SCALE = 1.4826
+# Leading outliers dropped (the review's rule: once). Known limit: a two-year trough
+# is not caught — airlines (UAL revenue 2020 15.4B, 2021 24.6B, then 45-59B) keep a
+# ~30%/yr recovery "trend", flagged by a ~30% steadiness spread; it fades as the
+# 6-year window moves past 2021. Tried two drops (2026-11-14): no effect, since the
+# recovery itself widens the spread.
+_TREND_MAX_EDGE_DROPS = 1
 
-    vol/R²/CV come from a LINEAR fit (handles negative values like FCF/EPS
-    losses; residual vol % = std(residuals)/|mean|, CV = std(values)/|mean|).
-    Trend growth is a SEPARATE log-linear fit (ln(y) vs. year index,
-    annualized via exp(slope)-1) — only defined when every value is > 0, the
-    same sign-change gate _cagr() uses, since a compound rate across a loss
-    year is undefined. NaN when fewer than 3 points, a zero mean (vol/CV), or
-    any non-positive value (trend growth only).
+
+def fractional_years(idx) -> np.ndarray:
+    """A period_end index (dates, or plain calendar years) as fractional years."""
+    if isinstance(idx, pd.DatetimeIndex):
+        return (idx.year + (idx.dayofyear - 1) / 365.25).to_numpy(dtype=float)
+    return np.asarray(idx, dtype=float) + 0.997  # a calendar year ends ~Dec 31
+
+
+def robust_trend(s: pd.Series, max_points: int | None = None) -> tuple[float, float, float, float, float]:
+    """(steadiness %, direction tau, trend growth %/yr, growth low %, growth high %)
+    over the last ~6 years (`max_points` overrides: the growth phase label reads
+    up to 12, fix list §21).
+
+    Fix list §16 (2026-11-14). Replaces an ordinary least-squares fit on a year
+    index, which one odd year moved (often a FY2020 trough as the first point):
+      * real dates, not a year index; >= 4 points;
+      * slope = Theil-Sen (median of pairwise slopes) on ln(value) when every
+        value is > 0 -> growth = e^slope - 1; a series with a loss / negative
+        year (FCF, EPS) has no compound growth and is fitted on value / median|value|;
+      * a first point that is an outlier (> 4 x the robust spread, floor 3% /
+        10%) is dropped once and the fit redone — the FY2020 rule;
+      * steadiness = 1.4826 x the median absolute residual, in % (lower = steadier);
+      * tau = Kendall's tau of value vs time (Mann-Kendall direction: +1 always
+        up, -1 always down);
+      * growth low / high = the slope's confidence interval at
+        `VALUATION_SCENARIO_CONFIDENCE` (Theil-Sen's own, Sen 1968) — how sure the
+        growth RATE is; few or scattered points give a wide range. Feeds the
+        bear / bull scenarios (fix list §17). Log mode only, like growth.
     """
-    s = s.iloc[-settings.GROWTH_TREND_YEARS :]
+    nan = float("nan")
+    nan5 = (nan, nan, nan, nan, nan)
+    s = s.dropna().iloc[-(max_points or settings.GROWTH_TREND_YEARS + 1):]
+    if len(s) < _TREND_MIN_POINTS:
+        return nan5
+    t = fractional_years(s.index)
     y = s.to_numpy(dtype=float)
-    if len(y) < 3:
-        return float("nan"), float("nan"), float("nan"), float("nan")
-    x = np.arange(len(y))
+    log_mode = bool(np.all(y > 0))
+    if log_mode:
+        z, floor = np.log(y), _TREND_FLOOR_LOG
+    else:
+        scale = float(np.median(np.abs(y)))
+        if not scale:
+            return nan5
+        z, floor = y / scale, _TREND_FLOOR_LEVEL
 
-    fit = np.polyval(np.polyfit(x, y, 1), x)
-    resid = y - fit
-    ss_res = float(np.sum(resid**2))
-    ss_tot = float(np.sum((y - y.mean()) ** 2))
-    r2 = 1 - ss_res / ss_tot if ss_tot > 0 else float("nan")
-    denom = abs(float(y.mean()))
-    vol = float(np.std(resid)) / denom * 100 if denom else float("nan")
-    cv = float(np.std(y)) / denom * 100 if denom else float("nan")
+    conf = settings.VALUATION_SCENARIO_CONFIDENCE
 
-    growth_trend = float("nan")
-    if np.all(y > 0):
-        slope = float(np.polyfit(x, np.log(y), 1)[0])
-        growth_trend = (np.exp(slope) - 1) * 100
-    return vol, r2, cv, growth_trend
+    def fit(tt: np.ndarray, zz: np.ndarray) -> tuple[float, float, float, np.ndarray]:
+        slope, intercept, lo, hi = theilslopes(zz, tt, alpha=conf)
+        return float(slope), float(lo), float(hi), zz - (intercept + slope * tt)
+
+    slope, lo, hi, resid = fit(t, z)
+    for _ in range(_TREND_MAX_EDGE_DROPS):
+        spread = max(_MAD_SCALE * float(np.median(np.abs(resid - np.median(resid)))), floor)
+        if (len(z) - 1 < _TREND_MIN_POINTS
+                or abs(resid[0] - np.median(resid)) <= _TREND_OUTLIER_K * spread):
+            break
+        t, z, y = t[1:], z[1:], y[1:]
+        slope, lo, hi, resid = fit(t, z)
+
+    steadiness = _MAD_SCALE * float(np.median(np.abs(resid - np.median(resid)))) * 100
+    tau = float(kendalltau(t, y).statistic)
+    if not log_mode:
+        return steadiness, tau, float("nan"), float("nan"), float("nan")
+    pct = lambda b: (np.exp(b) - 1) * 100  # noqa: E731
+    return steadiness, tau, pct(slope), pct(lo), pct(hi)
 
 
 def _yoy_latest(sq: pd.Series) -> float:
@@ -414,25 +537,174 @@ def _margin_series(fin, num_field: str, den_field: str) -> pd.Series:
     return (num / den).replace([np.inf, -np.inf], float("nan")).dropna() * 100
 
 
-def split_adjust(s: pd.Series, splits: pd.Series | None) -> pd.Series:
-    """Per-share series rescaled to current-share terms using post-period splits.
+def enterprise_value(mktcap: float, total_debt: float, cash: float,
+                     minority: float = float("nan"), preferred: float = float("nan")) -> float:
+    """Market cap + total debt - cash + minority interest + preferred equity.
 
-    Public (shared): the analysis snapshot uses it for EPS growth, and the
-    fundamentals chart uses it so a plotted EPS-over-time series is split-consistent
-    with the snapshot — one adjustment, defined once. `splits` is a datetime-indexed
-    sparse series of split factors (from ohlcv.db).
+    Keeps the old rule's NaN behaviour for debt and cash (both needed, as before)
+    and adds minority interest / preferred equity as 0 when not reported.
     """
-    if splits is None or s.empty:
-        return s
-    real = splits[(splits != 0) & (splits != 1)]
+    if pd.isna(mktcap) or pd.isna(total_debt) or pd.isna(cash):
+        return float("nan")
+    extra = sum(v for v in (minority, preferred) if pd.notna(v))
+    return mktcap + total_debt - cash + extra
+
+
+def company_shares(quote: pd.Series | None, fin) -> float:
+    """The company's share count across ALL classes, in this listing's units.
+
+    Fix list §2 (2026-11-12): Yahoo's `sharesOutstanding` counts only this
+    ticker's class, so GOOG's market cap came out $1.63T against $3.60T and its
+    P/E 6.9 against 15.4 (1,077 of 7,292 listed stocks off by > 10%). Yahoo's
+    `marketCap` covers every class, so marketCap / Yahoo's own quote price is the
+    all-class count expressed in this listing's shares (B-share equivalents for
+    BRK-B, ADR units for an ADR) — the same price basis the cap was computed at.
+    Falls back to `impliedSharesOutstanding`, then the old single-class chain.
+    Used for market cap, every price ratio, EPS and the fair values per share.
+    """
+    mc, px = _qget(quote, "marketCap"), _qget(quote, "regularMarketPrice")
+    if pd.notna(mc) and mc > 0 and pd.notna(px) and px > 0:
+        return mc / px
+    for key in ("impliedSharesOutstanding", "sharesOutstanding"):
+        v = _qget(quote, key)
+        if pd.notna(v) and v > 0:
+            return v
+    for col in ("ordinary_shares_number", "share_issued"):
+        v = P.latest(fin, col)
+        if pd.notna(v) and v > 0:
+            return v
+    return float("nan")
+
+
+# An EPS row whose implied share count, on its best basis, is still this far from
+# the newest row's is a change of basis (bankruptcy restart, one class vs all) or a
+# bad value -> left out of per-share trends.
+_EPS_BASIS_MAX_OFF = 2.5
+_EPS_MIN_ABS = 0.01
+
+
+def _splits_after(real: pd.Series, d: pd.Timestamp) -> float:
     if real.empty:
-        return s
-    out = s.copy()
-    for d in s.index:
-        factor = float(real[real.index > d].prod())
-        if factor and factor > 0:
-            out.loc[d] = s.loc[d] / factor
+        return 1.0
+    after = real[real.index > d]
+    return float(after.prod()) if len(after) else 1.0
+
+
+def basis_candidates(real: pd.Series, d: pd.Timestamp) -> tuple[float, ...]:
+    """Every factor a figure dated `d` may still need: as filed (all later splits),
+    restated for the first k of them (the rest), or fully restated (1). A source can
+    sit on a middle basis — MNST's FY2022 row restated for its 2023 split but not
+    yet for 2026."""
+    if real.empty:
+        return (1.0,)
+    later = real[real.index > d].sort_index().to_numpy(dtype=float)
+    return tuple(float(np.prod(later[k:])) for k in range(len(later) + 1))
+
+
+def _basis_date(row: pd.Series, period_end: pd.Timestamp) -> pd.Timestamp:
+    """When the row's per-share figure was set: its filing date, else period end."""
+    fd = pd.to_datetime(row.get("filed_date"), errors="coerce") if "filed_date" in row else pd.NaT
+    return fd if pd.notna(fd) else period_end
+
+
+def eps_current_basis(frames: list[pd.DataFrame], splits: pd.Series | None,
+                      shares_now: float = float("nan")) -> list[pd.Series]:
+    """Each frame's `diluted_eps` on TODAY's split basis (fix list §10, §14).
+
+    `frames` are period_end-indexed rows (annual, quarterly, …) of ONE company
+    with `diluted_eps`, `net_income`, and where known `filed_date` / `source`.
+    Replaces `split_adjust`, which divided EVERY row by the splits after its
+    period end: Yahoo rows are already restated, so they were adjusted twice
+    (NVDA FY2023 0.174 -> 0.0174, EPS trend 178%/yr; MNST 77%/yr).
+
+    Per row: no split after it -> one basis, unchanged. Otherwise the candidates
+    are as filed, partly restated or fully restated (`basis_candidates`); the one whose
+    implied share count (net income / EPS x factor) is closest to the newest row's
+    wins. Even the best more than _EPS_BASIS_MAX_OFF away -> NaN (a change of basis:
+    Talen's bankruptcy restart). EPS near zero or a loss can't be tested: then EDGAR
+    rows count as filed (first-filed since 2026-11-11), Yahoo rows as restated.
+
+    The newest row sets the reference. If a split came after it, `shares_now`
+    (today's all-class count, `company_shares`) decides its basis — Yahoo does not
+    always restate at once (MNST FY2025 still pre-split after its Aug-2026 2:1).
+    """
+    real = (splits[(splits != 0) & (splits != 1)]
+            if splits is not None and not splits.empty
+            else pd.Series(dtype=float, index=pd.DatetimeIndex([])))
+
+    def implied(row) -> float:
+        eps, ni = row.get("diluted_eps"), row.get("net_income")
+        try:
+            eps, ni = float(eps), float(ni)
+        except (TypeError, ValueError):
+            return float("nan")
+        return ni / eps if eps > _EPS_MIN_ABS and ni > 0 else float("nan")
+
+    # Reference: the newest testable row, put on today's basis by the source rule.
+    ref = float("nan")
+    newest = None
+    for df in frames:
+        if df.empty or "diluted_eps" not in df.columns:
+            continue
+        for d, row in df.iterrows():
+            if pd.notna(implied(row)) and (newest is None or d > newest[0]):
+                newest = (d, row)
+    if newest is not None:
+        d, row = newest
+        big = _splits_after(real, _basis_date(row, d))
+        imp = implied(row)
+        if big == 1.0:
+            f = 1.0
+        elif pd.notna(shares_now) and shares_now > 0:
+            f = min(basis_candidates(real, _basis_date(row, d)),
+                    key=lambda c: abs(np.log(imp * c / shares_now)))
+        else:
+            f = big if row.get("source") == "edgar" else 1.0
+        ref = imp * f
+
+    out: list[pd.Series] = []
+    for df in frames:
+        if df.empty or "diluted_eps" not in df.columns:
+            out.append(pd.Series(dtype="float64"))
+            continue
+        vals = {}
+        for d, row in df.iterrows():
+            eps = pd.to_numeric(row.get("diluted_eps"), errors="coerce")
+            if pd.isna(eps):
+                filled = _eps_from_shares(row, d, real, ref)
+                if pd.notna(filled):
+                    vals[d] = filled
+                continue
+            big = _splits_after(real, _basis_date(row, d))
+            imp = implied(row)
+            if pd.notna(imp) and pd.notna(ref) and ref > 0:
+                cands = basis_candidates(real, _basis_date(row, d))
+                f = min(cands, key=lambda c: abs(np.log(imp * c / ref)))
+                if abs(np.log(imp * f / ref)) > np.log(_EPS_BASIS_MAX_OFF):
+                    continue  # change of basis / bad value
+            else:
+                f = big if row.get("source") == "edgar" else 1.0
+            vals[d] = float(eps) / f
+        out.append(pd.Series(vals, dtype="float64").sort_index())
     return out
+
+
+def _eps_from_shares(row: pd.Series, d: pd.Timestamp, real: pd.Series, ref: float) -> float:
+    """EPS for a row with no `diluted_eps`: net income / diluted average shares, the
+    shares put on today's basis by the same candidate test (fix list §17: per-share
+    net income). Fills SEC years with a share count but no EPS tag — Monster had EPS
+    only for FY2022-25 (EPS trend 20%), net income and shares back to 2017 (~7%)."""
+    try:
+        ni, sh = float(row.get("net_income")), float(row.get("diluted_average_shares"))
+    except (TypeError, ValueError):
+        return float("nan")
+    if not (pd.notna(ni) and pd.notna(sh) and sh > 0 and pd.notna(ref) and ref > 0):
+        return float("nan")
+    cands = basis_candidates(real, _basis_date(row, d))
+    f = min(cands, key=lambda c: abs(np.log(sh * c / ref)))
+    if abs(np.log(sh * f / ref)) > np.log(_EPS_BASIS_MAX_OFF):
+        return float("nan")
+    return ni / (sh * f)
 
 
 def _growth_block(name: str, annual: pd.Series, quarterly: pd.Series) -> dict:
@@ -440,11 +712,14 @@ def _growth_block(name: str, annual: pd.Series, quarterly: pd.Series) -> dict:
     out: dict[str, float] = {}
     for w in settings.GROWTH_WINDOWS_YEARS:
         out[f"{name}_cagr_{w}y"] = _pct(_cagr(annual, w))
-    vol, r2, cv, growth_trend = _trend_stats(annual)
+    vol, tau, growth_trend, lo, hi = robust_trend(annual)
     out[f"{name}_growth_vol"] = vol
-    out[f"{name}_growth_r2"] = r2
-    out[f"{name}_growth_cv"] = cv
+    out[f"{name}_growth_tau"] = tau
     out[f"{name}_growth_trend"] = growth_trend
+    # Private (not written to analysis.db): the growth's confidence range, read by
+    # valuation_scenarios for bear / bull.
+    out[f"_{name}_growth_lo"] = lo
+    out[f"_{name}_growth_hi"] = hi
     out[f"{name}_yoy_q"] = _pct(_yoy_latest(quarterly))
     return out
 
@@ -464,6 +739,7 @@ def compute(
     screen_type: str | None = None,
     reconcile: list | None = None,
     risk_free: float | None = None,
+    secondary_line: bool = False,
 ) -> dict:
     """All fundamental metrics for one symbol (raw numbers, percents as percents).
 
@@ -486,17 +762,23 @@ def compute(
     m: dict[str, float] = {}
 
     # -- shared inputs ------------------------------------------------------- #
-    shares = _qget(quote, "sharesOutstanding")
-    if pd.isna(shares):
-        shares = P.latest(fin, "ordinary_shares_number")
-    if pd.isna(shares):
-        shares = P.latest(fin, "share_issued")
+    # all classes (fix list §2). A second line of a company (preferred, unit,
+    # foreign duplicate) with no market value of its own gets none: the company's
+    # numbers on this line's price gave Fannie Mae preferreds a P/E of ~1.3 (§17).
+    shares = float("nan") if secondary_line else company_shares(quote, fin)
+    m["_shares"] = shares  # private: reused by intrinsic_value / valuation_scenarios
     mktcap = _div(price * shares, 1.0) if pd.notna(shares) else float("nan")
     m["market_cap"] = mktcap  # size; currency-neutral (price & shares share the listing's terms)
 
     rev = P.ttm(fin, "total_revenue")
     ni = P.ttm(fin, "net_income")
-    ebitda = P.ttm(fin, "ebitda")
+    # Normalized EBITDA (one-off items removed) when Yahoo has it, else reported
+    # (fix list §20, 2026-11-14): a one-off write-down otherwise makes a company
+    # look cheap or over-levered for a year. 2,351 annual rows had reported
+    # EBITDA below 80% of normalized.
+    ebitda = P.ttm(fin, "normalized_ebitda")
+    if pd.isna(ebitda):
+        ebitda = P.ttm(fin, "ebitda")
     ebit = P.ttm(fin, "operating_income")
     gp = P.ttm(fin, "gross_profit")
     fcf = fcf_ttm(fin)
@@ -505,7 +787,12 @@ def compute(
     cash = P.latest(fin, "cash_and_cash_equivalents")
     total_assets = P.latest(fin, "total_assets")
     total_liab = P.latest(fin, "total_liabilities_net_minority_interest")
-    ev = (mktcap + total_debt - cash) if pd.notna(mktcap) else float("nan")
+    # EV = all-class market cap + debt - cash + minority interest + preferred
+    # equity (fix list §20): claims on the business besides common equity. Missing
+    # debt / cash / minority / preferred count as 0 only when the others exist.
+    ev = enterprise_value(mktcap, total_debt, cash,
+                          P.latest(fin, "minority_interest"),
+                          P.latest(fin, "preferred_stock_equity"))
 
     fin_ccy = quote.get("financialCurrency") if quote is not None else None
     price_ccy = quote.get("currency") if quote is not None else None
@@ -514,27 +801,30 @@ def compute(
     )
 
     # -- valuation ----------------------------------------------------------- #
+    # A multiple over a non-positive denominator is n/a, not "cheap" (§19, `_div_pos`).
     if currency_ok:
-        m["pe"] = _div(mktcap, ni)
-        m["pb"] = _div(mktcap, equity)
+        m["pe"] = _div_pos(mktcap, ni)
+        m["pb"] = _div_pos(mktcap, equity)
         m["ps"] = _div(mktcap, rev)
-        m["p_fcf"] = _div(mktcap, fcf)
-        m["ev_ebitda"] = _div(ev, ebitda)
+        m["p_fcf"] = _div_pos(mktcap, fcf)
+        m["ev_ebitda"] = _div_pos(ev, ebitda)
         m["ev_revenue"] = _div(ev, rev)
         m["eps_ttm"] = _div(ni, shares)
         m["valuation_basis"] = "computed"
     else:  # foreign filer — price÷fundamental is invalid; use yfinance ratios
-        m["pe"] = _qget(quote, "trailingPE")
-        m["pb"] = _qget(quote, "priceToBook")
+        # Yahoo's own multiples: a negative one means a negative denominator
+        # (the price / EV side is positive), so it is n/a too (§19).
+        m["pe"] = _positive_or_nan(_qget(quote, "trailingPE"))
+        m["pb"] = _positive_or_nan(_qget(quote, "priceToBook"))
         m["ps"] = _qget(quote, "priceToSalesTrailing12Months")
         m["p_fcf"] = float("nan")
-        m["ev_ebitda"] = _qget(quote, "enterpriseToEbitda")
+        m["ev_ebitda"] = _positive_or_nan(_qget(quote, "enterpriseToEbitda"))
         m["ev_revenue"] = _qget(quote, "enterpriseToRevenue")
         m["eps_ttm"] = _qget(quote, "trailingEps")
         m["valuation_basis"] = "yfinance"
 
     forward_eps = _qget(quote, "forwardEps")
-    m["forward_pe"] = _div(price, forward_eps)  # forward = analyst data, from quotes
+    m["forward_pe"] = _div_pos(price, forward_eps)  # forward = analyst data, from quotes
 
     # -- profitability (currency-neutral) ----------------------------------- #
     m["roe"] = roe(ni, equity)
@@ -614,6 +904,10 @@ def compute(
     m["cash_ratio"] = _div(cash, cur_liab)
     m["interest_coverage"] = interest_coverage(ebit, P.ttm(fin, "interest_expense"))
     m["debt_to_ebitda"] = debt_to_ebitda(total_debt, ebitda)
+    # The sign of EBITDA, since debt/EBITDA and EV/EBITDA are n/a when it is <= 0
+    # (§19): a filter "debt/EBITDA <= 4 OR is null" needs this to keep them out.
+    m["ebitda_negative"] = float(ebitda <= 0) if pd.notna(ebitda) else float("nan")
+    m["efficiency_ratio"] = _bank_efficiency(fin) if screen_type == BANK else float("nan")
     m["altman_z"] = (_altman_z(fin, ebit, rev, mktcap, total_assets, total_liab,
                                 m["net_margin"], m["operating_margin"])
                       if currency_ok else float("nan"))
@@ -630,10 +924,13 @@ def compute(
     # relying only on which fields happen to be populated.
     m["quick_health_score"] = (_quick_health_score(fin, m["cash_ratio"])
                                 if screen_type == STANDARD else float("nan"))
+    # The real F-score (§19), standard-only for the same reason: its gross-margin
+    # and current-ratio tests assume an ordinary producing company.
+    m["piotroski_f"] = _piotroski_f(fin) if screen_type == STANDARD else float("nan")
 
     # -- growth ------------------------------------------------------------- #
-    eps_a = split_adjust(P.annual(fin, "diluted_eps"), splits)
-    eps_q = split_adjust(P.quarterly(fin, "diluted_eps"), splits)
+    pf = P.prepare(fin)
+    eps_a, eps_q = eps_current_basis([pf.annual, pf.quarterly], splits, shares)
     m.update(_growth_block("revenue", P.annual(fin, "total_revenue"), P.quarterly(fin, "total_revenue")))
     m.update(_growth_block("eps", eps_a, eps_q))
     m.update(_growth_block("fcf", fcf_annual(fin), P.quarterly(fin, "free_cash_flow")))
@@ -653,7 +950,8 @@ def compute(
     m["peg"] = _div(m["pe"], g_eps) if (pd.notna(g_eps) and g_eps > 0) else float("nan")
 
     # -- income / dividends ------------------------------------------------- #
-    m.update(_income_block(fin, dividends, price, ni, fcf, as_of))
+    m.update(_income_block(fin, dividends, price, ni, fcf, as_of,
+                           foreign=not (pd.isna(fin_ccy) or fin_ccy in (None, "", "USD"))))
 
     # -- reconciliation ----------------------------------------------------- #
     if reconcile is not None and currency_ok:
@@ -833,16 +1131,89 @@ def _quick_health_score(fin, cash_ratio: float) -> float:
     return float(sum(bool(c) for c in checks))
 
 
-def _income_block(fin, paid: pd.Series | None, price, ni_ttm, fcf_ttm, as_of) -> dict:
-    """Dividend metrics from the full-history dividend events (no extra API)."""
+_PIOTROSKI_FIELDS = ("net_income", "operating_cash_flow", "long_term_debt",
+                     "current_assets", "current_liabilities",
+                     "ordinary_shares_number", "gross_profit", "total_revenue")
+
+
+def _piotroski_f(fin) -> float:
+    """Piotroski F-score (Piotroski 2000), 0-9, from the two newest fiscal years
+    a (latest) and b (the one before), 300-430 days apart (fix list §19).
+
+    One point each: ROA_a > 0; OCF_a > 0; ROA_a > ROA_b; OCF_a > NI_a; long-term
+    debt / assets not up (missing debt = 0); current ratio up; shares
+    (`ordinary_shares_number`) not up; gross margin up; asset turnover up.
+    As in the paper, ROA and turnover divide by the year's OPENING total assets
+    and leverage by the average, when a third year (c) 300-430 days earlier is on
+    file; otherwise by year-end assets (the review's simpler form; 191 of 4,736
+    differ by 2+ points between the two forms). NaN unless all nine tests can be
+    computed with positive total assets, current liabilities and revenue.
+    """
+    tab = P.annual_table(fin, ("total_assets", *_PIOTROSKI_FIELDS))
+    ta = tab["total_assets"].dropna()
+    if len(ta) < 2:
+        return float("nan")
+    d_a, d_b = ta.index[-1], ta.index[-2]
+    if not 300 <= (d_a - d_b).days <= 430:
+        return float("nan")
+    d_c = ta.index[-3] if len(ta) >= 3 and 300 <= (d_b - ta.index[-3]).days <= 430 else None
+
+    def year(d) -> dict[str, float]:
+        return {f: float(tab.at[d, f]) for f in _PIOTROSKI_FIELDS}
+
+    a, b = year(d_a), year(d_b)
+    a["ta"], b["ta"] = float(ta.iloc[-1]), float(ta.iloc[-2])
+    for x in (a, b):
+        if pd.isna(x["long_term_debt"]):
+            x["long_term_debt"] = 0.0
+    if any(pd.isna(v) for v in (*a.values(), *b.values())) or \
+            min(a["ta"], b["ta"], a["current_liabilities"], b["current_liabilities"],
+                a["total_revenue"], b["total_revenue"]) <= 0:
+        return float("nan")
+    ta_c = float(ta.loc[d_c]) if d_c is not None else float("nan")
+    if pd.notna(ta_c) and ta_c > 0:  # paper form: opening / average assets
+        open_a, open_b = b["ta"], ta_c
+        avg_a, avg_b = (a["ta"] + b["ta"]) / 2, (b["ta"] + ta_c) / 2
+    else:
+        open_a, open_b = a["ta"], b["ta"]
+        avg_a, avg_b = a["ta"], b["ta"]
+    roa_a, roa_b = a["net_income"] / open_a, b["net_income"] / open_b
+    tests = (
+        roa_a > 0,
+        a["operating_cash_flow"] > 0,
+        roa_a > roa_b,
+        a["operating_cash_flow"] > a["net_income"],
+        a["long_term_debt"] / avg_a <= b["long_term_debt"] / avg_b,
+        a["current_assets"] / a["current_liabilities"] > b["current_assets"] / b["current_liabilities"],
+        a["ordinary_shares_number"] <= b["ordinary_shares_number"],
+        a["gross_profit"] / a["total_revenue"] > b["gross_profit"] / b["total_revenue"],
+        a["total_revenue"] / open_a > b["total_revenue"] / open_b,
+    )
+    return float(sum(bool(t) for t in tests))
+
+
+def _income_block(fin, paid: pd.Series | None, price, ni_ttm, fcf_ttm, as_of,
+                  foreign: bool = False) -> dict:
+    """Dividend metrics from the full-history dividend events (no extra API).
+
+    `div_rate_ttm` / `div_yield_ttm` = everything paid in the last 365 days,
+    specials included. Every other dividend metric is on REGULAR payments
+    (`analysis_layer.dividends`, fix list §9 / §21): `div_rate` / `div_yield` =
+    the current regular annual rate; trends, streak and consistency on each
+    calendar year's regular annual rate. `foreign` = the company reports in
+    another currency (wider cut tolerance for currency moves).
+    """
     out = {
         "div_yield_ttm": float("nan"), "div_rate_ttm": float("nan"),
+        "div_yield": float("nan"), "div_rate": float("nan"),
         "div_cagr_1y": float("nan"), "div_cagr_3y": float("nan"), "div_cagr_5y": float("nan"),
         "div_payout_ratio": float("nan"),
         "div_consecutive_years": float("nan"), "div_consistency": float("nan"),
+        "div_years_paid": float("nan"), "div_recent_cut": float("nan"),
         "div_coverage": float("nan"),
-        "div_growth_vol": float("nan"), "div_growth_r2": float("nan"),
-        "div_growth_cv": float("nan"), "div_growth_trend": float("nan"),
+        "div_growth_vol": float("nan"), "div_growth_tau": float("nan"),
+        "div_growth_trend": float("nan"),
+        "_div_growth_lo": float("nan"), "_div_growth_hi": float("nan"),
     }
     if as_of is None or pd.isna(as_of):  # no price history at all -> not applicable
         return out
@@ -850,8 +1221,8 @@ def _income_block(fin, paid: pd.Series | None, price, ni_ttm, fcf_ttm, as_of) ->
         paid = pd.to_numeric(paid, errors="coerce")
         paid = paid[paid > 0]
     if paid is None or paid.empty:  # non-payer: a real 0% yield, the rest not applicable
-        out["div_yield_ttm"] = 0.0
-        out["div_rate_ttm"] = 0.0
+        for k in ("div_yield_ttm", "div_rate_ttm", "div_yield", "div_rate", "div_years_paid"):
+            out[k] = 0.0
         return out
 
     last = pd.Timestamp(as_of)
@@ -859,45 +1230,47 @@ def _income_block(fin, paid: pd.Series | None, price, ni_ttm, fcf_ttm, as_of) ->
     out["div_rate_ttm"] = ttm_div
     out["div_yield_ttm"] = _pct(_div(ttm_div, price))
 
-    # Dividend-trend metrics use each complete year's MAX payment (the per-share
-    # rate), not the calendar-year sum: a monthly/quarterly payer's yearly sum
-    # swings with how many ex-dates land in a calendar year (11 vs 12 vs 13),
-    # which would falsely break a long raising streak (e.g. Realty Income).
-    by_year = paid.groupby(paid.index.year).max()
-    by_year = by_year[by_year.index < last.year]
+    view = divs.analyse(paid, last)
+    out["div_rate"] = view.rate_now
+    out["div_yield"] = _pct(_div(view.rate_now, price))
+    out["div_years_paid"] = float(view.years_paid)
+    out["div_recent_cut"] = view.recent_cut
+
+    by_year = view.year_rates
     if len(by_year) >= 2:
+        tol = settings.DIV_CUT_TOLERANCE_FX if foreign else settings.DIV_CUT_TOLERANCE
         for w in settings.GROWTH_WINDOWS_YEARS:
             out[f"div_cagr_{w}y"] = _pct(_cagr_from_yearly(by_year, w))
-        steps = by_year.diff().dropna()
-        out["div_consistency"] = _pct((steps >= 0).mean())
-        out["div_consecutive_years"] = float(_consecutive_increases(by_year))
-        vol, r2, cv, growth_trend = _trend_stats(by_year)
-        out["div_growth_vol"] = vol
-        out["div_growth_r2"] = r2
-        out["div_growth_cv"] = cv
-        out["div_growth_trend"] = growth_trend
+        ratio = (by_year / by_year.shift(1)).dropna()
+        out["div_consistency"] = _pct((ratio >= 1 - tol).mean())
+        out["div_consecutive_years"] = (0.0 if view.recent_cut == 1.0
+                                        else float(divs.no_cut_streak(by_year, tol)))
+        tr = robust_trend(by_year)
+        out["div_growth_vol"], out["div_growth_tau"], out["div_growth_trend"] = tr[:3]
+        out["_div_growth_lo"], out["_div_growth_hi"] = tr[3:]
 
     # payout / coverage off the cash-flow statement (currency-neutral ratios)
     div_paid = abs(P.ttm(fin, "cash_dividends_paid"))
-    out["div_payout_ratio"] = _pct(_div(div_paid, ni_ttm))
+    out["div_payout_ratio"] = _pct(_div_pos(div_paid, ni_ttm))  # n/a on a loss (§19)
     out["div_coverage"] = _div(fcf_ttm, div_paid)
     return out
 
 
 def _cagr_from_yearly(by_year: pd.Series, years: int) -> float:
-    """CAGR over a calendar-year-indexed Series (used for dividends)."""
-    s = by_year.copy()
-    s.index = pd.to_datetime(s.index.astype(str) + "-12-31")
-    return _cagr(s, years)
+    """CAGR over a calendar-year-indexed Series (used for dividends) — `_cagr`'s rule
+    on Dec-31 dates, computed on the year numbers directly (building dates from
+    text took half the dividend block's run time)."""
+    if len(by_year) < 2:
+        return float("nan")
+    yrs = by_year.index.to_numpy(dtype=int)
+    vals = by_year.to_numpy(dtype=float)
+    last_y, last = int(yrs[-1]), float(vals[-1])
+    older = np.flatnonzero(yrs <= last_y - years)
+    if not len(older):
+        return float("nan")
+    base_y, base = int(yrs[older[-1]]), float(vals[older[-1]])
+    span = (date(last_y, 12, 31) - date(base_y, 12, 31)).days / 365.25
+    if base <= 0 or last <= 0 or span < 0.5:
+        return float("nan")
+    return (last / base) ** (1 / span) - 1
 
-
-def _consecutive_increases(by_year: pd.Series) -> int:
-    """Count of trailing consecutive years the annual value did not fall."""
-    v = by_year.to_numpy(dtype=float)
-    n = 0
-    for i in range(len(v) - 1, 0, -1):
-        if v[i] >= v[i - 1]:
-            n += 1
-        else:
-            break
-    return n

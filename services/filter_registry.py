@@ -17,7 +17,7 @@ Two **variant axes** ride on the bases instead of being enumerated as separate
 entries (Option B — base + modifier UI):
 
   * **growth** — the four statement line-items (revenue/eps/fcf/book_value) each
-    expand to 8 columns (`_cagr_1y/3y/5y`, `_growth_trend`, `_yoy_q`, `_growth_vol/r2/cv`);
+    expand to 7 columns (`_cagr_1y/3y/5y`, `_growth_trend`, `_yoy_q`, `_growth_vol/tau`);
   * **peer-relative** — `_vs_sector` / `_vs_industry`, offered for a concrete column
     only when that column actually exists in analysis.db (data-driven, so we never
     offer a peer toggle for a metric the analysis layer didn't compute one for).
@@ -121,11 +121,11 @@ GROWTH_WINDOWS: dict[str, str] = {
     "cagr_1y": "1Y CAGR",
     "cagr_3y": "3Y CAGR",
     "cagr_5y": "5Y CAGR",
-    "growth_trend": "Trend growth (log-linear)",
+    "growth_trend": "Trend growth (robust)",
+    "growth_checked": "Trend, forecast-checked",
     "yoy_q": "YoY (latest quarter)",
-    "growth_vol": "Growth volatility",
-    "growth_r2": "Growth trend R²",
-    "growth_cv": "Growth variability (CV)",
+    "growth_vol": "Growth steadiness (spread)",
+    "growth_tau": "Growth direction (tau)",
 }
 
 
@@ -191,6 +191,9 @@ BASES: list[Base] = [
     _b("ocf_to_ni_3y", "Cash conversion (3y)", "Profitability", frozenset({STANDARD})),
     _b("ocf_to_ni_5y", "Cash conversion (5y)", "Profitability", frozenset({STANDARD})),
     _b("gross_margin_trend_3y", "Gross margin trend (3y)", "Profitability", frozenset({STANDARD})),
+    _b("op_margin_std", "Margin steadiness", "Profitability", COMPANY),
+    _b("margin_peak", "Margin at a cyclical peak", "Profitability", frozenset({STANDARD})),
+    _b("margin_vs_normal", "Margin vs its normal", "Profitability", frozenset({STANDARD})),
     _b("operating_margin_trend_3y", "Operating margin trend (3y)", "Profitability", frozenset({STANDARD})),
     # -- Balance sheet ------------------------------------------------------ #
     _b("debt_to_equity", "Debt/Equity", "Balance Sheet", frozenset({STANDARD, REIT})),
@@ -202,6 +205,29 @@ BASES: list[Base] = [
     _b("altman_z", "Altman Z", "Balance Sheet", frozenset({STANDARD})),
     _b("beneish_m_score", "Beneish M", "Balance Sheet", frozenset({STANDARD})),
     _b("quick_health_score", "Quick health", "Balance Sheet", frozenset({STANDARD})),
+    _b("piotroski_f", "Piotroski F-score", "Balance Sheet", frozenset({STANDARD})),
+    _b("ebitda_negative", "EBITDA negative", "Balance Sheet", frozenset({STANDARD, REIT})),
+    _b("health_check", "Health check", "Balance Sheet", COMPANY),
+    # Peer Strength measures for banks / insurers / REITs / brokers (§21, Group H part 2)
+    _b("roa_3y", "ROA (3y median)", "Profitability", COMPANY),
+    _b("rotce_3y", "ROTCE (3y median)", "Profitability", COMPANY),
+    _b("pretax_margin_3y", "Pre-tax margin (3y median)", "Profitability", COMPANY),
+    _b("ebitda_margin_3y", "EBITDA margin (3y median)", "Profitability", COMPANY),
+    _b("roe_std", "ROE steadiness", "Profitability", COMPANY),
+    _b("tangible_equity_ratio", "Tangible equity ratio", "Balance Sheet", COMPANY),
+    _b("debt_to_capital", "Debt / capital", "Balance Sheet", COMPANY),
+    _b("pretax_interest_cover", "Interest cover (pre-tax)", "Balance Sheet", COMPANY),
+    _b("ebitda_interest_cover", "EBITDA / interest", "Balance Sheet", COMPANY),
+    _b("tbv_ps_growth", "Tangible book / share growth", "Growth", COMPANY),
+    _b("bvps_growth", "Book value / share growth", "Growth", COMPANY),
+    _b("ocf_ps_growth", "Operating cash flow / share growth", "Growth", COMPANY),
+    _b("revenue_ps_growth", "Revenue / share growth", "Growth", COMPANY),
+    _b("category_growth", "Category growth rate", "Growth", COMPANY),
+    _b("revenue_ps_growth_long", "Revenue / share growth (long run)", "Growth", COMPANY),
+    _b("revenue_years", "Years of revenue", "Growth", COMPANY),
+    _b("health_reason", "Health check reason", "Balance Sheet", COMPANY),
+    _b("economic_return_3y", "Economic return 3y (mREIT)", "Balance Sheet", frozenset({REIT})),
+    _b("efficiency_ratio", "Efficiency ratio", "Balance Sheet", frozenset({BANK})),
     # -- Growth (base + window) --------------------------------------------- #
     _b("revenue", "Revenue growth", "Growth", frozenset({STANDARD, BANK, INSURANCE, REIT}), growth=True),
     _b("eps", "EPS growth", "Growth", frozenset({STANDARD, BANK, INSURANCE}), growth=True),
@@ -227,13 +253,21 @@ BASES: list[Base] = [
     _b("insider_net_buy_pct", "Insider net buying", "Ownership", COMPANY),
     _b("institutions_count", "Institutional holders", "Ownership", COMPANY),
     # -- Income ------------------------------------------------------------- #
-    _b("div_yield_ttm", "Dividend yield (TTM)", "Income", DIVIDEND_PAYERS),
-    _b("div_rate_ttm", "Dividend rate (TTM)", "Income", DIVIDEND_PAYERS),
+    _b("div_yield", "Dividend yield (regular)", "Income", DIVIDEND_PAYERS),
+    _b("div_rate", "Dividend rate (regular)", "Income", DIVIDEND_PAYERS),
+    _b("div_yield_ttm", "Dividend yield (TTM, incl. specials)", "Income", DIVIDEND_PAYERS),
+    _b("div_rate_ttm", "Dividend rate (TTM, incl. specials)", "Income", DIVIDEND_PAYERS),
     _b("div", "Dividend growth", "Income", FUND_DIV, growth=True),
-    _b("div_consecutive_years", "Consecutive years", "Income", FUND_DIV),
+    _b("div_consecutive_years", "Years without a cut", "Income", FUND_DIV),
+    _b("div_years_paid", "Years paid", "Income", FUND_DIV),
+    _b("div_recent_cut", "Recent dividend cut", "Income", FUND_DIV),
+    _b("div_outgrowing_earnings", "Dividend outgrowing earnings", "Income",
+       frozenset({STANDARD, BANK, INSURANCE, REIT})),
     _b("div_consistency", "Dividend consistency", "Income", FUND_DIV),
     _b("div_payout_ratio", "Payout ratio", "Income", frozenset({STANDARD, BANK, INSURANCE})),
     _b("div_coverage", "Dividend coverage", "Income", frozenset({STANDARD, BANK, INSURANCE})),
+    _b("ffo_payout", "Payout on FFO (REIT)", "Income", frozenset({REIT})),
+    _b("ffo", "FFO (REIT)", "Income", frozenset({REIT})),
     # -- Technical (all traded; mutual funds drop volume + ATR) ------------- #
     _b("price_vs_ma_50", "Price vs 50-day MA", "Technical", ALL_TRADED),
     _b("price_vs_ma_150", "Price vs 150-day MA", "Technical", ALL_TRADED),
@@ -271,6 +305,7 @@ BASES: list[Base] = [
     _b("margin_of_safety_bear", "Safety mgn (bear)", "Intrinsic Value", frozenset({STANDARD, BANK, INSURANCE, REIT})),
     _b("margin_of_safety_bull", "Safety mgn (bull)", "Intrinsic Value", frozenset({STANDARD, BANK, INSURANCE, REIT})),
     _b("valuation_guardrail_flag", "Valuation guardrail", "Intrinsic Value", frozenset({STANDARD, BANK, INSURANCE, REIT})),
+    _b("fair_value_tail", "Fair value above 3x price", "Intrinsic Value", frozenset({STANDARD, BANK, INSURANCE, REIT})),
     _b("bear_flag_cash_conversion", "Bear flag: cash conversion", "Intrinsic Value", frozenset({STANDARD})),
     _b("bear_flag_moat_narrowing", "Bear flag: thin moat", "Intrinsic Value", frozenset({STANDARD})),
     _b("bear_flag_interest_coverage", "Bear flag: weak coverage", "Intrinsic Value", frozenset({STANDARD, REIT})),
@@ -278,6 +313,9 @@ BASES: list[Base] = [
     _b("bear_flag_count", "Bear flags", "Intrinsic Value", frozenset({STANDARD, REIT})),
     # -- Relative strength -------------------------------------------------- #
     _b("rs_rank", "RS Rank", "Relative Strength", ALL_TRADED),
+    # vs the industry's benchmark ETF (§21 part 4), percentage points
+    _b("rs_vs_industry_1y", "RS vs industry (1y)", "Relative Strength", COMPANY),
+    _b("rs_vs_industry_3y", "RS vs industry (3y)", "Relative Strength", COMPANY),
     # -- Scores (engine-gated; offered where meaningful) -------------------- #
     _b("overall_score", "Overall", "Score", ALL_TRADED),
     _b("value_score", "Value", "Score", COMPANY),
@@ -286,11 +324,28 @@ BASES: list[Base] = [
     _b("orphan_score", "Orphan", "Score", frozenset({STANDARD, REIT})),
     _b("momentum_score", "Momentum", "Score", ALL_TRADED),
     _b("income_score", "Income", "Score", DIVIDEND_PAYERS),
+    _b("peer_strength", "Peer Strength", "Score", COMPANY),
+    _b("peer_strength_measures", "Peer Strength measures", "Score", COMPANY),
+    # share of each score's input weight present (§18); the score is NULL below 50%
+    _b("overall_inputs", "Overall inputs", "Score", ALL_TRADED),
+    _b("value_inputs", "Value inputs", "Score", COMPANY),
+    _b("quality_inputs", "Quality inputs", "Score", COMPANY),
+    _b("growth_inputs", "Growth inputs", "Score", COMPANY),
+    _b("momentum_inputs", "Momentum inputs", "Score", ALL_TRADED),
+    _b("income_inputs", "Income inputs", "Score", DIVIDEND_PAYERS),
     # -- Classification (text labels; filtered via the multi-pick value list) - #
     _b("sector", "Sector", "Classification", COMPANY),
     _b("industry", "Industry", "Classification", COMPANY),
+    _b("company_type", "Company type", "Classification", COMPANY),
+    _b("stock_category", "Stock category", "Classification", COMPANY),
+    _b("growth_so_far", "Growth so far", "Classification", COMPANY),
+    _b("growth_ahead", "Growth ahead", "Classification", COMPANY),
     _b("country", "Country", "Classification", COMPANY),
     _b("fund_family", "Fund family", "Classification", FUNDS),
+    _b("price_issues", "Price issues", "Classification", ALL_TRADED),
+    _b("peer_universe", "Listed peer company", "Classification", COMPANY),
+    _b("industry_etf", "Industry benchmark ETF", "Classification", COMPANY),
+    _b("industry_etf_fit", "Industry benchmark fit", "Classification", COMPANY),
 ]
 
 BASE_BY_KEY: dict[str, Base] = {b.key: b for b in BASES}

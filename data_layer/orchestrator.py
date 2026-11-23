@@ -211,6 +211,7 @@ def run_full_fetch(
                     assess_symbols=universe["symbol"].tolist(),
                     allow_deactivate=False,
                 )
+                summary["delisted"] = symbols.mark_delisted(sdb)
 
         # -- Group 3: analysis (full run: clean-slate rebuild; subset run: ---- #
         # -- subset rows merged into the existing analysis.db) ---------------- #
@@ -268,6 +269,9 @@ def _run_fetch_groups(
         # Benchmarks discovery never found (^GSPC, ^IXIC) get an identity row so
         # nothing holds price history without a name. Additive-only, idempotent.
         symbols.ensure_benchmark_symbols(sdb)
+        # Recently switched-off symbols get one more try each month (fix list §15).
+        if subset is None:
+            summary["rearmed"] = symbols.rearm_inactive(sdb)
 
         universe = load_fetch_universe(sdb, subset)
         log.info("Group 2 — %d symbols in fetch universe", len(universe))
@@ -307,3 +311,5 @@ def _run_fetch_groups(
         summary["reassessment"] = symbols.reassess_state(
             sdb, assess_symbols=universe["symbol"].tolist()
         )
+        # Price history stopped -> out of the analysis (fix list §15).
+        summary["delisted"] = symbols.mark_delisted(sdb)

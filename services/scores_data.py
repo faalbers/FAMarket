@@ -39,7 +39,7 @@ HEAT_DEFAULTS = [
     "revenue_cagr_3y",
     "debt_to_equity",
     "current_ratio",
-    "div_yield_ttm",
+    "div_yield",
     "rs_rank",
 ]
 

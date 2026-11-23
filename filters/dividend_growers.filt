@@ -23,7 +23,7 @@
     },
     {
       "enabled": true,
-      "param": "div_yield_ttm",
+      "param": "div_yield",
       "window": null,
       "compare": "value",
       "op": "between",

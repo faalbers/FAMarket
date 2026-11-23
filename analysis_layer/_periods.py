@@ -32,6 +32,7 @@ net-income growth, or split-adjust); this layer returns values as filed.
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 
 ANNUAL = "annual"
@@ -45,7 +46,7 @@ TTM_QUARTERS = 4
 # larger than this between any two of the four means a quarter is missing and the
 # sum would silently span more than a year. ~120d tolerates 13/14-week fiscal
 # quarters and slightly irregular filing dates without admitting a real gap.
-_MAX_QUARTER_GAP_DAYS = 120
+MAX_QUARTER_GAP_DAYS = 120
 
 
 def by_symbol(fin: pd.DataFrame, symbol: str) -> pd.DataFrame:
@@ -147,7 +148,7 @@ def ttm(df: "pd.DataFrame | SymbolPeriods", field: str) -> float:
         return float("nan")
     last4 = s.iloc[-TTM_QUARTERS:]
     gaps = last4.index.to_series().diff().dropna().dt.days
-    if (gaps > _MAX_QUARTER_GAP_DAYS).any():
+    if (gaps > MAX_QUARTER_GAP_DAYS).any():
         return float("nan")
     return float(last4.sum())
 
@@ -164,3 +165,33 @@ def latest_period_end(
     p = prepare(df)
     sub = p.annual if freq == ANNUAL else p.quarterly
     return None if sub.empty else sub.index.max()
+
+
+def annual_table(fin: "pd.DataFrame | SymbolPeriods", fields) -> pd.DataFrame:
+    """One row per fiscal year (ascending period_end) with the given fields: for a
+    year with several rows (Yahoo + EDGAR) each field's LAST non-null value, as
+    `annual` gives per field. One pass for many fields — reading them one by one
+    with `annual` cost ~3.5 ms a symbol (Piotroski, fix list §19). Missing fields
+    are all-NaN columns."""
+    fields = list(fields)
+    ann = prepare(fin).annual
+    if ann.empty or not any(f in ann.columns for f in fields):
+        return pd.DataFrame(columns=fields, dtype="float64")
+    uniq, inv = np.unique(ann.index.to_numpy(), return_inverse=True)
+    pos = np.arange(len(ann))
+    out = np.full((len(uniq), len(fields)), np.nan)
+    for j, f in enumerate(fields):
+        if f not in ann.columns:
+            continue
+        col = ann[f]   # column by column: a pandas sub-frame cost ~1.5 ms a symbol
+        try:
+            v = col.to_numpy(dtype="float64", na_value=np.nan)
+        except (TypeError, ValueError):
+            v = pd.to_numeric(col, errors="coerce").to_numpy(dtype="float64")
+        ok = ~np.isnan(v)
+        if ok.any():
+            last = np.full(len(uniq), -1)
+            np.maximum.at(last, inv[ok], pos[ok])
+            have = last >= 0
+            out[have, j] = v[last[have]]
+    return pd.DataFrame(out, index=pd.DatetimeIndex(uniq), columns=fields)

@@ -21,6 +21,7 @@ databases/*.db-shm
 backups/*.db
 backups/*.log
 backups/*.py
+backups/data_system_fixes/
 logs/*.log
 logs/*.log.*
 

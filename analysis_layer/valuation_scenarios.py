@@ -12,12 +12,13 @@ standard was found for it either (2026-08 research); growth is the sole
 scenario lever for this pass.
 
   * intrinsic_value_{lynch,dcf,ddm}_{bear,bull} — per-method scenario values.
-    Bear/bull growth comes from that method's own trend-growth column ∓ its
-    residual volatility (metrics._trend_stats: eps/fcf/div_growth_vol),
-    scaled by settings.VALUATION_SCENARIO_VOL_MULTIPLIER — an uncertainty-
-    scaled stand-in for the manual scenario-rebuild professionals do by hand,
-    not a named industry technique (see settings.py comment). A steady grower
-    gets a narrow spread; a noisy one gets a wide one, automatically.
+    Bear/bull growth is the low / high end of that method's own trend growth's
+    confidence range (metrics.robust_trend: the Theil-Sen slope interval at
+    settings.VALUATION_SCENARIO_CONFIDENCE; fix list §17, 2026-11-15) — how sure
+    the growth RATE is. Few or scattered years give a wide range, a long steady
+    record a narrow one, automatically. (Replaced trend ∓ the residual spread,
+    `_growth_vol`, which measures single years' distance from the line: MNST's
+    four tidy EPS years gave bear ≈ bull.)
     The bear growth may be NEGATIVE (floored at
     VALUATION_SCENARIO_BEAR_GROWTH_FLOOR), which the DCF/DDM handle as a
     starting rate that fades up toward terminal. Lynch cannot: fair P/E ≈
@@ -90,8 +91,9 @@ def _num(x) -> float:
 
 
 def _scenario_growth(m: dict, growth_key: str) -> tuple[float, float]:
-    """(bear, bull) growth%, from `growth_key`'s trend ∓ its own residual
-    volatility column (`{base}_vol`, e.g. eps_growth_trend -> eps_growth_vol).
+    """(bear, bull) growth%, the low / high end of `growth_key`'s confidence range
+    (private `_{base}_lo` / `_hi` keys of the metrics dict, e.g. eps_growth_trend
+    -> _eps_growth_lo / _eps_growth_hi).
 
     Bear is floored at `VALUATION_SCENARIO_BEAR_GROWTH_FLOOR`, which is
     NEGATIVE: since the DCF/DDM fade any starting rate up or down toward
@@ -101,16 +103,15 @@ def _scenario_growth(m: dict, growth_key: str) -> tuple[float, float]:
     (`DCF_FADE_START_CAP`, `LYNCH_GROWTH_CAP`) to whatever it's passed, so
     bounding twice would be redundant.
 
-    NaN trend or vol (insufficient history, non-positive values) -> NaN
+    NaN trend or range (insufficient history, non-positive values) -> NaN
     scenario, which the downstream method handles the same way it already
     handles a NaN base-case trend.
     """
-    trend = _num(m.get(growth_key))
-    vol = _num(m.get(f"{growth_key.removesuffix('_trend')}_vol"))
-    if pd.isna(trend) or pd.isna(vol):
+    base = growth_key.removesuffix("_trend")
+    lo, hi = _num(m.get(f"_{base}_lo")), _num(m.get(f"_{base}_hi"))
+    if pd.isna(_num(m.get(growth_key))) or pd.isna(lo) or pd.isna(hi):
         return float("nan"), float("nan")
-    spread = vol * settings.VALUATION_SCENARIO_VOL_MULTIPLIER
-    return max(trend - spread, settings.VALUATION_SCENARIO_BEAR_GROWTH_FLOOR), trend + spread
+    return max(lo, settings.VALUATION_SCENARIO_BEAR_GROWTH_FLOOR), hi
 
 
 def _guardrail_flag(quote: pd.Series | None, risk_free: float, wacc: float, m: dict) -> bool:
@@ -185,7 +186,7 @@ def compute(
     out.update(_qualitative_flags(m))
 
     eps = _num(m.get("eps_ttm"))
-    shares = IV._shares(quote, fin)
+    shares = IV._shares(m)
     wacc_pct = _num(m.get("wacc"))
     wacc = wacc_pct / 100 if pd.notna(wacc_pct) else float("nan")
 

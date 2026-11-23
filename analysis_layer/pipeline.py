@@ -42,7 +42,10 @@ from analysis_layer import _periods as P
 from analysis_layer import metrics, technical, intrinsic_value, valuation_scenarios, peers, scoring
 from analysis_layer import estimates as estimates_metrics
 from analysis_layer import signals as signals_metrics
-from analysis_layer import benchmark_push, sector_index
+from analysis_layer import (benchmark_push, ffo, health, industry_rs, labels, price_quality,
+                            sector_index, strength)
+from config.industry_overrides import INDUSTRY_OVERRIDES
+from data_layer import price_checks
 from core.market_calendar import last_completed_session
 from analysis_layer.screen_type import classify as classify_screen_type
 
@@ -125,7 +128,7 @@ def _load_ohlcv(subset: list[str] | None = None) -> dict[str, pd.DataFrame]:
     `date` is parsed to datetime64 once here, not per symbol in the loop.
     """
     empty = {"ohlcv": pd.DataFrame(), "dividends": pd.DataFrame(), "splits": pd.DataFrame(),
-             "ohlcv_first_date": pd.DataFrame()}
+             "ohlcv_first_date": pd.DataFrame(), "price_flags": pd.DataFrame()}
     with Database(settings.OHLCV_DB) as db:
         if db.is_empty("ohlcv"):
             return empty
@@ -157,8 +160,18 @@ def _load_ohlcv(subset: list[str] | None = None) -> dict[str, pd.DataFrame]:
         out["ohlcv_first_date"] = db.query(
             f"SELECT symbol, MIN(date) AS first_date FROM ohlcv{first_where} "
             "GROUP BY symbol", sub_params)
+        # Price flags overlapping the window (data_layer/price_checks.py) — a small
+        # table, applied per symbol by price_quality.clean_window.
+        out["price_flags"] = (db.query(
+            f"SELECT symbol, \"check\", start_date, end_date FROM {price_checks.TABLE} "
+            f"WHERE end_date >= ?{sub_sql}", [cutoff, *sub_params])
+            if db.table_exists(price_checks.TABLE) else pd.DataFrame())
     for key, df in out.items():
         if df.empty:
+            continue
+        if key == "price_flags":
+            df["start_date"] = pd.to_datetime(df["start_date"])
+            df["end_date"] = pd.to_datetime(df["end_date"])
             continue
         date_col = "first_date" if key == "ohlcv_first_date" else "date"
         df[date_col] = pd.to_datetime(df[date_col])
@@ -173,6 +186,42 @@ def _events_by_symbol(events: pd.DataFrame, col: str) -> dict[str, pd.Series]:
             for s, g in events.groupby("symbol", sort=False)}
 
 
+def _secondary_lines(universe: pd.DataFrame, quotes: pd.DataFrame) -> set[str]:
+    """Company second lines: no Yahoo market cap of their own, while another listing
+    of the same company (`company_id`) has one — preferreds, units, warrants and
+    foreign duplicates typed as stocks (36 Fannie Mae / Freddie Mac preferreds; 181
+    lines on 2026-11-14). They get no market cap, price ratios or fair values: the
+    company's figures on this line's price are wrong (fix list §17). ADRs are left
+    out: an ADR is the US listing even when Yahoo omits its cap (WDS). A subset run
+    only loads the subset's quotes, so it catches a second line only when the
+    main listing is in the subset too."""
+    if "company_id" not in universe.columns or quotes.empty or "marketCap" not in quotes.columns:
+        return set()
+    u = universe[["symbol", "company_id", "security_type"]].dropna(subset=["company_id"])
+    mc = pd.to_numeric(quotes["marketCap"], errors="coerce").reindex(u["symbol"]).to_numpy()
+    u = u.assign(has_mc=mc > 0)
+    priced = set(u.loc[u["has_mc"], "company_id"])
+    sec = u[~u["has_mc"] & u["company_id"].isin(priced) & (u["security_type"] != "adr")]
+    return set(sec["symbol"])
+
+
+# Annual fields the health check, Peer Strength and REIT FFO read (one table per symbol).
+_ANNUAL_FIELDS = tuple(dict.fromkeys(health.FIELDS + strength.FIELDS + ffo.FIELDS))
+
+
+def _in_peer_universe(security_type, quote, market_cap) -> bool:
+    """The fixed set peer medians are taken over (fix list §19): a stock or ADR,
+    listed on an exchange (Yahoo's exchange name is not "OTC Markets ..."), with a
+    market cap of its own (so not a company second line, §17). 5,551 of 7,561
+    stocks / ADRs on 2026-11-15. OTC rows are still compared against it."""
+    if security_type not in ("stock", "adr") or quote is None:
+        return False
+    exch = quote.get("fullExchangeName")
+    if not isinstance(exch, str) or not exch or exch.startswith("OTC"):
+        return False
+    return market_cap is not None and pd.notna(market_cap) and market_cap > 0
+
+
 def _universe(symbols: pd.DataFrame, subset: list[str] | None) -> pd.DataFrame:
     """Active + validated symbols (Topic 8: the analysis processing gate).
 
@@ -184,16 +233,39 @@ def _universe(symbols: pd.DataFrame, subset: list[str] | None) -> pd.DataFrame:
     analysis.db by 2026-08-15. Benchmark indices now carry OHLCV as well (see
     settings.BENCHMARK_SYMBOLS), which makes this gate load-bearing rather than
     just corrective — price history for charting must not become a screening row.
+
+    Delisted symbols (`is_delisted = 1`) are excluded too.
     """
     df = symbols
     for flag in ("is_active", "is_validated"):
         if flag in df.columns:
             df = df[df[flag] == 1]
+    # Price history stopped (symbols.mark_delisted, fix list §15): kept in
+    # symbols.db with its history, but out of every ranking, peer group and screen.
+    if "is_delisted" in df.columns:
+        df = df[df["is_delisted"].fillna(0) != 1]
     if "security_type" in df.columns:
         df = df[df["security_type"] != "index"]
     if subset is not None:
         df = df[df["symbol"].isin(subset)]
     return df.reset_index(drop=True)
+
+
+def _apply_industry_overrides(quotes: pd.DataFrame) -> pd.DataFrame:
+    """Replace Yahoo's industry tag for the symbols in config/industry_overrides.py.
+
+    Done once, on the quotes frame every industry consumer reads — the screen_type
+    routing, peer groups and the sector index (fix list §25). quotes.db is untouched.
+    """
+    if quotes.empty or "industry" not in quotes.columns:
+        return quotes
+    hits = [s for s in INDUSTRY_OVERRIDES if s in quotes.index]
+    if not hits:
+        return quotes
+    quotes = quotes.copy()
+    quotes.loc[hits, "industry"] = [INDUSTRY_OVERRIDES[s] for s in hits]
+    log.info("Analysis — industry overrides applied to %d symbols", len(hits))
+    return quotes
 
 
 def _risk_free(macro: pd.DataFrame) -> float:
@@ -220,6 +292,7 @@ def run_analysis(subset: list[str] | None = None) -> dict:
         return {"symbols": 0}
 
     quotes = data["quotes"].set_index("symbol") if not data["quotes"].empty else pd.DataFrame()
+    quotes = _apply_industry_overrides(quotes)
     financials, ohlcv = data["financials"], data.pop("ohlcv")
     risk_free = _risk_free(data["macro"])
     prices_as_of = ohlcv["date"].max().strftime("%Y-%m-%d") if not ohlcv.empty else None
@@ -237,6 +310,8 @@ def run_analysis(subset: list[str] | None = None) -> dict:
     split_by = _events_by_symbol(data.pop("splits"), "splits")
     fd = data.pop("ohlcv_first_date")
     first_date_by = (dict(zip(fd["symbol"], fd["first_date"])) if not fd.empty else {})
+    pf = data.pop("price_flags")
+    flags_by = ({s: g for s, g in pf.groupby("symbol", sort=False)} if not pf.empty else {})
     # Prepare each symbol's period frames ONCE (freq split + date index + sort);
     # the ~50 _periods calls per symbol then reduce to column lookups. Doing it
     # here moves ~2/3 of the old loop cost into one upfront pass.
@@ -258,14 +333,18 @@ def run_analysis(subset: list[str] | None = None) -> dict:
     own_by = ({s: g.iloc[0] for s, g in own.groupby("symbol", sort=False)}
               if not own.empty and "symbol" in own.columns else {})
     signals_asof = pd.Timestamp(last_completed_session())
+    secondary = _secondary_lines(universe, quotes)
 
     reconcile: list = []
     rows: list[dict] = []
+    health_pending: dict[str, health.Pending] = {}  # ordinary cos. waiting for their industry line
     n_universe = len(universe)
     for i, rec in enumerate(universe.itertuples(index=False), start=1):
         sym = rec.symbol
         fsym = fin_by.get(sym, empty_fin)
-        osym = ohlcv_by.get(sym, empty_ohlcv)
+        # Flagged bad bars out BEFORE any price-based number (fix list §3, §20).
+        osym, price_issues = price_quality.clean_window(ohlcv_by.get(sym, empty_ohlcv),
+                                                        flags_by.get(sym))
         price = float(osym["adj_close"].iloc[-1]) if len(osym) else float("nan")
         quote = quotes.loc[sym] if sym in quotes.index else None
         # Computed up front (not after metrics.compute) so metrics.py can gate
@@ -284,7 +363,20 @@ def run_analysis(subset: list[str] | None = None) -> dict:
                             as_of=(osym["date"].iloc[-1] if len(osym) else None),
                             screen_type=screen_type,
                             reconcile=reconcile,
-                            risk_free=risk_free)
+                            risk_free=risk_free,
+                            secondary_line=sym in secondary)
+        # health check / peak check / dividend warning (fix list §21, Group H part 1)
+        ctype = health.company_type(sec_type, ind)
+        # one row per fiscal year, built once for the health check and Peer Strength
+        ann = P.annual_table(fsym, _ANNUAL_FIELDS) if ctype else None
+        hc, hp = health.assess(fsym, ctype, m, div_by.get(sym), split_by.get(sym), table=ann)
+        if hp is not None:
+            health_pending[sym] = hp
+        # first price bar: per-share growth starts a year after it (pre-listing share counts)
+        fd = first_date_by.get(sym)
+        listed_from = pd.Timestamp(fd) if fd is not None and pd.notna(fd) else None
+        hc.update(strength.measures(ann if ann is not None else pd.DataFrame(), ctype,
+                                    split_by.get(sym), listed_from))
         t = technical.compute(sym, osym, first_date=first_date_by.get(sym))
         iv = intrinsic_value.compute(sym, fsym, quote, price, m, risk_free,
                                       screen_type=screen_type, regulated=regulated)
@@ -292,6 +384,10 @@ def run_analysis(subset: list[str] | None = None) -> dict:
                                           screen_type=screen_type, regulated=regulated)
         est_m = estimates_metrics.compute(sym, est_by.get(sym), forward_pe=m.get("forward_pe"))
         sig_m = signals_metrics.compute(sym, surp_by.get(sym), own_by.get(sym), asof=signals_asof)
+        hc.update(labels.compute(ann, ctype, m, est_m, split_by.get(sym),  # labels (§21)
+                                 history_years=t.get("history_years", float("nan")),
+                                 listed_from=listed_from))
+        hc.update(ffo.compute(ann, ctype))  # REIT payout on FFO (§21 part 3c)
         # Fund provider/sponsor — funds only (NULL for stocks). Filtered as a
         # classification value on the Filter page; lives only in quotes.db, so it
         # must be copied into the analysis row to be screenable (no cross-DB joins).
@@ -310,10 +406,14 @@ def run_analysis(subset: list[str] | None = None) -> dict:
             "country": country,
             "fund_family": fund_family,
             "price": price,
+            "price_issues": price_issues,
             # raw weighted return -> universe-ranked into rs_rank in scoring; kept
             # in the table so subset runs can re-rank the un-recomputed rows too
             "rs_raw": technical.relative_strength_raw(osym),
-            **m, **t, **iv, **vs, **est_m, **sig_m,
+            # peer-median reference set (§19), stored so subset runs keep it
+            "peer_universe": int(_in_peer_universe(sec_type, quote, m.get("market_cap"))),
+            **{k: v for k, v in m.items() if not k.startswith("_")},  # private keys stay in memory
+            **hc, **t, **iv, **vs, **est_m, **sig_m,
         })
         if i % _PROGRESS_EVERY == 0:
             log.info("Analysis — per-symbol metrics %d/%d (%d to go)…",
@@ -326,13 +426,25 @@ def run_analysis(subset: list[str] | None = None) -> dict:
     df = _order_columns(df)
 
     # -- cross-symbol stages --------------------------------------------------- #
+    df = health.finalize(df, health_pending)  # industry debt lines for ordinary companies
+    df = strength.compute(df)                 # Peer Strength (needs peer_universe, piotroski)
+    # relative strength vs the industry ETF (§21 part 4); full runs rebuild the map
+    df, bench_map = industry_rs.run(df, quotes, first_date_by, prices_as_of, subset)
     log.info("Analysis — peer comparisons across %d symbols…", len(df))
     df = peers.compute(df)
     log.info("Analysis — scoring (ranks + category scores)…")
+    syms = data["symbols"]
+    series_ids = (syms.set_index("symbol")["series_id"].dropna()
+                  if "series_id" in syms.columns else None)
+    df = scoring.assign_rank_universe(df, series_ids)  # fixed ranking universe (§18)
     df = scoring.compute(df)  # rs_rank, category scores, overall_score
 
     log.info("Analysis — writing analysis.db…")
     _write(df, prices_as_of)
+    if bench_map is not None:
+        industry_rs.write_map(bench_map)
+    if subset is None:
+        _save_score_history(df, prices_as_of)
     _log_reconcile(reconcile, n_recomputed)
     log.info("analysis.db — %d symbols (%d recomputed), %d columns written",
              len(df), n_recomputed, df.shape[1])
@@ -344,8 +456,11 @@ def run_analysis(subset: list[str] | None = None) -> dict:
     if subset is None:
         try:
             log.info("Analysis — building sector/industry indices…")
+            company_ids = (dict(zip(universe["symbol"], universe["company_id"]))
+                           if "company_id" in universe.columns else {})
             index_summary = sector_index.build_and_write(
-                universe["symbol"].tolist(), quotes, financials, ohlcv_by, prices_as_of)
+                universe["symbol"].tolist(), quotes, financials, ohlcv_by, prices_as_of,
+                company_ids=company_ids)
         except Exception:
             log.exception("Sector/industry index build failed; analysis.db is unaffected")
         # Hand the fresh indices to FAPortfolio's GitHub Track — only after a build
@@ -400,10 +515,34 @@ def _write(df: pd.DataFrame, prices_as_of: str | None) -> None:
         "analyzed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "prices_as_of": prices_as_of,
         "n_symbols": len(df),
+        **scoring.universe_sizes(df),  # rank_universe_company / _fund / … (§18)
     }])
     with Database(settings.ANALYSIS_DB) as db:
         db.replace(TABLE, df)
         db.replace(META_TABLE, meta)
+
+
+_HISTORY_COLS = ("security_type", "price", "rank_universe", "value_score", "quality_score",
+                  "growth_score", "momentum_score", "income_score", "overall_score")
+
+
+def _save_score_history(df: pd.DataFrame, prices_as_of: str | None) -> None:
+    """Keep one snapshot of the scores per full run in score_history.db (fix list
+    §18), so their accuracy can be checked later: later returns per score decile.
+    Rows with no score at all are skipped. A rerun on the same price date replaces
+    that date's snapshot. Never fails the analysis."""
+    if not prices_as_of:
+        return
+    try:
+        cols = [c for c in _HISTORY_COLS if c in df.columns]
+        scores = [c for c in cols if c.endswith("_score")]
+        snap = df.loc[df[scores].notna().any(axis=1), ["symbol", *cols]].copy()
+        snap.insert(0, "as_of", prices_as_of)
+        with Database(settings.SCORE_HISTORY_DB) as db:
+            db.replace_by("score_history", snap, key="as_of")
+        log.info("score_history.db — %d rows for %s", len(snap), prices_as_of)
+    except Exception:
+        log.exception("Score history snapshot failed; analysis.db is unaffected")
 
 
 def _log_reconcile(reconcile: list, n_symbols: int) -> None:

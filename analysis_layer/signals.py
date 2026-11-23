@@ -20,6 +20,10 @@ import pandas as pd
 
 # Most-recent reported quarters the surprise stats summarize.
 _SURPRISE_WINDOW = 4
+# A surprise % over an estimate this close to zero is meaningless (MBI: estimate
+# -$0.03 -> "+3,533%"); such quarters are left out of the surprise averages
+# (fix list §20, 2026-11-12). They still count for the beat rate.
+_MIN_ABS_ESTIMATE = 0.05
 
 COLUMNS = (
     "earnings_surprise_avg", "earnings_surprise_last", "earnings_beat_rate",
@@ -43,11 +47,18 @@ def compute(symbol: str, surprise: pd.DataFrame | None,
         s = surprise
         if "period_end" in s.columns:  # chronological so "last" is the newest quarter
             s = s.assign(_pe=pd.to_datetime(s["period_end"], errors="coerce")).sort_values("_pe")
-        sp = pd.to_numeric(s["surprise_percent"], errors="coerce").dropna().tail(_SURPRISE_WINDOW)
-        if not sp.empty:
-            out["earnings_surprise_avg"] = float(sp.mean()) * 100
-            out["earnings_surprise_last"] = float(sp.iloc[-1]) * 100
-            out["earnings_beat_rate"] = float((sp > 0).mean()) * 100
+        s = s.tail(_SURPRISE_WINDOW)
+        sp = pd.to_numeric(s["surprise_percent"], errors="coerce")
+        est = pd.to_numeric(s.get("eps_estimate"), errors="coerce") if "eps_estimate" in s.columns             else pd.Series(float("nan"), index=s.index)
+        usable = sp[sp.notna() & ~(est.abs() < _MIN_ABS_ESTIMATE)]
+        if not usable.empty:
+            out["earnings_surprise_avg"] = float(usable.mean()) * 100
+            out["earnings_surprise_last"] = float(usable.iloc[-1]) * 100
+        # Beat = actual above estimate, from the EPS difference itself (the review's
+        # fix): a near-zero estimate can't distort a sign.
+        diff = pd.to_numeric(s.get("eps_difference"), errors="coerce").dropna()             if "eps_difference" in s.columns else sp.dropna()
+        if not diff.empty:
+            out["earnings_beat_rate"] = float((diff > 0).mean()) * 100
 
     # -- ownership snapshot ------------------------------------------------- #
     if ownership is not None:
@@ -58,7 +69,9 @@ def compute(symbol: str, surprise: pd.DataFrame | None,
         if pd.notna(ic):
             out["institutions_count"] = float(ic)
         days = _days_until(_cell(ownership, "next_earnings_date"), asof)
-        if days is not None:
+        # A past date is the LAST report, not the next one (Yahoo updates late, fix
+        # list §7): left NULL rather than a negative count of days.
+        if days is not None and days >= 0:
             out["days_to_next_earnings"] = days
 
     return out

@@ -519,7 +519,8 @@ needs.
          `universe`-anchored AND price-based (funds would then re-enter that pool).
        - PER-TYPE OVERRIDE EDITING UI — PARKED (decided 2026-06-24, with a trigger).
          Per-`screen_type` overrides already WORK (`scoring_rules.resolve()` /
-         `metric_goodness()`); only 2 are seeded in code (REIT `div_yield_ttm` +
+         `metric_goodness()`); only 2 are seeded in code (REIT `div_yield` — was
+         `div_yield_ttm` until 2026-11-15, fix list §9 —, and
          `div_payout_ratio`). A UI to add/edit more fits the visual-tuning workflow but only
          pays off given a concrete per-type tuning need. REVISIT TRIGGER: a metric
          demonstrably mis-scored across types — standing candidate **P/B** (banks/REITs sit
@@ -1043,7 +1044,143 @@ needs.
    - Directory layout, module naming, and config file structure will be decided during implementation
    - Key architectural decisions captured in Key Decisions Made above
 
+🔄 Data-system fix list (started 2026-11-11, branch `feature/data-system-fixes`)
+   - Source: an independent review of the databases, `docs/fix_list_for_data_system.md` (25 items).
+   - Worked through in 9 groups (A-I); status and open decisions in `docs/fix_list_triage.md`.
+   - Results for the reviewer: `docs/fix_list_for_data_system_done.md`.
+   - ✅ Group A — import cleaning rules (2026-11-11): `data_layer/cleaning_rules.py`, run in the
+     yfinance + EDGAR sanitize steps; stored rows cleaned once by `scripts/clean_stored_data.py`.
+     Placeholder 0s → NULL (estimates with no analysts, recommendationMean), out-of-range
+     beta / payoutRatio / grossMargins → NULL, `stockholders_equity` = 0 → common equity or NULL,
+     empty `longName` ← `shortName`. EBITDA rule dropped (Yahoo's EBITDA is consistent; reported vs
+     normalized is an analysis choice for Groups F/G).
+   - ✅ Group B — EDGAR backfill rework (2026-11-11): fiscal years never from 10-Qs (two tiers: annual
+     report in the fiscal-year-end month; other non-quarterly filings / year-end changes only ≥300 days
+     from accepted years), `Revenues` before contract revenue + seam test, first-filed share counts,
+     new columns `diluted/basic_average_shares`, `non_interest_expense`, `filed_date`,
+     `quarter_sum_flag`; capex always negative; no post-filing dates; Yahoo leftover periods skipped.
+     Full re-fetch (`scripts/refetch_edgar.py`) + repair pass. New bank metric `efficiency_ratio`.
+     **EDGAR changed from one-time (lock 36500 days) to refresh-on-new-filing**
+     (`staleness.edgar_not_due`, `EDGAR_REFRESH_LOCK_DAYS` 30 / `EDGAR_REFRESH_WINDOW_DAYS` 120) and
+     each fetch replaces the company's own EDGAR rows, guarded against losing stored years.
+   - ✅ Group C — price history (2026-11-12): yfinance `repair=True` only when a symbol's
+     `adj_close` comes back broken (kept only if better, same dividend dates, no fewer bars — on
+     healthy symbols repair deleted real dividends); its extra requests metered inside the rate
+     limit (`BaseFetcher._tick`, `_RequestMeter`). New `ohlcv.price_flags` table
+     (`data_layer/price_checks.py`: bad_adj, bad_print, level_shift, stale, gap, double_event),
+     rewritten per fetch. Analysis drops bad-print and stale bars and uses `close` for broken
+     `adj_close` before any price metric (`analysis_layer/price_quality.py`); `level_shift` flagged
+     only (can be a real collapse). New screenable column `price_issues`. One-time
+     `scripts/fix_stored_prices.py`. scikit-learn added (needed by repair).
+   - ✅ Group D — symbol state & identity (2026-11-12): `symbols.mark_delisted` after every fetch
+     (`is_delisted` / `delisted_date`: last bar older than max(5, 3 × own mean gap) sessions before
+     its own last fetch; analysis universe skips it; burst warning). **Permanent give-ups replaced by a
+     monthly re-check** (`OHLCV_RECHECK_DAYS` 30 / `RECHECK_WINDOW_DAYS` 183; `YFinanceOHLCV.select_due`,
+     `symbols.rearm_inactive` + `deactivated_date`) — Yahoo outages drop weeks of bars for many
+     symbols at once. Type corrections after every quote fetch (SEC-list "funds" → adr/stock,
+     preferred-named stocks → preferred) + purge of financials outside stock / reit / adr. Integer
+     `cik` + `company_id` from the SEC ticker map; sector index collapses by `company_id`.
+     `config/industry_overrides.py` (crypto miners, Sun Life). One-time `scripts/fix_symbol_state.py`
+     and `scripts/recover_stuck_symbols.py` (342 live symbols recovered). §22 delisted history deferred.
+   - ✅ Group E — signals consistency (2026-11-14): `days_to_next_earnings` NULL for a passed date;
+     Yahoo financials also due as soon as `earnings_surprise` shows a newer reported quarter
+     (`staleness.financials_not_due`); surprise averages skip estimates within $0.05 of zero, beat
+     rate from `eps_difference`; `forward_rev_growth` NULL on a > 1.5x estimate-chain break (not for
+     EPS — rows mix EPS definitions). Currency / insider / target items recorded: they don't reach
+     the screens.
+   - ✅ Group F — analysis foundations (2026-11-14): all-class shares (`metrics.company_shares` =
+     Yahoo `marketCap` ÷ price) for market cap, price ratios, `eps_ttm` and the fair values; EPS on one
+     split basis (`metrics.eps_current_basis`, implied-share test per row, replaces `split_adjust`);
+     robust growth (`_robust_trend`: Theil-Sen on real dates, ≥ 4 points, Kendall tau, MAD
+     steadiness, first-year outlier dropped once; `_growth_tau` replaces `_growth_r2` / `_growth_cv`);
+     EV adds minority interest + preferred equity; `ev_ebitda` / `debt_to_ebitda` use
+     `normalized_ebitda`. Limits: UAL / DAL two-year trough, Talen loss rows.
+   - ✅ Group G, part 1 — dividends + fair values (2026-11-15, §9 + §17): regular dividends
+     (`analysis_layer/dividends.py`: pay rates, special filter, yearly rates, recent cut);
+     new `div_rate` / `div_yield` (current regular rate) feed `income_score` and the DDM, `_ttm`
+     pair kept as "everything paid"; streak on yearly regular rates (2% tolerance, 10% for foreign
+     currency) and 0 after a recent cut; new `div_years_paid`, `div_recent_cut`. EPS years
+     without a reported EPS filled from net income ÷ shares (Lynch, PEG); bear/bull from the
+     Theil-Sen slope interval (`VALUATION_SCENARIO_CONFIDENCE` 0.80, replaced the vol
+     multiplier); DCF falls back to revenue growth; `fair_value_tail` (> 3x price). Company
+     second lines (no own market cap) get no market cap / price ratios / fair values. Three saved
+     filters (dividend growers, REIT income, defensive anchors) moved to `div_yield` / `div_rate`.
+     Analysis run checked 2026-11-15: stored values = the test build.
+   - ✅ Group G, part 2 — smaller metric fixes (2026-11-15, §19), analysis run checked: new
+     `piotroski_f` (0-9, standard only; paper form with opening / average assets when a third
+     year exists); peer medians over a fixed `peer_universe` (listed stocks / ADRs with their own
+     market cap), ≥ 5 members (`MIN_PEERS_FOR_MEDIAN` 3 → 5), no sector fallback, `debt_to_ebitda`
+     + `interest_coverage` added; ratios over a non-positive denominator stored NULL (replaced
+     "negative multiples are kept") with an `ebitda_negative` flag; Quality / Buyback Compounders
+     filters got an `ebitda_negative` block. Relative strength vs the industry moved to Group H.
+   - ✅ Group G, part 3 — scores (2026-11-15, §18), analysis run checked: fixed ranking universe
+     (`rank_pool` company / fund / other type, `rank_universe` reference rows = listed companies
+     and one class per mutual fund; replaced "percentile over every row" and `rs_rank` within
+     `security_type`); category / overall scores NULL below `SCORE_MIN_INPUT_SHARE` (0.5) with
+     `<category>_inputs`; growth score on robust trends + forecast-checked `*_growth_checked`
+     (replaced the 3y / 5y CAGRs and `forward_eps_growth`); `forward_pe` out of value; no margin-of-
+     safety credit for `fair_value_tail`; new `score_history.db` (one snapshot per full run) for
+     the score validation still to do. Funds no longer get an `overall_score`.
+   - ✅ Group H, part 1 — health checks (2026-11-15, §21), analysis run checked 2026-11-16: new
+     `analysis_layer/health.py` — `company_type`, `health_check` / `health_reason` (danger gate per
+     type; ordinary companies' debt lines by industry margin steadiness; interest cover below the line
+     only warns, fails below 1.5x — softened from the review), `margin_peak` / `margin_vs_normal` /
+     `op_margin_std` (positive normal only), `div_outgrowing_earnings` (rising dividend, payout ≥ 50% or
+     a loss — narrowed from the review), `economic_return_3y` (mortgage REITs). Parts 2-4: Peer
+     Strength, labels + REIT FFO payout, relative strength vs the industry.
+   - ✅ Group H, part 2 — Peer Strength (2026-11-16, §21), analysis run checked: new
+     `analysis_layer/strength.py` — `peer_strength` (0-100) + `peer_strength_measures`, type-specific
+     measures ranked within the industry (≥ 8 reference companies) else sector / type, against listed
+     $2B+ companies (`PEER_STRENGTH_MIN_CAP`); 12 new measure columns for banks / insurers / REITs /
+     brokers; one annual table per company shared with the health check.
+   - ✅ Group H, part 3a — stock category (2026-11-21, §21), analysis run checked: new
+     `analysis_layer/labels.py` — `stock_category` (growth / income / both / early / neither),
+     `revenue_ps_growth`, `category_growth`; lines in Settings (`CATEGORY_*`). Added to the review:
+     a forecast above the track record counts only up to last year's actual revenue growth
+     (acquisition forecasts). Also fixed: near-1:1 spin-off "splits" no longer void per-share growth.
+     Next: 3b growth phase labels, 3c REIT FFO payout, part 4 relative strength vs the industry.
+   - ✅ Group H, part 3b — growth phase labels (2026-11-21, §21), analysis run checked:
+     `growth_so_far` (+ `revenue_ps_growth_long`, `revenue_years`) and `growth_ahead` in `labels.py`;
+     lines in Settings. Also: per-share growth drops pre-listing years when the share count jumps
+     > 1.5x across the listing (Palantir). Found, open: revenue-per-share seams in `financials.db`
+     (295 large companies; share-count units, currency / ADS switches) — see the triage list.
+   - ✅ Group H, part 3c — REIT payout on FFO (2026-11-21, §21), analysis run checked:
+     new `analysis_layer/ffo.py` — `ffo` (net income to common + depreciation − gains on sales +
+     write-downs, newest fiscal year) and `ffo_payout` (common dividends / FFO), equity REITs only.
+     Annual rather than TTM (Yahoo's quarterly lines too sparse). Added to the review: write-downs
+     added back, and a check on Yahoo's common / preferred dividend split (Simon).
+   - ✅ Group H, part 4 — relative strength vs the industry (2026-11-21, §21), analysis run checked: new `analysis_layer/industry_rs.py` — `rs_vs_industry_1y` / `_3y` (total return
+     minus the industry ETF's, percentage points), `industry_etf`, `industry_etf_fit`; a new
+     `industry_benchmark` table in analysis.db, rebuilt each full run (best-correlated sector /
+     theme ETF vs a basket of the industry's 10 largest listed companies, else the sector SPDR).
+     3-year prices read at three dates only, so `ANALYSIS_OHLCV_LOOKBACK_DAYS` is unchanged.
+   - ✅ Revenue-per-share seams, part 1 — share counts at the wrong scale (2026-11-22), stored rows
+     repaired and checked after the analysis run: new `cleaning_rules.repair_share_scale` (EDGAR counts
+     off by an exact 1,000^k from the nearest row that agrees with its own NI / EPS are rescaled;
+     run in `edgar_fetcher.extract_financials`) and one-time `scripts/fix_share_scale.py`.
+   - ✅ Revenue-per-share seams, part 2 — one currency per company (2026-11-22), SEC re-fetch run and
+     checked after the analysis run: `edgar_fetcher._reporting_currency` (most-used currency;
+     replaced "USD whenever present"), SEC history dropped when it differs from Yahoo's
+     `financialCurrency` (agreed over FX conversion); one-time `scripts/refetch_edgar_currency.py`.
+   - ✅ Revenue-per-share seams, part 3 — share-basis breaks (2026-11-22), checked after the analysis
+     run: `strength.per_share_series` puts each year on its newer neighbour's split basis (later splits
+     included) and drops a basis break (> 2.5x shares, < 2x value) and everything older; replaced
+     "NULL when a split is in the window and the newest-year basis is > 2.5x off" (agreed: drop, not rescale).
+   - ✅ Revenue-per-share seams, part 4 — the wrong revenue line (2026-11-22), re-fetch done and
+     checked after the analysis run: same-year test against Yahoo's revenue
+     (`edgar_fetcher._off_reference`, > 25% off -> tag not used) and `RevenuesNetOfInterestExpense`
+     as the second revenue tag; one-time `scripts/refetch_edgar_revenue.py`.
+   - ✅ Group I (indices, fix list §8) (2026-11-22), checked after the analysis run: industry series
+     back-fill each member's earliest share count (`sector_index._backfill_shares`), so big members
+     with late counts are weighted (Cameco / Uranium, Google / Internet Content); sectors keep reported
+     counts. Per-series coverage recorded in the new `indices.db` `index_coverage` table (not pushed to
+     FAPortfolio). The fix list's ">= 60% coverage" start rule was tried and dropped (agreed): no gain
+     after the back-fill, and thin foreign OTC lines would have started Conglomerates in 2026.
+   - One-off backups for this project: `backups/data_system_fixes/` (outside the 5-copy rotation,
+     `core/backup.fix_backup`).
+
 ## Future Ideas (post-MVP, no timeline)
+- Historical share counts from Yahoo for the indices (added 2026-11-22, parked by the user — "keep it available"): yfinance `Ticker.get_shares_full()` gives a dated share-count series. It would replace the industry back-fill's constant-count approximation (fix list §8), whose weights drift for heavy issuers / buyers, and could let sectors use filled counts too. A new fetch step (~4,000 index members, one request each, own rate-limit budget); check how far back Yahoo's series goes and verify it against SEC counts before building on it.
 - Cloud VM for daily fetch + analysis (added 2026-06-17, LOW priority — brainstormed, not scheduled) — move the weekly fetch+analysis to a cloud VM that maintains the DBs and runs **daily** outside market hours; user retrieves only the small analysis data locally. Discussion outcome, not yet a committed design:
   - **Feasible — it's just Python + SQLite, nothing machine-bound.** A clean VM also won't need the local TLS-interception hack (`core/net.configure_tls()` stays but is harmless there).
   - **Retrieval split by DB size:** analysis.db ~19 MB + indices.db ~10 MB + financials.db ~202 MB are cheap to sync daily; **ohlcv.db ~6.7 GB stays on the VM, used only to compute analysis.** Two shapes: (A) pull the small DBs, run the UI locally; (B) run everything incl. Streamlit on the VM and browse to it.

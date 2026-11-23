@@ -26,7 +26,7 @@ from config import settings
 from core.logging_config import get_logger, roll_log
 from core.power import disable_power_throttling
 from core.shutdown_guard import ShutdownGuard
-from data_layer import run_state
+from data_layer import cancel, run_state
 from data_layer.orchestrator import run_full_fetch
 
 
@@ -36,6 +36,9 @@ def _run(args: argparse.Namespace) -> dict:
     if args.analysis_only:
         # Analysis-only rebuild (no fetch). Roll the log first, exactly as the
         # orchestrator does at the top of a fetch, so this run gets a fresh log.
+        # Drop a stop left over from an earlier run, as run_full_fetch does —
+        # else Fetch Control shows this run as "stopping" (2026-11-21).
+        cancel.clear()
         roll_log()
         return {"analysis": run_analysis(subset=subset)}
     return run_full_fetch(

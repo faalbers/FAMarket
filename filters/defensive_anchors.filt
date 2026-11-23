@@ -21,7 +21,7 @@
     },
     {
       "enabled": true,
-      "param": "div_rate_ttm",
+      "param": "div_rate",
       "window": null,
       "compare": "value",
       "op": ">",

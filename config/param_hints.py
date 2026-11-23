@@ -27,7 +27,7 @@ correctly (append "%", align columns, format axes). Controlled vocabulary:
 The UI renders titles bold with indented body text; use a list for body when
 multiple points need explaining. Growth bases (revenue/eps/fcf/book_value) carry
 ONE hint each — it covers all their windows (CAGR 1/3/5y, YoY quarter, trend
-stats); the R² window is the only unitless one in an otherwise "%" family.
+stats); the direction (tau) window is the only unitless one in an otherwise "%" family.
 
 How the hint is turned into on-screen TEXT lives here too, in ONE place:
 `hint_markdown()` (for Streamlit `help=` tooltips, the Parameter Reference page,
@@ -90,8 +90,10 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "EV/EBITDA",
         "category": "Valuation",
         "unit": "x",
-        "what_it_is": "Enterprise value (market cap + debt − cash) over trailing EBITDA.",
+        "what_it_is": "Enterprise value (all-class market cap + debt − cash + minority interest + preferred equity) "
+                      "over trailing EBITDA — normalized EBITDA (one-off charges removed) where available.",
         "how_to_use": [
+            "NULL when EBITDA is zero or negative; ebitda_negative = 1 marks those.",
             "Capital-structure neutral — good for comparing leveraged vs unleveraged firms.",
             "Roughly: under ~8 cheap, over ~15 expensive — but very sector-dependent.",
         ],
@@ -114,6 +116,7 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "x",
         "what_it_is": "Price divided by analysts' expected next-12-month EPS (estimate data).",
         "how_to_use": [
+            "NULL when the forward EPS estimate is zero or negative.",
             "Well below trailing P/E means analysts expect earnings to grow.",
             "It is a forecast — treat it as opinion, not fact.",
         ],
@@ -136,6 +139,7 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "x",
         "what_it_is": "Market cap divided by book value (shareholders' equity).",
         "how_to_use": [
+            "NULL when book value (equity) is zero or negative.",
             "The core multiple for banks, insurers and REITs.",
             "Under 1 means priced below accounting net worth — check why.",
         ],
@@ -147,8 +151,8 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "x",
         "what_it_is": "Price divided by trailing 12-month earnings per share.",
         "how_to_use": [
+            "NULL when trailing earnings are zero or negative (since 2026-11-15) — a loss is n/a, not cheap. Use eps_ttm or net margin to find the loss-makers.",
             "Lower can mean cheaper, but very low may signal trouble.",
-            "Negative means no earnings — read alongside growth and margins.",
         ],
         "vs_peers": "Yes — P/E is only meaningful relative to sector/industry.",
     },
@@ -156,7 +160,7 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "PEG",
         "category": "Valuation",
         "unit": "x",
-        "what_it_is": "Trailing P/E divided by the EPS trend growth rate (log-linear fit, in %).",
+        "what_it_is": "Trailing P/E divided by the EPS trend growth rate (robust trend over ~6 years, in %; years with no reported EPS filled from net income / shares).",
         "how_to_use": [
             "Around 1 is fairly priced for its growth (Lynch's rule of thumb).",
             "Under 1 suggests growth at a discount; NULL when growth is zero or negative.",
@@ -288,6 +292,7 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "%",
         "what_it_is": "Return on equity: trailing net income / shareholders' equity × 100.",
         "how_to_use": [
+            "NULL when equity is zero or negative — a loss over negative equity used to show a huge positive ROE (Roblox 97,200%).",
             "15%+ sustained is a quality marker; the key metric for banks/insurers.",
             "Very high ROE with high debt is leverage, not skill — check D/E.",
         ],
@@ -322,6 +327,7 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "x",
         "what_it_is": "Total assets / equity — how much of the balance sheet is funded by debt vs shareholders' own money (the leverage piece of ROE).",
         "how_to_use": [
+            "NULL when equity is zero or negative.",
             "1.0 = no debt at all; the higher above 1, the more assets are debt-funded.",
             "A high value inflates ROE without improving the underlying business — pair with debt/equity and interest coverage.",
         ],
@@ -456,6 +462,7 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "x",
         "what_it_is": "Total debt divided by trailing EBITDA — years of cash earnings to repay all debt.",
         "how_to_use": [
+            "NULL when EBITDA is zero or negative (it used to go negative and read as 'little debt'). A filter with an 'or is null' branch should also require ebitda_negative = 0.",
             "Under 2 comfortable, 2-4 manageable, above 4-5 strained (lenders' own yardstick).",
             "More telling than D/E when equity is distorted by buybacks.",
         ],
@@ -467,6 +474,7 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "x",
         "what_it_is": "Total debt divided by shareholders' equity (stored as a ratio, not percent).",
         "how_to_use": [
+            "NULL when equity is zero or negative.",
             "Under ~0.5 conservative, 1-2 typical, above ~2 leveraged.",
             "REITs run higher by design — judge them against REIT norms.",
         ],
@@ -482,6 +490,120 @@ PARAM_HINTS: dict[str, dict] = {
             "Falling coverage with rising rates is a squeeze in progress.",
         ],
         "vs_peers": "Somewhat — the absolute danger zone (<2) matters more than the median.",
+    },
+    "efficiency_ratio": {
+        "name": "Efficiency",
+        "category": "Balance Sheet",
+        "unit": "%",
+        "what_it_is": "Banks only: non-interest expense (staff, buildings, technology…) as a percent of revenue — what it costs the bank to earn each dollar.",
+        "how_to_use": [
+            "Lower is better; ~55-65% is typical, under ~50% is lean.",
+            "A rising ratio means costs are growing faster than income.",
+        ],
+        "vs_peers": "Yes — compare with banks of similar size and business mix.",
+    },
+    "health_check": {
+        "name": "Health check",
+        "category": "Balance Sheet",
+        "unit": "",
+        "what_it_is": "A danger gate on the latest fiscal year: ok, warn or fail, with tests set by "
+                      "company type. Ordinary companies: fail on an operating loss or interest cover "
+                      "below 1.5x; warn when debt / EBITDA or interest cover misses the industry's "
+                      "line (steadier industries may carry more debt: 5x / 2x steady, 3.5x / 3x "
+                      "normal, 2.5x / 4x swinging; utilities 6.5x / 2x, telecoms 4x / 2.5x). "
+                      "REITs, insurers, banks, brokers and mortgage REITs have their own tests.",
+        "how_to_use": [
+            "Exclude 'fail' in any long-term screen; read health_reason before acting on 'warn'.",
+            "Empty = can't judge (no operating income on file, shells). A missing figure never fails a test.",
+            "Banks only warn: loan quality and capital ratios are not in the data.",
+        ],
+        "vs_peers": "Partly — ordinary companies' debt lines follow their industry's margin steadiness.",
+    },
+    "health_reason": {
+        "name": "Health check reason",
+        "category": "Balance Sheet",
+        "unit": "",
+        "what_it_is": "Why the health check said warn or fail, e.g. 'operating loss' or "
+                      "'debt/EBITDA 4.5x > 3.5x (normal industry)'. Empty when ok.",
+        "how_to_use": ["Read it next to the verdict; the numbers are the latest fiscal year."],
+        "vs_peers": "No.",
+    },
+    "economic_return_3y": {
+        "name": "Economic return 3y (mREIT)",
+        "category": "Balance Sheet",
+        "unit": "%",
+        "what_it_is": "Mortgage REITs only: change in book value per share plus dividends per share "
+                      "over up to 3 fiscal years, divided by the starting book value per share — the "
+                      "return the business really made for shareholders.",
+        "how_to_use": [
+            "Below 0% the dividend ate into book value (warn); below -20% fail.",
+            "Annaly 2022-2025: book value per share 20.79 -> 20.21 plus dividends paid.",
+        ],
+        "vs_peers": "No — an absolute return.",
+    },
+    "piotroski_f": {
+        "name": "Piotroski F-score",
+        "category": "Balance Sheet",
+        "unit": "",
+        "what_it_is": "The Piotroski F-score (2000), 0-9: one point each for positive ROA, positive "
+                      "operating cash flow, ROA up, cash flow above net income, long-term debt / "
+                      "assets not up, current ratio up, no new shares, gross margin up and asset "
+                      "turnover up — latest fiscal year vs the one before.",
+        "how_to_use": [
+            "8-9 = strong and improving, 0-2 = weak and worsening. Piotroski used it to pick the "
+            "healthy firms among cheap (high book-to-market) stocks — pair it with a value filter.",
+            "Empty unless all nine tests can be computed: needs two fiscal years 300-430 days apart "
+            "with current assets / liabilities and gross profit (most banks and insurers have none).",
+            "Not the same as Quick health, our own 7-check list.",
+        ],
+        "vs_peers": "No — an absolute count.",
+    },
+    "ebitda_negative": {
+        "name": "EBITDA negative",
+        "category": "Balance Sheet",
+        "unit": "",
+        "what_it_is": "1 when trailing EBITDA (normalized when Yahoo has it) is zero or negative, "
+                      "0 when positive. Debt/EBITDA and EV/EBITDA are empty for these companies.",
+        "how_to_use": [
+            "Add 'ebitda_negative = 0' to any filter that keeps debt/EBITDA 'or is null', so "
+            "loss-making companies don't pass as debt-free.",
+        ],
+        "vs_peers": "No — a yes/no flag.",
+    },
+    "op_margin_std": {
+        "name": "Margin steadiness",
+        "category": "Profitability",
+        "unit": "%",
+        "what_it_is": "Standard deviation of the yearly operating margin over the last 5-10 years, "
+                      "in percentage points. Lower = steadier business.",
+        "how_to_use": [
+            "Under ~3 points is very steady (staples, utilities); above ~10 swings with the cycle.",
+            "Its industry median sorts industries into steady / normal / swinging for the health check's debt lines.",
+        ],
+        "vs_peers": "Yes — some industries swing by nature.",
+    },
+    "margin_peak": {
+        "name": "Margin at a cyclical peak",
+        "category": "Profitability",
+        "unit": "",
+        "what_it_is": "1 when the latest yearly operating margin is more than 15 points AND 1.5x above "
+                      "its own normal (the median of up to 10 earlier years), and 15 points above "
+                      "the trend line through those years. Only for a positive normal (a loss-maker "
+                      "turning profitable is not a peak).",
+        "how_to_use": [
+            "Treat the current P/E as flattering: in the review's test about 29% of the gap to "
+            "normal was given back within 2 years. It marks profits that may not last, not a collapse.",
+        ],
+        "vs_peers": "No — against its own history.",
+    },
+    "margin_vs_normal": {
+        "name": "Margin vs its normal",
+        "category": "Profitability",
+        "unit": "%",
+        "what_it_is": "Latest yearly operating margin minus the median of up to 10 earlier years, in "
+                      "percentage points (pre-tax margin when operating income has too few years).",
+        "how_to_use": ["Large positive = unusually good year; negative = below its usual level."],
+        "vs_peers": "No — against its own history.",
     },
     "quick_health_score": {
         "name": "Quick health",
@@ -527,7 +649,7 @@ PARAM_HINTS: dict[str, dict] = {
     },
     # ------------------------------------------------------------------ #
     # Growth (one hint per base; covers all windows: CAGR 1/3/5y, YoY
-    # quarter, growth volatility %, trend R² (0-1), variability CV %)
+    # quarter, robust trend %, steadiness spread %, direction tau (-1..1))
     # ------------------------------------------------------------------ #
     "book_value": {
         "name": "BV growth",
@@ -537,7 +659,7 @@ PARAM_HINTS: dict[str, dict] = {
         "how_to_use": [
             "THE growth metric for banks and insurers (their earnings compound into book).",
             "Steady ~10%+ book growth plus reasonable P/B is the classic financial-sector screen.",
-            "Volatility % and CV % low + R² near 1 = steady compounding; high vol = one-off write-downs/raises distorting book value.",
+            "Steadiness spread % low + direction (tau) near 1 = steady compounding; high vol = one-off write-downs/raises distorting book value.",
             "Trend growth %/yr — a steadier alternative to CAGR, fit across the full ~5-year window instead of just the two endpoints.",
         ],
         "vs_peers": "Yes — compare within banks/insurance specifically.",
@@ -548,9 +670,10 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "%",
         "what_it_is": "Growth of split-adjusted diluted EPS. Same windows as revenue growth (CAGR 1/3/5y, YoY quarter, trend stats).",
         "how_to_use": [
+            "Trend, forecast-checked (revenue / EPS only): the trend growth, pulled halfway down to the analysts' next-year forecast when the forecast is lower; a higher forecast adds nothing. This is what the Growth score uses (since 2026-11-15).",
             "EPS growing faster than revenue = margin expansion or buybacks.",
-            "Erratic EPS (high vol, low R²) makes P/E and PEG less trustworthy.",
-            "Volatility % and CV % low + R² near 1 = steady earner; high vol = one-off gains/charges distorting the trend.",
+            "Erratic EPS (wide steadiness spread, low direction tau) makes P/E and PEG less trustworthy.",
+            "Steadiness spread % low + direction (tau) near 1 = steady earner; high vol = one-off gains/charges distorting the trend.",
             "Trend growth %/yr — a steadier alternative to CAGR, fit across the full ~5-year window instead of just the two endpoints.",
         ],
         "vs_peers": "Yes — compare pace and steadiness within the industry.",
@@ -574,10 +697,10 @@ PARAM_HINTS: dict[str, dict] = {
         "how_to_use": [
             "The cash check on EPS growth — both should roughly agree over time.",
             "Feeds the DCF intrinsic value — trend growth sets where the projection starts (bounded at 35%) before fading to the terminal rate.",
-            "Volatility % and CV % low + R² near 1 = steady cash generation; high vol = lumpy or capex-heavy years.",
+            "Steadiness spread % low + direction (tau) near 1 = steady cash generation; high vol = lumpy or capex-heavy years.",
             "Trend growth %/yr — a steadier alternative to CAGR, fit across the full ~5-year window instead of just the two endpoints.",
         ],
-        "vs_peers": "Yes — but steadiness (R², CV) matters more than raw pace.",
+        "vs_peers": "Yes — but steadiness (spread, tau) matters more than raw pace.",
     },
     "revenue": {
         "name": "Rev growth",
@@ -585,9 +708,10 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "%",
         "what_it_is": "Growth of annual total revenue. Windows: 1/3/5-year CAGR, latest quarter vs the same quarter last year (YoY), plus trend quality over ~5 years.",
         "how_to_use": [
+            "Trend, forecast-checked (revenue / EPS only): the trend growth, pulled halfway down to the analysts' next-year forecast when the forecast is lower; a higher forecast adds nothing. This is what the Growth score uses (since 2026-11-15).",
             "CAGR = smoothed yearly pace; YoY quarter = what's happening right now.",
-            "Volatility % and CV % low + R² near 1 = steady grower; high vol = lumpy or cyclical.",
-            "R² is 0-1 (fit quality), not a percent.",
+            "Steadiness spread % low + direction (tau) near 1 = steady grower; high vol = lumpy or cyclical.",
+            "Direction (tau) runs -1 to 1 (+1 = up every year), not a percent.",
             "Trend growth %/yr — a steadier alternative to CAGR, fit across the full ~5-year window instead of just the two endpoints.",
         ],
         "vs_peers": "Yes — growth is only impressive against the industry's pace.",
@@ -689,7 +813,9 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Fwd rev gr",
         "category": "Estimates",
         "unit": "%",
-        "what_it_is": "Analysts' consensus revenue growth for the next fiscal year vs the current one.",
+        "what_it_is": "Analysts' consensus revenue growth for the next fiscal year vs the current one. "
+                      "Blank when the provider's two estimate rows don't line up (a scale break, "
+                      "e.g. the Japanese megabanks).",
         "how_to_use": [
             "Top-line forward growth — cleaner than EPS for early-stage / thin-margin names.",
             "Pair with forward EPS growth: revenue growing faster than EPS hints at margin pressure.",
@@ -703,7 +829,8 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Days to earnings",
         "category": "Earnings",
         "unit": "days",
-        "what_it_is": "Calendar days until the next expected earnings report (from the analyst calendar).",
+        "what_it_is": "Calendar days until the next expected earnings report (from the analyst calendar). "
+                      "Blank when the provider still shows the last report's date (it updates late).",
         "how_to_use": [
             "A RISK GATE, not a quality score — a report can gap a stock either way.",
             "Avoid initiating right before earnings (small number), or target a post-report window.",
@@ -714,7 +841,8 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Beat rate",
         "category": "Earnings",
         "unit": "%",
-        "what_it_is": "Share of the last 4 reported quarters where actual EPS beat the estimate.",
+        "what_it_is": "Share of the last 4 reported quarters where actual EPS beat the estimate "
+                      "(actual minus estimate above zero).",
         "how_to_use": [
             "Higher = more consistent execution above expectations (100 = beat every quarter).",
             "Consistency matters more than a single lucky beat — use with the surprise average.",
@@ -725,7 +853,9 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Surprise avg",
         "category": "Earnings",
         "unit": "%",
-        "what_it_is": "Average earnings surprise (actual vs estimate EPS) over the last 4 reported quarters.",
+        "what_it_is": "Average earnings surprise (actual vs estimate EPS) over the last 4 reported quarters. "
+                      "Quarters whose estimate was within $0.05 of zero are left out — a percent of "
+                      "almost nothing is meaningless.",
         "how_to_use": [
             "Positive = a habit of beating estimates; post-earnings drift tends to follow beats.",
             "A consistent beater is executing above expectations — pair with the beat rate for consistency.",
@@ -736,7 +866,8 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Surprise last",
         "category": "Earnings",
         "unit": "%",
-        "what_it_is": "Earnings surprise (actual vs estimate EPS) for the most recent reported quarter.",
+        "what_it_is": "Earnings surprise (actual vs estimate EPS) for the most recent reported quarter "
+                      "whose estimate was not within $0.05 of zero.",
         "how_to_use": [
             "The freshest beat/miss — a big positive can kick off post-earnings drift.",
             "Read next to the 4-quarter average: one beat after misses is weaker than a steady streak.",
@@ -776,25 +907,31 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Div growth",
         "category": "Income",
         "unit": "%",
-        "what_it_is": "Growth of the annual dividend rate (each complete year's max per-share "
-                      "payment). Windows: 1/3/5-year CAGR, plus trend quality over ~5 years.",
+        "what_it_is": "Growth of the REGULAR annual dividend rate (each complete year's typical "
+                      "payment × payments per year, special dividends left out). Windows: "
+                      "1/3/5-year CAGR, plus trend quality over ~5 years.",
         "how_to_use": [
             "CAGR: 5-10%+ with a safe payout ratio is the dividend-growth sweet spot.",
-            "Volatility % and CV % low + R² near 1 = steady raiser; high vol = lumpy raises.",
+            "Steadiness spread % low + direction (tau) near 1 = steady raiser; high vol = lumpy raises.",
             "Negative CAGR means the payout shrank — check for cuts.",
             "Trend growth %/yr — a steadier alternative to CAGR, fit across the full ~5-year window instead of just the two endpoints.",
             "Feeds the DDM intrinsic value — trend growth sets where the projection starts (bounded at 35%) before fading to the terminal rate.",
+            "A switch to monthly payments or a one-off special no longer distorts it.",
         ],
         "vs_peers": "Yes — utilities grow slowly from high yields; tech fast from low ones.",
     },
     "div_consecutive_years": {
-        "name": "Div streak",
+        "name": "Years w/o cut",
         "category": "Income",
         "unit": "yr",
-        "what_it_is": "Number of consecutive complete years the annual dividend total increased.",
+        "what_it_is": "Consecutive complete years in which the regular annual dividend rate "
+                      "did not fall (specials left out). 0 after a cut in the last ~2 years "
+                      "(see Recent dividend cut).",
         "how_to_use": [
             "Long streaks (10/25+ = achiever/aristocrat territory) signal management commitment.",
-            "Limited by our price-history depth — treat it as 'at least this many'.",
+            "'Not cut', not 'raised': a flat year keeps the streak going.",
+            "Foreign companies: a drop under 10% in dollars counts as currency, not a cut.",
+            "Limited by our price-history depth (~30 years) — treat it as 'at least this many'.",
         ],
         "vs_peers": "No — a streak is meaningful on its own.",
     },
@@ -802,7 +939,7 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Div consist",
         "category": "Income",
         "unit": "%",
-        "what_it_is": "Share of year-over-year steps where the annual dividend held or grew (100 = never cut in our history).",
+        "what_it_is": "Share of year-over-year steps where the regular annual dividend rate held or grew (100 = never cut in our history).",
         "how_to_use": [
             "100 = no cuts; 80 = cut roughly one year in five.",
             "Softer than the streak: one old cut doesn't zero it out.",
@@ -826,19 +963,75 @@ PARAM_HINTS: dict[str, dict] = {
         "unit": "%",
         "what_it_is": "Dividends paid / trailing net income × 100 — the slice of profit paid out.",
         "how_to_use": [
+            "NULL when trailing net income is zero or negative (use div_coverage then).",
             "30-60% is the comfortable band for most companies.",
             "Above ~80% leaves little safety; above 100% is paid from reserves or debt.",
             "REITs are legally high payers — judge them separately.",
         ],
         "vs_peers": "Yes — sustainable levels are industry-specific.",
     },
-    "div_rate_ttm": {
+    "div_rate": {
         "name": "Div rate",
         "category": "Income",
         "unit": "$",
-        "what_it_is": "Dollars of dividend paid per share over the last 365 days. 0 for non-payers.",
+        "what_it_is": "Current regular annual dividend per share: the latest regular payment × "
+                      "payments per year (special dividends left out). 0 for non-payers and "
+                      "for a payer whose next payment is overdue (suspended).",
         "how_to_use": [
-            "The absolute payout behind the yield — yield = rate / price.",
+            "The forward-looking payout behind the yield — yield = rate / price.",
+            "Like Yahoo's 'forward dividend rate'; matched it for 87% of large US payers.",
+        ],
+        "vs_peers": "No — it's a per-share dollar amount; compare yields instead.",
+    },
+    "div_yield": {
+        "name": "Yield",
+        "category": "Income",
+        "unit": "%",
+        "what_it_is": "Current regular annual dividend rate / current price — the yield you "
+                      "can expect to keep collecting, special dividends left out.",
+        "how_to_use": [
+            "Higher pays more income; unusually high can signal a falling price.",
+            "Pair with payout ratio, years without a cut and Recent dividend cut for safety.",
+            "Income is an absolute goal — what counts is the actual yield you collect, "
+            "not whether it's high 'for the sector'.",
+            "Feeds the Income score and the DDM intrinsic value.",
+        ],
+        "vs_peers": "For screening, sector norms differ — but for income the absolute "
+                    "level is what matters most (a sector-high 0.5% is still tiny).",
+    },
+    "div_years_paid": {
+        "name": "Years paid",
+        "category": "Income",
+        "unit": "yr",
+        "what_it_is": "Unbroken calendar years with any dividend, counted back from the last "
+                      "full year. Cuts don't end it; a year with no payment does.",
+        "how_to_use": [
+            "The 'reliable income payer' question — a company that cut once but never stopped paying still counts.",
+            "Limited by our price-history depth (~30 years).",
+        ],
+        "vs_peers": "No — a record is meaningful on its own.",
+    },
+    "div_recent_cut": {
+        "name": "Recent cut",
+        "category": "Income",
+        "unit": "",
+        "what_it_is": "1 = the regular dividend was cut in the last ~2 years: today's rate is "
+                      "under 92% of the rate 1-2 years ago AND the last 12 months paid under 95% "
+                      "of the 12 months before. Empty with fewer than 5 payments in 3 years.",
+        "how_to_use": [
+            "Filter it to 0 to drop recent cutters from income screens.",
+            "Both tests must hold, so a shifted payment date or a switch to monthly payments is not a cut.",
+        ],
+        "vs_peers": "No — a yes / no fact.",
+    },
+    "div_rate_ttm": {
+        "name": "Div rate TTM",
+        "category": "Income",
+        "unit": "$",
+        "what_it_is": "Every dividend paid per share over the last 365 days, special dividends "
+                      "included. 0 for non-payers.",
+        "how_to_use": [
+            "What was actually paid; Div rate (regular) is what to expect going forward.",
             "Use `> 0` as the simplest 'pays a dividend' filter.",
         ],
         "vs_peers": "No — it's a per-share dollar amount; compare yields instead.",
@@ -847,12 +1040,11 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Yield TTM",
         "category": "Income",
         "unit": "%",
-        "what_it_is": "Sum of dividends paid in the last 365 days / current price.",
+        "what_it_is": "Every dividend paid in the last 365 days, special dividends included, "
+                      "/ current price.",
         "how_to_use": [
-            "Higher pays more income; unusually high can signal a falling price.",
-            "Pair with payout ratio and consecutive growth years for safety.",
-            "Income is an absolute goal — what counts is the actual yield you collect, "
-            "not whether it's high 'for the sector'.",
+            "Counts one-off specials: Dillard's shows 5.0% here against a 0.19% regular yield.",
+            "For income screens use Yield (regular) instead.",
         ],
         "vs_peers": "For screening, sector norms differ — but for income the absolute "
                     "level is what matters most (a sector-high 0.5% is still tiny).",
@@ -1119,12 +1311,13 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "DCF",
         "category": "Intrinsic Value",
         "unit": "$",
-        "what_it_is": "Per-share DCF: trailing FCF projected 10 years at a growth rate that fades from its trend rate (log-linear fit, start bounded at 35%) down to the 2.5% terminal rate by the final year, discounted at the weighted WACC where available (else risk-free + beta × 5%), plus terminal value, minus net debt.",
+        "what_it_is": "Per-share DCF: trailing FCF projected 10 years at a growth rate that fades from its trend rate (robust trend, start bounded at 35%) down to the 2.5% terminal rate by the final year, discounted at the weighted WACC where available (else risk-free + beta × 5%), plus terminal value, minus net debt.",
         "how_to_use": [
             "The most complete model — and the most assumption-sensitive.",
             "The fade is why this reads lower than a flat-growth DCF: nothing compounds at its trailing rate for a decade.",
             "Treat as a rough anchor; demand a margin of safety, not precision.",
             "NULL when FCF is negative.",
+            "When the FCF history has a negative year (no compound growth), revenue trend growth is used instead — FCF grows with sales at today's margin.",
         ],
         "vs_peers": "No — compare price to value.",
     },
@@ -1132,7 +1325,7 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "DDM",
         "category": "Intrinsic Value",
         "unit": "$",
-        "what_it_is": "Dividend discount model: trailing per-share dividend projected 10 years on the same fading growth path as the DCF (trend rate, start bounded at 35%, declining to the 2.5% terminal rate), discounted at the same rate as the DCF, plus terminal value.",
+        "what_it_is": "Dividend discount model: the current regular annual dividend (special dividends left out) projected 10 years on the same fading growth path as the DCF (regular-dividend trend rate, start bounded at 35%, declining to the 2.5% terminal rate), discounted at the same rate as the DCF, plus terminal value.",
         "how_to_use": [
             "The model banks, insurers and REITs actually get valued on — deposits/underwriting and GAAP depreciation make FCF-DCF and EPS-based Graham/Lynch unreliable for them.",
             "Only meaningful for real dividend payers; NULL for non-payers. In the base case a shrinking dividend is floored to 0% growth; only the bear scenario may start negative.",
@@ -1154,7 +1347,7 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Lynch",
         "category": "Intrinsic Value",
         "unit": "$",
-        "what_it_is": "Peter Lynch fair value: EPS × growth rate (EPS trend growth %, log-linear fit, capped at 25) used as the fair P/E.",
+        "what_it_is": "Peter Lynch fair value: EPS × growth rate (EPS trend growth %, robust trend, capped at 25) used as the fair P/E. Years with no reported EPS are filled from net income / shares.",
         "how_to_use": [
             "Embodies PEG = 1: a grower deserves its growth rate as a P/E.",
             "Only meaningful for steady growers; NULL without positive EPS and growth.",
@@ -1190,10 +1383,10 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Fair value (bear)",
         "category": "Intrinsic Value",
         "unit": "$",
-        "what_it_is": "fair_value recomputed with each applicable model's starting growth pulled down to trend growth minus its own residual volatility (Graham excluded — it has no forward growth input to flex, so it never varies by scenario).",
+        "what_it_is": "fair_value recomputed with each applicable model's starting growth at the LOW end of its trend growth's 80% confidence range (Graham excluded — it has no forward growth input to flex, so it never varies by scenario).",
         "how_to_use": [
             "The pessimistic end of the range — compare against fair_value_bull to see how sensitive the valuation actually is.",
-            "A narrow bear-to-bull spread means a steady growth history; a wide one means a noisy one.",
+            "A narrow bear-to-bull spread means a long, steady growth record; few or scattered years give a wide one.",
             "May start from a negative growth rate (floored at -10%), which then fades up toward the terminal rate — a genuine contraction case. Lynch drops out of the blend when that happens, since fair P/E ≈ growth says nothing about a shrinking company.",
             "NULL under the same conditions as fair_value, AND whenever no applicable model has enough growth history to build a scenario — a blank here means 'no range available', not 'no downside'.",
         ],
@@ -1203,7 +1396,7 @@ PARAM_HINTS: dict[str, dict] = {
         "name": "Fair value (bull)",
         "category": "Intrinsic Value",
         "unit": "$",
-        "what_it_is": "fair_value recomputed with each applicable model's starting growth pushed up to trend growth plus its own residual volatility, still bounded by each model's own start cap (Graham excluded, same as fair_value_bear).",
+        "what_it_is": "fair_value recomputed with each applicable model's starting growth at the HIGH end of its trend growth's 80% confidence range, still bounded by each model's own start cap (Graham excluded, same as fair_value_bear).",
         "how_to_use": [
             "The optimistic end of the range.",
             "NULL under the same conditions as fair_value, AND whenever no applicable model has enough growth history to build a scenario.",
@@ -1230,6 +1423,17 @@ PARAM_HINTS: dict[str, dict] = {
             "NULL wherever fair_value_bull is NULL.",
         ],
         "vs_peers": "No — it's already an absolute discount measure.",
+    },
+    "fair_value_tail": {
+        "name": "Fair value > 3x",
+        "category": "Intrinsic Value",
+        "unit": "",
+        "what_it_is": "True when fair_value is more than 3x the price — a model tail, not a bargain: a distressed price, book value far above market value, or a past cash flow that won't recur.",
+        "how_to_use": [
+            "Filter it to False in value screens so model tails don't top the margin-of-safety ranking.",
+            "Mostly tiny and distressed companies; 10% of stocks with a fair value were above 3x on 2026-11-14.",
+        ],
+        "vs_peers": "No — an absolute mechanical check.",
     },
     "valuation_guardrail_flag": {
         "name": "Valuation guardrail",
@@ -1554,6 +1758,60 @@ PARAM_HINTS: dict[str, dict] = {
         "how_to_use": ["Pick one or more providers to include, or exclude families you don't want."],
         "vs_peers": "No — it is the grouping label itself, not a value to compare.",
     },
+    "peer_universe": {
+        "name": "Listed peer company",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "1 for an exchange-listed stock or ADR with a market cap of its own (not OTC, "
+                      "not a company's second line). The vs-sector / vs-industry medians are taken "
+                      "over these companies only; every stock is then compared against them.",
+        "how_to_use": [
+            "Filter = 1 to leave out OTC stocks and second lines.",
+        ],
+        "vs_peers": "No — a yes/no flag.",
+    },
+    "company_type": {
+        "name": "Company type",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "The type the health check judges by, from the Yahoo industry: ordinary, "
+                      "utility, telecom, bank, insurer, reit, mortgage_reit, broker (capital markets, "
+                      "financial conglomerates, mortgage finance) or shell.",
+        "how_to_use": ["Pick types before comparing health or strength figures across companies."],
+        "vs_peers": "No — a label.",
+    },
+    "div_outgrowing_earnings": {
+        "name": "Dividend outgrowing earnings",
+        "category": "Income",
+        "unit": "",
+        "what_it_is": "1 when the regular dividend is rising more than 5 points a year faster than "
+                      "net income AND the payout is 50%+ or the latest year was a loss — a rising "
+                      "payout, not real dividend growth.",
+        "how_to_use": [
+            "= 0 in a dividend-growth screen keeps out raises the earnings don't support.",
+            "Empty for non-payers or without enough years for both growth rates.",
+        ],
+        "vs_peers": "No — an absolute check.",
+    },
+    "price_issues": {
+        "name": "Price issues",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "Problems found in this symbol's last ~2 years of Yahoo price history, "
+                      "which the analysis worked around. Blank when the prices are clean. "
+                      "Values: stale (no trades, price carried — those days dropped), "
+                      "bad_print (a 10x spike that snapped back within 5 days — dropped), "
+                      "level_shift (a lasting 10x jump — an unrecorded reverse split or a "
+                      "real collapse; prices kept as they are, so check before trusting), "
+                      "bad_adj (broken dividend-adjusted prices — plain closes used instead), "
+                      "gap (a month or more without prices), double_event.",
+        "how_to_use": [
+            "Use 'is null' to keep only symbols with clean price history.",
+            "Technical metrics, RS rank and momentum are least reliable with 'level_shift' "
+            "(not corrected) — mostly OTC penny stocks and thinly traded foreign lines.",
+        ],
+        "vs_peers": "No — it is a data-quality label, not a value to compare.",
+    },
     "industry": {
         "name": "Industry",
         "category": "Classification",
@@ -1571,6 +1829,24 @@ PARAM_HINTS: dict[str, dict] = {
         "vs_peers": "No — it is the grouping label itself, not a value to compare.",
     },
 }
+
+# `<category>_inputs` (fix list §18): one hint shape for the six score-input shares.
+for _cat, _label in (("overall", "Overall"), ("value", "Value"), ("quality", "Quality"),
+                     ("growth", "Growth"), ("momentum", "Momentum"), ("income", "Income")):
+    PARAM_HINTS[f"{_cat}_inputs"] = {
+        "name": f"{_label} inputs",
+        "category": "Score",
+        "unit": "%",
+        "what_it_is": (f"Share of the {_label} score's input weight this symbol has data for "
+                       + ("(the category scores, by their Overall weights)."
+                          if _cat == "overall" else "(its metrics, by their weights).")),
+        "how_to_use": [
+            "Below 50% the score is left empty (since 2026-11-15): too few inputs to trust it.",
+            "Filter it >= 75 to keep only scores built on most of their inputs.",
+        ],
+        "vs_peers": "No — a coverage measure.",
+    }
+
 
 
 def get_hint(param_key: str) -> dict | None:
@@ -1668,3 +1944,301 @@ def hint_html(
     if "vs_peers" in sections and h.get("vs_peers"):
         parts.append(f"<div class='fam-h-s'><i>Peers:</i> {e(h['vs_peers'])}</div>")
     return "".join(parts)
+
+# Peer Strength and its type-specific measures (fix list §21, Group H part 2).
+PARAM_HINTS.update(
+{'peer_strength': {'name': 'Peer Strength',
+                   'category': 'Score',
+                   'unit': '',
+                   'what_it_is': '0-100: how strong the company is against its peers on the '
+                                 'measures that fit its type (banks: ROA, ROTCE, pre-tax margin, '
+                                 'tangible equity, tangible book growth; insurers, REITs, brokers: '
+                                 'their own sets; ordinary companies / utilities / telecoms: ROIC, '
+                                 'cash conversion, margin steadiness, debt/EBITDA, interest cover, '
+                                 "Piotroski). The mean of the measures' percentiles within the "
+                                 'industry (>= 8 peers) or the sector / type.',
+                   'how_to_use': ['Peers are listed companies of $2B+; smaller and OTC companies '
+                                  'are placed in that distribution.',
+                                  'Unlike the category scores it uses type-specific measures, so a '
+                                  'bank is judged as a bank.',
+                                  "In the review's test the weaker score went to the riskier stock "
+                                  'in ~70% of pairs.',
+                                  "Empty with too few measures (2/3 of the type's; ordinary 4 of "
+                                  '6), for mortgage REITs and shells.'],
+                   'vs_peers': 'Yes — it IS a peer ranking.'},
+ 'peer_strength_measures': {'name': 'Peer Strength measures',
+                            'category': 'Score',
+                            'unit': '',
+                            'what_it_is': "How many of its type's measures the Peer Strength rests "
+                                          'on (banks / insurers 5, REITs / brokers 4, ordinary '
+                                          'companies 6).',
+                            'how_to_use': ['Filter it high to keep only strengths built on '
+                                           '(almost) all measures.'],
+                            'vs_peers': 'No — a count.'},
+ 'roa_3y': {'name': 'ROA (3y median)',
+            'category': 'Profitability',
+            'unit': '%',
+            'what_it_is': 'Net income / total assets, median of the newest 3 fiscal years. A bank '
+                          'measure.',
+            'how_to_use': ['Banks: ~1% is solid, under 0.5% weak.'],
+            'vs_peers': 'Yes.'},
+ 'rotce_3y': {'name': 'ROTCE (3y median)',
+              'category': 'Profitability',
+              'unit': '%',
+              'what_it_is': 'Net income / tangible book value (equity minus goodwill and '
+                            'intangibles), median of the newest 3 fiscal years. Banks and brokers.',
+              'how_to_use': ['Banks: 12-15%+ is strong. Empty when tangible book is negative.'],
+              'vs_peers': 'Yes.'},
+ 'pretax_margin_3y': {'name': 'Pre-tax margin (3y median)',
+                      'category': 'Profitability',
+                      'unit': '%',
+                      'what_it_is': 'Pre-tax income / revenue, median of the newest 3 fiscal '
+                                    'years. Banks, insurers, brokers.',
+                      'how_to_use': ['Compare within the same type only.'],
+                      'vs_peers': 'Yes.'},
+ 'ebitda_margin_3y': {'name': 'EBITDA margin (3y median)',
+                      'category': 'Profitability',
+                      'unit': '%',
+                      'what_it_is': 'EBITDA / revenue, median of the newest 3 fiscal years. REITs.',
+                      'how_to_use': ['REITs typically 50-70%.'],
+                      'vs_peers': 'Yes.'},
+ 'roe_std': {'name': 'ROE steadiness',
+             'category': 'Profitability',
+             'unit': '%',
+             'what_it_is': 'Standard deviation of the yearly ROE over 5-10 fiscal years, in '
+                           'points. Insurers and brokers. Lower = steadier.',
+             'how_to_use': ['High = earnings swing with markets or catastrophe years.'],
+             'vs_peers': 'Yes.'},
+ 'tangible_equity_ratio': {'name': 'Tangible equity ratio',
+                           'category': 'Balance Sheet',
+                           'unit': '%',
+                           'what_it_is': 'Tangible book value / (total assets - goodwill and '
+                                         'intangibles), latest fiscal year. Banks.',
+                           'how_to_use': ['Under 4% is thin capital (the health check warns); '
+                                          '8-10% is typical.'],
+                           'vs_peers': 'Yes.'},
+ 'debt_to_capital': {'name': 'Debt / capital',
+                     'category': 'Balance Sheet',
+                     'unit': '%',
+                     'what_it_is': 'Total debt / (debt + equity), latest fiscal year. Insurers.',
+                     'how_to_use': ['Above 35% the health check warns.'],
+                     'vs_peers': 'Yes.'},
+ 'pretax_interest_cover': {'name': 'Interest cover (pre-tax)',
+                           'category': 'Balance Sheet',
+                           'unit': 'x',
+                           'what_it_is': '(Pre-tax income + interest) / interest, latest fiscal '
+                                         'year. Insurers. 999 = no interest to pay (only when '
+                                         'profitable).',
+                           'how_to_use': ['Below 2x fails the health check, below 4x warns.'],
+                           'vs_peers': 'Yes.'},
+ 'ebitda_interest_cover': {'name': 'EBITDA / interest',
+                           'category': 'Balance Sheet',
+                           'unit': 'x',
+                           'what_it_is': 'EBITDA / interest, latest fiscal year. REITs. 0 when '
+                                         'EBITDA <= 0; 999 = no interest.',
+                           'how_to_use': ['Below 2x fails the health check, below 3x warns.'],
+                           'vs_peers': 'Yes.'},
+ 'tbv_ps_growth': {'name': 'Tangible book / share growth',
+                   'category': 'Growth',
+                   'unit': '%',
+                   'what_it_is': 'Robust growth (%/yr) of tangible book value per diluted share '
+                                 'over ~6 years. Banks, brokers.',
+                   'how_to_use': ['The compounding of shareholder value a bank is judged on.'],
+                   'vs_peers': 'Yes.'},
+ 'bvps_growth': {'name': 'Book value / share growth',
+                 'category': 'Growth',
+                 'unit': '%',
+                 'what_it_is': 'Robust growth (%/yr) of book value per diluted share over ~6 '
+                               'years. Insurers.',
+                 'how_to_use': ["Book value growth plus dividends is an insurer's real return."],
+                 'vs_peers': 'Yes.'},
+ 'ocf_ps_growth': {'name': 'Operating cash flow / share growth',
+                   'category': 'Growth',
+                   'unit': '%',
+                   'what_it_is': 'Robust growth (%/yr) of operating cash flow per diluted share '
+                                 'over ~6 years. REITs (a steadier stand-in for FFO growth).',
+                   'how_to_use': ['REITs issue shares often, so per-share growth is what counts.'],
+                   'vs_peers': 'Yes.'}}
+)
+
+# Stock category label (fix list §21, Group H part 3).
+PARAM_HINTS.update({
+    "stock_category": {
+        "name": "Stock category",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "What kind of stock it is: growth, income, both, early or neither. "
+                      "Growth = past revenue-per-share growth and next year's revenue forecast "
+                      "average at least 12%/yr. Income = regular dividend yield (specials removed) "
+                      "of at least 2.5%, with a dividend in each of the last 5 calendar years. "
+                      "Early = a loss in the latest year and in most of the last 3, with revenue "
+                      "under $1B; it replaces growth / neither.",
+        "how_to_use": [
+            "Pick 'growth' or 'both' for growth screens, 'income' or 'both' for income screens.",
+            "'early' marks loss-makers whose big forecast comes from a tiny base.",
+            "Empty for funds and shell companies. The lines can be changed in Settings.",
+        ],
+        "vs_peers": "No — fixed lines, the same for every company.",
+    },
+    "revenue_ps_growth": {
+        "name": "Revenue / share growth",
+        "category": "Growth",
+        "unit": "%",
+        "what_it_is": "Robust growth (%/yr) of revenue per diluted share over ~6 years. "
+                      "Growth bought by issuing new shares does not count.",
+        "how_to_use": ["Compare with revenue growth: a big gap means heavy share issuance or buybacks."],
+        "vs_peers": "Yes.",
+    },
+    "category_growth": {
+        "name": "Category growth rate",
+        "category": "Growth",
+        "unit": "%",
+        "what_it_is": "The growth rate the stock category tests: the average of revenue-per-share "
+                      "growth and next year's analyst revenue forecast (either alone when the "
+                      "other is missing). A forecast above the track record counts only as far "
+                      "as last year's actual revenue growth backs it (acquisitions inflate forecasts).",
+        "how_to_use": ["Shows how far a company is from the growth line (12%/yr)."],
+        "vs_peers": "No.",
+    },
+})
+
+# Growth phase labels (fix list §21, Group H part 3b).
+PARAM_HINTS.update({
+    "growth_so_far": {
+        "name": "Growth so far",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "The revenue-per-share track record: long-running (>= 10%/yr over up to 12 "
+                      "years, rising in most years), picked up (the last ~6 years >= 5 points above "
+                      "the long run), moderate, recently listed (< 6 years of price history) or "
+                      "short record (< 8 years of revenue in the data).",
+        "how_to_use": [
+            "Pick 'long-running' for proven compounders; 'picked up' for growth that recently sped up.",
+            "'recently listed' covers young companies, spin-offs and old companies newly listed "
+            "(bankruptcy relistings) — the data can't tell them apart.",
+            "'short record' is mostly foreign filers, which have only ~4 years of statements here.",
+        ],
+        "vs_peers": "No — fixed lines.",
+    },
+    "growth_ahead": {
+        "name": "Growth ahead",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "Next year's analyst revenue forecast against the recent revenue-per-share "
+                      "growth: starting (past < 5%, forecast >= 12%), speeding up, steady, slowing, "
+                      "or slowing sharply (forecast below half the past rate). A change needs 5+ "
+                      "points and 25%+ of the past rate.",
+        "how_to_use": [
+            "Pair with Growth so far: 'long-running' + 'steady' is a proven grower expected to keep going.",
+            "The raw forecast: an acquisition shows as speeding up. Empty without a forecast.",
+        ],
+        "vs_peers": "No — fixed lines.",
+    },
+    "revenue_ps_growth_long": {
+        "name": "Revenue / share growth (long run)",
+        "category": "Growth",
+        "unit": "%",
+        "what_it_is": "Robust growth (%/yr) of revenue per diluted share over up to 12 fiscal years "
+                      "— the number behind Growth so far.",
+        "how_to_use": ["Compare with Revenue / share growth (~6 years) to see a pick-up or a slowdown."],
+        "vs_peers": "Yes.",
+    },
+    "revenue_years": {
+        "name": "Years of revenue",
+        "category": "Growth",
+        "unit": "",
+        "what_it_is": "How many fiscal years (of the newest 12) the long-run revenue-per-share "
+                      "growth rests on.",
+        "how_to_use": ["Under 8 = 'short record'. Filter it high to trust long-run growth more."],
+        "vs_peers": "No — a count.",
+    },
+})
+
+# REIT payout on FFO (fix list §21, Group H part 3c).
+PARAM_HINTS.update({
+    "ffo": {
+        "name": "FFO",
+        "category": "Income",
+        "unit": "$",
+        "what_it_is": "Funds from operations, latest fiscal year, to common: net income + "
+                      "depreciation - gains on sales + write-downs. Equity REITs only. A rough "
+                      "version of the FFO REITs report (within ~1% for Realty Income and Public "
+                      "Storage), in the reporting currency.",
+        "how_to_use": [
+            "Errs high when a gain is filed where it can't be separated (Simon 2025: +37%).",
+            "Joint-venture-heavy REITs (SL Green) read low: their share of JV depreciation is missing.",
+        ],
+        "vs_peers": "No — a size, not a ratio.",
+    },
+    "ffo_payout": {
+        "name": "Payout on FFO",
+        "category": "Income",
+        "unit": "%",
+        "what_it_is": "Common dividends paid / FFO × 100, latest fiscal year — the REIT payout "
+                      "ratio. Net income understates a REIT's earnings by its depreciation, so "
+                      "its payout on net income reads too high (median 105% vs 65% on FFO).",
+        "how_to_use": [
+            "Use this for REITs, not the payout ratio. 60-80% is typical; above ~90% leaves "
+            "little room.",
+            "NULL when FFO is zero or negative. Mortgage REITs: NULL (see Economic return).",
+            "A fiscal year old at worst; a dividend cut since then doesn't show.",
+        ],
+        "vs_peers": "Property types pay out differently: compare within one REIT industry.",
+    },
+})
+
+# Relative strength vs the industry (fix list §21, Group H part 4)
+_RS_IND_HOW = [
+    "Input data: total return (adjusted close) of the stock minus that of its industry's "
+    "benchmark ETF over the same dates.",
+    "Above 0 = beat its own industry. A gold miner up 80% in a gold rally can still be "
+    "below 0 here while its RS Rank is high.",
+    "Check Industry benchmark fit: with \"sector\" the yardstick is the broad sector fund, "
+    "so this partly measures the industry against its sector.",
+    "NULL without the history, or when the price history has a level shift or a broken "
+    "adjusted close in the period.",
+]
+PARAM_HINTS.update({
+    "rs_vs_industry_1y": {
+        "name": "RS vs industry (1y)",
+        "category": "Relative Strength",
+        "unit": "%",
+        "what_it_is": "1-year total return minus the industry benchmark ETF's 1-year total "
+                      "return, in percentage points.",
+        "how_to_use": _RS_IND_HOW,
+        "vs_peers": "Already relative: measured against the industry's ETF.",
+    },
+    "rs_vs_industry_3y": {
+        "name": "RS vs industry (3y)",
+        "category": "Relative Strength",
+        "unit": "%",
+        "what_it_is": "3-year total return minus the industry benchmark ETF's 3-year total "
+                      "return, in percentage points (not annualised).",
+        "how_to_use": _RS_IND_HOW,
+        "vs_peers": "Already relative: measured against the industry's ETF.",
+    },
+    "industry_etf": {
+        "name": "Industry benchmark ETF",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "The ETF the stock's industry is measured against: the sector or theme "
+                      "fund whose daily returns best follow an equal-weighted basket of the "
+                      "industry's 10 largest listed companies over 3 years.",
+        "how_to_use": [
+            "Rebuilt on every full analysis run; it can change when two ETFs are close.",
+        ],
+        "vs_peers": "No — a label.",
+    },
+    "industry_etf_fit": {
+        "name": "Industry benchmark fit",
+        "category": "Classification",
+        "unit": "",
+        "what_it_is": "industry = an industry or theme ETF follows the industry well "
+                      "(correlation 0.70+ and 0.05+ above the sector fund). sector = none "
+                      "did, so the sector SPDR is used (a weak fit).",
+        "how_to_use": [
+            "Filter = industry for the cleanest RS vs industry readings.",
+        ],
+        "vs_peers": "No — a label.",
+    },
+})

@@ -63,6 +63,22 @@ def _revision_pct(current: float, past: float) -> float:
     return (current - past) / abs(past) * 100
 
 
+# The +1y row's year-ago value vs the 0y estimate: further apart than this, either
+# way, is a scale break rather than timing (measured 2026-11-12).
+_CHAIN_MAX_RATIO = 1.5
+# A base this close to zero makes the ratio meaningless — the check is skipped.
+_CHAIN_MIN_ABS = 0.05
+
+
+def _chain_ok(est: pd.DataFrame, avg_col: str, year_ago_col: str) -> bool:
+    """True unless the 0y -> +1y chain is clearly broken (or can't be judged)."""
+    now, then = _at(est, _FY0, avg_col), _at(est, _FY1, year_ago_col)
+    if pd.isna(now) or pd.isna(then) or abs(now) < _CHAIN_MIN_ABS:
+        return True
+    ratio = then / now
+    return 1 / _CHAIN_MAX_RATIO <= ratio <= _CHAIN_MAX_RATIO
+
+
 def compute(symbol: str, est: pd.DataFrame | None, *, forward_pe: float = float("nan")) -> dict:
     """All forward estimate metrics for one symbol.
 
@@ -76,8 +92,15 @@ def compute(symbol: str, est: pd.DataFrame | None, *, forward_pe: float = float(
         return out
 
     # -- forward growth (next fiscal year consensus) ------------------------- #
+    # Revenue only when the +1y row continues the 0y row (fix list §11): its year-
+    # ago value should be the 0y estimate. A scale break (MUFG / SMFG / Mizuho mix
+    # two scales in one row -> +80..120% "growth") is left NULL; small gaps are
+    # fiscal-year timing (AAPL, GE) and kept. NOT applied to EPS: Yahoo's 0y and +1y
+    # EPS rows often use different EPS definitions (reported vs adjusted), so the
+    # chain breaks while the +1y growth itself is consistent (CDNS 8.42 -> 9.85).
     out["forward_eps_growth"] = _pct(_at(est, _FY1, "eps_growth"))
-    out["forward_rev_growth"] = _pct(_at(est, _FY1, "rev_growth"))
+    if _chain_ok(est, "rev_avg", "rev_year_ago"):
+        out["forward_rev_growth"] = _pct(_at(est, _FY1, "rev_growth"))
 
     # -- forward PEG: forward P/E over next-year EPS growth % (guard non-pos) - #
     g = out["forward_eps_growth"]

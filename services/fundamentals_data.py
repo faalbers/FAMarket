@@ -168,11 +168,10 @@ def period_values(frame: pd.DataFrame, param: str, symbol: str) -> tuple[list[fl
         return values, "ratio", f"{param_label(param)} ({unit})"
 
     if param == "diluted_eps":
-        eps = pd.Series(
-            [_num(row.get(param)) for _, row in frame.iterrows()],
-            index=pd.DatetimeIndex(pd.to_datetime(frame["period_end"].values)),
-        )
-        eps = metrics.split_adjust(eps, load_splits(symbol))
+        # Same per-row split-basis test the analysis uses (fix list §10).
+        rows = frame.set_index(pd.DatetimeIndex(pd.to_datetime(frame["period_end"].values)))
+        eps = metrics.eps_current_basis([rows], load_splits(symbol))[0]
+        eps = eps.reindex(rows.index)
         return (
             [float(v) if pd.notna(v) else float("nan") for v in eps.to_numpy()],
             "eps",

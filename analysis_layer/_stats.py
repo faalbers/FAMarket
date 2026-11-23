@@ -17,13 +17,20 @@ import pandas as pd
 
 
 def relative_to_group_median(
-    values: pd.Series, groups: pd.Series, min_n: int
+    values: pd.Series, groups: pd.Series, min_n: int,
+    ref: pd.Series | None = None,
 ) -> pd.Series:
     """(value − group median) / |group median| × 100, per row.
 
+    `ref` (bool, same index) picks the rows the MEDIAN is taken over; every row
+    with a value and a group is still measured against it. peers.py passes the
+    listed-company peer universe (fix list §19): before, OTC lines, preferreds,
+    units and closed-end funds carrying a sector tag set the median (Auto
+    Manufacturers' P/E median 7.9 with them, 18.3 without). None = all rows.
+
     NaN where the value is missing, the group has fewer than `min_n` non-null
-    values, or the median is zero. Rows with a NaN group key (e.g. a fund with no
-    sector) are left NaN — they have no peers to compare against.
+    reference values, or the median is zero. Rows with a NaN group key (e.g. a
+    fund with no sector) are left NaN — they have no peers to compare against.
 
     A median that is merely NEAR zero (rather than exactly zero) overflows the
     ratio to +/-inf, which the zero guard alone doesn't catch — 21 such rows were
@@ -31,16 +38,14 @@ def relative_to_group_median(
     to NaN too: an infinite "percent above the median" is not a usable comparison,
     and it is not valid JSON either, so it would fail on the way to the UI.
     """
-    out = pd.Series(np.nan, index=values.index, dtype="float64")
-    df = pd.DataFrame({"v": pd.to_numeric(values, errors="coerce"), "g": groups})
-    for _, idx in df.dropna(subset=["v", "g"]).groupby("g").groups.items():
-        vals = df.loc[idx, "v"]
-        if len(vals) < min_n:
-            continue
-        med = float(vals.median())
-        if med == 0 or pd.isna(med):
-            continue
-        out.loc[vals.index] = (vals - med) / abs(med) * 100
+    v = pd.to_numeric(values, errors="coerce")
+    in_ref = v.notna() & groups.notna()
+    if ref is not None:
+        in_ref &= ref.reindex(v.index).fillna(False).astype(bool)
+    stats = v[in_ref].groupby(groups[in_ref]).agg(["median", "count"])
+    stats = stats[(stats["count"] >= min_n) & (stats["median"] != 0) & stats["median"].notna()]
+    med = groups.map(stats["median"]).astype("float64")
+    out = (v - med) / med.abs() * 100
     return out.replace([np.inf, -np.inf], np.nan)
 
 
@@ -72,4 +77,54 @@ def percentile_rank_tiered(
         for _, idx in frame.dropna(subset=["v", "g"]).groupby("g").groups.items():
             if len(idx) >= min_n:
                 out.loc[idx] = percentile_rank(s.loc[idx], ascending)
+    return out
+
+
+def percentile_vs_ref(values: pd.Series, ref: pd.Series | None,
+                      ascending: bool = True) -> pd.Series:
+    """0-100 percentile of every value against the REFERENCE rows' values only.
+
+    `ref` (bool, same index) is the fixed ranking universe (fix list §18): live,
+    listed companies one line each, or one share class per fund. Rows outside it
+    (an OTC stock, a second fund class) are still placed in that distribution.
+    Same tie handling as `percentile_rank` (average rank / n), so with `ref` =
+    every row the result is identical; a value beyond the reference range is
+    clipped to 0-100. No reference values -> falls back to all rows. NaN kept.
+    """
+    s = pd.to_numeric(values, errors="coerce")
+    if ref is None:
+        return percentile_rank(s, ascending)
+    r = s[ref.reindex(s.index).fillna(False).astype(bool) & s.notna()]
+    if r.empty:
+        return percentile_rank(s, ascending)
+    sign = 1.0 if ascending else -1.0
+    v = np.sort(r.to_numpy(dtype="float64") * sign)
+    x = s.to_numpy(dtype="float64") * sign
+    lo = np.searchsorted(v, x, side="left")
+    hi = np.searchsorted(v, x, side="right")
+    pct = (lo + (hi - lo + 1) / 2) / len(v) * 100
+    out = pd.Series(np.clip(pct, 0.0, 100.0), index=s.index)
+    return out.where(s.notna())
+
+
+def percentile_vs_ref_tiered(
+    values: pd.Series, tiers: list[pd.Series], ref: pd.Series | None,
+    ascending: bool = True, min_n: int = 5,
+) -> pd.Series:
+    """`percentile_rank_tiered` against the reference rows: each row is ranked in
+    the narrowest tier group holding >= `min_n` REFERENCE values (industry, then
+    sector), else against the whole reference set."""
+    if ref is None:
+        return percentile_rank_tiered(values, tiers, ascending, min_n)
+    s = pd.to_numeric(values, errors="coerce")
+    refb = ref.reindex(s.index).fillna(False).astype(bool)
+    out = percentile_vs_ref(s, refb, ascending)
+    for groups in reversed(tiers):  # broadest first so the narrowest tier wins
+        frame = pd.DataFrame({"v": s, "g": groups, "r": refb})
+        frame = frame.dropna(subset=["v", "g"])
+        n_ref = frame[frame["r"]].groupby("g").size()
+        ok = set(n_ref.index[n_ref >= min_n])
+        for g, idx in frame.groupby("g").groups.items():
+            if g in ok:
+                out.loc[idx] = percentile_vs_ref(s.loc[idx], refb.loc[idx], ascending)
     return out

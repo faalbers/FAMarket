@@ -6,17 +6,17 @@ Four independent estimates plus a type-gated blend and margin of safety:
   * intrinsic_value_graham — √(22.5 · EPS · book value per share). Graham's classic
     conservative floor; deliberately low for asset-light / high-ROE businesses.
   * intrinsic_value_lynch  — EPS · fair P/E, where fair P/E is the EPS trend growth
-    rate (log-linear fit, steadier than endpoint CAGR — Lynch: a fairly priced
+    rate (robust Theil-Sen fit, steadier than endpoint CAGR — Lynch: a fairly priced
     grower trades at P/E ≈ growth%). Growth capped.
   * intrinsic_value_dcf    — simple FCF DCF: project TTM FCF over a horizon at a
-    growth rate that FADES linearly from its trend rate (log-linear fit, bounded
+    growth rate that FADES linearly from its trend rate (robust fit, bounded
     by `DCF_FADE_START_CAP`) down to terminal growth by the final year, Gordon
     terminal value, discount at the real weighted WACC (metrics._wacc: CAPM cost
     of equity blended with after-tax cost of debt) when available, else a CAPM
     cost-of-equity fallback (risk-free from macro.db + beta · equity-risk-
     premium), less net debt, ÷ shares.
-  * intrinsic_value_ddm    — dividend discount model: project the TTM per-share
-    dividend on the same fading growth path over the same horizon, Gordon
+  * intrinsic_value_ddm    — dividend discount model: project the current regular
+    annual dividend (`div_rate`, specials removed) on the same fading growth path over the same horizon, Gordon
     terminal value, discount at the SAME rate as the DCF (same company, same
     risk, whichever cash-flow stream you're discounting). Already per-share, so
     unlike the DCF there's no shares/net-debt conversion. The model banks/insurers/REITs
@@ -32,6 +32,8 @@ Four independent estimates plus a type-gated blend and margin of safety:
     to a single outlier on either side.
   * margin_of_safety       — how far price sits below `fair_value`
     (positive = undervalued), in percent.
+  * fair_value_tail        — fair value above FAIR_VALUE_TAIL_MULTIPLE x the price:
+    a model tail (input the model can't handle), not a bargain.
 
 Reuses metrics' work: EPS and growth come from the already-computed metrics dict
 `m` (so EPS is split-adjusted and consistent). When metrics fell back to yfinance
@@ -75,14 +77,10 @@ def _num(x) -> float:
     return float(x) if x is not None and pd.notna(x) else float("nan")
 
 
-def _shares(quote: pd.Series | None, fin: pd.DataFrame) -> float:
-    if quote is not None and pd.notna(quote.get("sharesOutstanding")):
-        return float(quote["sharesOutstanding"])
-    for col in ("ordinary_shares_number", "share_issued"):
-        v = P.latest(fin, col)
-        if pd.notna(v):
-            return v
-    return float("nan")
+def _shares(m: dict) -> float:
+    """All-class share count — the one `market_cap` and `eps_ttm` used (§2), from
+    the metrics dict (NaN for a company's second line, fix list §17)."""
+    return _num(m.get("_shares"))
 
 
 _MODEL_COLUMN = {
@@ -118,12 +116,13 @@ def compute(
         "intrinsic_value_ddm": float("nan"),
         "fair_value": float("nan"),
         "margin_of_safety": float("nan"),
+        "fair_value_tail": False,
     }
     if m.get("valuation_basis") != "computed":  # currency mismatch -> not comparable
         return out
 
     eps = _num(m.get("eps_ttm"))
-    shares = _shares(quote, fin)
+    shares = _shares(m)
     equity = P.latest(fin, "stockholders_equity")
     bvps = equity / shares if pd.notna(equity) and pd.notna(shares) and shares > 0 else float("nan")
 
@@ -143,6 +142,9 @@ def compute(
         if price and price > 0:
             fair = out["fair_value"]
             out["margin_of_safety"] = (fair - price) / fair * 100
+            # A model tail, not a bargain (fix list §17): distressed price, book far
+            # above market value, a past cash flow that won't recur.
+            out["fair_value_tail"] = bool(fair > settings.FAIR_VALUE_TAIL_MULTIPLE * price)
     return out
 
 
@@ -153,7 +155,7 @@ def _graham(eps: float, bvps: float) -> float:
 
 
 def _lynch(eps: float, m: dict, growth: float = float("nan")) -> float:
-    """EPS × fair P/E, fair P/E = EPS trend growth% (log-linear fit), capped.
+    """EPS × fair P/E, fair P/E = EPS trend growth% (robust fit; EPS gaps filled from net income / shares), capped.
 
     `growth` overrides `m["eps_growth_trend"]` (same percent units) when given
     (not NaN) — the bear/bull scenario growth from `valuation_scenarios.py`.
@@ -239,9 +241,13 @@ def _dcf(
     discount = _cost_of_equity(quote, risk_free, wacc)
     gt = settings.DCF_TERMINAL_GROWTH
 
-    # FCF trend growth (log-linear fit) sets where the fade STARTS; it then
-    # declines to terminal growth over the horizon.
+    # FCF trend growth (robust fit) sets where the fade STARTS; it then declines to
+    # terminal growth over the horizon. An FCF history with a negative year has no
+    # compound growth -> revenue growth at today's FCF margin (fix list §17; before,
+    # 0% growth was assumed).
     g_pct = growth if pd.notna(growth) else _num(m.get("fcf_growth_trend"))
+    if pd.isna(g_pct) and pd.isna(growth):
+        g_pct = _num(m.get("revenue_growth_trend"))
     n = settings.DCF_PROJECTION_YEARS
 
     fcf, pv = fcf0, 0.0
@@ -267,20 +273,22 @@ def _ddm(
     wacc: float = float("nan"),
     growth_floor: float = 0.0,
 ) -> float:
-    """Dividend discount model: project the TTM per-share dividend at a growth
+    """Dividend discount model: project the current regular dividend at a growth
     rate fading to terminal (same shape as the DCF — an H-model), Gordon
     terminal value, discount at the same rate `_cost_of_equity` resolves for
     the DCF. Already per-share (a dividend rate, not a company aggregate) — no
     shares/net-debt conversion needed, unlike the DCF.
     """
-    d0 = _num(m.get("div_rate_ttm"))
+    # Current REGULAR annual rate, specials removed (fix list §9 / §17): the TTM
+    # total let a one-off special (Dillard's $25-30) become a perpetuity.
+    d0 = _num(m.get("div_rate"))
     if pd.isna(d0) or d0 <= 0:
         return float("nan")
 
     discount = _cost_of_equity(quote, risk_free, wacc)
     gt = settings.DCF_TERMINAL_GROWTH
 
-    # Dividend trend growth (log-linear fit) sets where the fade STARTS.
+    # Regular-dividend trend growth (robust fit) sets where the fade STARTS.
     g_pct = growth if pd.notna(growth) else _num(m.get("div_growth_trend"))
     n = settings.DCF_PROJECTION_YEARS
 
