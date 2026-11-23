@@ -940,6 +940,12 @@ Found in round 13 (not in the review): 295 of 1,956 listed companies of $2B+ had
 
 ## Round 20 — Group I: self-built indices (fix list §8, 2026-11-22)
 
+**§8 status — Partly fixed / fixed differently:**
+- **Start rule "≥ 60% coverage" — Skipped**, tested and dropped (see Ruled out below).
+- **Record each series' coverage — Fixed differently:** in a new `index_coverage` table, not in `index_meta` (which is FAPortfolio's contract).
+- **Old share counts — Fixed differently:** industry series back-fill each member's earliest count instead of filling the stored counts; Yahoo's historical counts (the exact fix) are parked.
+- **Check:** Internet Content 2013 +256% → +108% (Google +58%, Meta +105% that year; the review's own query). Google, Meta and Baidu still have no stored share counts for 2012-13 — they are weighted by back-filled counts.
+
 ### The cause
 
 - **Big members without share counts got no weight.** The check still failed: Internet Content 2013 +256% (Google +58%, Meta +105%, ETF SOCL +64%) — GOOGL has no SEC rows before 2015 (the old Google Inc. record), Baidu none.
@@ -968,11 +974,13 @@ Found in round 13 (not in the review): 295 of 1,956 listed companies of $2B+ had
 
 - Back-filled weights drift with each member's share-count change since (no correction without Yahoo's historical counts).
 - Survivorship bias (today's members only) is unchanged.
-- FAPortfolio receives the changed industry levels on the next full run's push (same tables, same columns).
+- FAPortfolio now has the changed industry levels (pushed after the 2026-11-22 run; same tables, same columns).
 
 ## Not yet reviewed
 
-§8 and the open parts of §20 not covered above. Grouped as above.
+Nothing: every section (§1-§25) has an entry above, done in Groups A-I (2026-11-11 to 2026-11-22). Still open, by choice:
+- **Score validation (§18 step 5):** waits for a few months of `score_history.db` (started 2026-11-15).
+- **Parked follow-ups** (triage list): EPS tagged at the wrong scale, Toyota's share basis, Yahoo share counts 4x too high, Japanese banks' SEC revenue, Yahoo's historical share counts for the indices (ROADMAP), and the H-part follow-ups.
 
 ## Known gaps / limitations
 
